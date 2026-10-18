@@ -3,7 +3,9 @@
   "minVersion": "0.8",
   "package": "net.betterthanvillage.mixin.defense",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "IronGolemMixin"
+  ],
   "client": [],
   "injectors": {
     "defaultRequire": 1
