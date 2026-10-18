@@ -25,6 +25,20 @@ public final class Fortifications {
         return false;
     }
 
+    /** Active wall builder test (05 §4.4) (TODO: implement). */
+    public static boolean isWallBuilder(ServerLevel level, Colony colony, Villager v) {
+        return false;
+    }
+
+    /** Wall relocation check when a plot site is accepted (05 §4.3) (TODO: implement). */
+    public static void onPlotAccepted(ServerLevel level, Colony colony, int x0, int z0, int w, int d) {
+    }
+
+    /** Pathfinding: wall gates / colony fence gates walkable (05 §4.6) (TODO: implement). */
+    public static boolean gateWalkable(Mob mob, net.minecraft.world.level.pathfinder.PathfindingContext context, int x, int y, int z) {
+        return false;
+    }
+
     /** A fence gate that is a built wall gate of any colony (05 §4.6). */
     public static boolean isWallGate(ServerLevel level, BlockPos pos) {
         return false;
