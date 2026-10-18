@@ -1,0 +1,12 @@
+{
+  "entity.better_than_village.role.builder": "Builder",
+  "entity.better_than_village.role.guard": "Militia",
+  "entity.better_than_village.role.lumberjack": "Lumberjack",
+  "entity.better_than_village.role.miner": "Miner",
+  "entity.better_than_village.role.farmer": "Farmer",
+  "entity.better_than_village.role.fisherman": "Fisherman",
+  "entity.better_than_village.role.rancher": "Rancher",
+  "entity.better_than_village.role.elder": "Elder",
+  "entity.better_than_village.role.founder": "Founder",
+  "death.attack.better_than_village.golem_attack": "%1$s was punished by %2$s for crimes against the village"
+}

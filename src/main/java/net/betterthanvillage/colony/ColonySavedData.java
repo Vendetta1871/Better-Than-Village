@@ -1,0 +1,215 @@
+package net.betterthanvillage.colony;
+
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.saveddata.SavedData;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Per-dimension persistent state: colonies, player-placed blocks, land plots and land notices.
+ */
+public final class ColonySavedData extends SavedData {
+    public static final String ID = "better_than_village";
+    public static final int RECENT_PLACEMENT_TICKS = 1200;
+
+    private final Map<UUID, Colony> colonies = new LinkedHashMap<>();
+    private final LongOpenHashSet playerBlocks = new LongOpenHashSet();
+    private final Long2ObjectOpenHashMap<LongSet> playerBlocksByChunk = new Long2ObjectOpenHashMap<>();
+    private final Map<Long, UUID> blockOwners = new HashMap<>();
+    public final List<LandPlot> land = new ArrayList<>();
+    public final List<LandWarning> landWarnings = new ArrayList<>();
+    /** Runtime only: recent player placements, pos -> (player, tick). */
+    private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
+
+    public record RecentPlacement(UUID player, long tick) {
+    }
+
+    public static ColonySavedData get(ServerLevel level) {
+        return level.getDataStorage().computeIfAbsent(new SavedData.Factory<>(ColonySavedData::new, ColonySavedData::load, null), ID);
+    }
+
+    // ---------------------------------------------------------------- colonies
+
+    public Collection<Colony> colonies() {
+        return colonies.values();
+    }
+
+    public Colony colony(UUID id) {
+        return id == null ? null : colonies.get(id);
+    }
+
+    public void addColony(Colony colony) {
+        colonies.put(colony.id(), colony);
+        setDirty();
+    }
+
+    // ---------------------------------------------------------------- player blocks
+
+    public void recordPlacement(BlockPos pos, UUID player, long now) {
+        long key = pos.asLong();
+        playerBlocks.add(key);
+        playerBlocksByChunk.computeIfAbsent(ChunkPos.asLong(pos), k -> new LongOpenHashSet()).add(key);
+        if (player != null) {
+            blockOwners.put(key, player);
+            recentPlacements.values().removeIf(r -> now - r.tick() > RECENT_PLACEMENT_TICKS);
+            recentPlacements.put(key, new RecentPlacement(player, now));
+        }
+        setDirty();
+    }
+
+    public void forgetPlacement(BlockPos pos) {
+        long key = pos.asLong();
+        if (playerBlocks.remove(key)) {
+            LongSet set = playerBlocksByChunk.get(ChunkPos.asLong(pos));
+            if (set != null) {
+                set.remove(key);
+                if (set.isEmpty()) {
+                    playerBlocksByChunk.remove(ChunkPos.asLong(pos));
+                }
+            }
+            setDirty();
+        }
+        blockOwners.remove(key);
+        recentPlacements.remove(key);
+    }
+
+    public boolean isPlayerBlock(BlockPos pos) {
+        return playerBlocks.contains(pos.asLong());
+    }
+
+    public UUID blockOwner(BlockPos pos) {
+        return blockOwners.get(pos.asLong());
+    }
+
+    /** Same player placed this block 0..1200 ticks ago. */
+    public boolean isRecentAttackerBlock(BlockPos pos, UUID player, long now) {
+        RecentPlacement r = recentPlacements.get(pos.asLong());
+        return r != null && r.player().equals(player) && now - r.tick() >= 0 && now - r.tick() <= RECENT_PLACEMENT_TICKS;
+    }
+
+    /** True if any player block lies within horizontal Euclidean distance r. */
+    public boolean playerBuildNear(BlockPos pos, int r) {
+        long r2 = (long) r * r;
+        int minCx = (pos.getX() - r) >> 4, maxCx = (pos.getX() + r) >> 4;
+        int minCz = (pos.getZ() - r) >> 4, maxCz = (pos.getZ() + r) >> 4;
+        for (int cx = minCx; cx <= maxCx; cx++) {
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                LongSet set = playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+                if (set == null) continue;
+                for (long key : set) {
+                    long dx = BlockPos.getX(key) - pos.getX();
+                    long dz = BlockPos.getZ(key) - pos.getZ();
+                    if (dx * dx + dz * dz <= r2) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Player blocks within the given chunk (read-only view; may be null). */
+    public LongSet playerBlocksInChunk(int cx, int cz) {
+        return playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+    }
+
+    // ---------------------------------------------------------------- land
+
+    public LandPlot landAt(BlockPos pos) {
+        for (LandPlot plot : land) {
+            if (plot.contains(pos)) {
+                return plot;
+            }
+        }
+        return null;
+    }
+
+    public boolean inLand(BlockPos pos) {
+        return landAt(pos) != null;
+    }
+
+    // ---------------------------------------------------------------- persistence
+
+    @Override
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+        ListTag list = new ListTag();
+        for (Colony colony : colonies.values()) {
+            list.add(colony.save());
+        }
+        tag.put("colonies", list);
+        tag.putLongArray("player_blocks", playerBlocks.toLongArray());
+        ListTag owners = new ListTag();
+        blockOwners.forEach((pos, owner) -> {
+            CompoundTag e = new CompoundTag();
+            e.putLong("pos", pos);
+            e.putString("owner", owner.toString());
+            owners.add(e);
+        });
+        tag.put("block_owners", owners);
+        ListTag landList = new ListTag();
+        land.forEach(p -> landList.add(p.save()));
+        tag.put("land", landList);
+        ListTag warnings = new ListTag();
+        landWarnings.forEach(w -> warnings.add(w.save()));
+        tag.put("land_warnings", warnings);
+        return tag;
+    }
+
+    public static ColonySavedData load(CompoundTag tag, HolderLookup.Provider registries) {
+        ColonySavedData data = new ColonySavedData();
+        ListTag list = tag.getList("colonies", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            Colony colony = Colony.load(list.getCompound(i), BuiltInRegistries.BLOCK.asLookup());
+            data.colonies.put(colony.id(), colony);
+        }
+        for (long key : tag.getLongArray("player_blocks")) {
+            data.playerBlocks.add(key);
+            data.playerBlocksByChunk.computeIfAbsent(ChunkPos.asLong(BlockPos.of(key)), k -> new LongOpenHashSet()).add(key);
+        }
+        ListTag owners = tag.getList("block_owners", Tag.TAG_COMPOUND);
+        for (int i = 0; i < owners.size(); i++) {
+            CompoundTag e = owners.getCompound(i);
+            UUID owner = NbtHelper.uuid(e, "owner");
+            if (owner != null) {
+                data.blockOwners.put(e.getLong("pos"), owner);
+            }
+        }
+        ListTag landList = tag.getList("land", Tag.TAG_COMPOUND);
+        for (int i = 0; i < landList.size(); i++) {
+            LandPlot plot = LandPlot.load(landList.getCompound(i));
+            if (plot != null) {
+                data.land.add(plot);
+            }
+        }
+        ListTag warnings = tag.getList("land_warnings", Tag.TAG_COMPOUND);
+        for (int i = 0; i < warnings.size(); i++) {
+            LandWarning w = LandWarning.load(warnings.getCompound(i));
+            if (w != null) {
+                data.landWarnings.add(w);
+            }
+        }
+        return data;
+    }
+
+    /** Iterator helper used by sanitation passes. */
+    public Iterator<Colony> colonyIterator() {
+        return colonies.values().iterator();
+    }
+}

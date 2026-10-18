@@ -1,0 +1,12 @@
+{
+  "entity.better_than_village.role.builder": "Строитель",
+  "entity.better_than_village.role.guard": "Ополченец",
+  "entity.better_than_village.role.lumberjack": "Лесоруб",
+  "entity.better_than_village.role.miner": "Шахтёр",
+  "entity.better_than_village.role.farmer": "Фермер",
+  "entity.better_than_village.role.fisherman": "Рыбак",
+  "entity.better_than_village.role.rancher": "Животновод",
+  "entity.better_than_village.role.elder": "Старейшина",
+  "entity.better_than_village.role.founder": "Основатель",
+  "death.attack.better_than_village.golem_attack": "%1$s наказан %2$s за преступления против деревни"
+}
