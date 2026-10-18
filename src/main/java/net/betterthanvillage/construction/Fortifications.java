@@ -24,4 +24,9 @@ public final class Fortifications {
     public static boolean isWallBlock(ServerLevel level, BlockPos pos) {
         return false;
     }
+
+    /** A fence gate that is a built wall gate of any colony (05 §4.6). */
+    public static boolean isWallGate(ServerLevel level, BlockPos pos) {
+        return false;
+    }
 }

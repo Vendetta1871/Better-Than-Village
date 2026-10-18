@@ -36,4 +36,12 @@ public final class ThreatManager {
 
     public static void clearCaches() {
     }
+
+    /** A living attacker hurt a colony villager/golem: alarm and mobilize (02 §4 reportAttack). */
+    public static void reportAttack(ServerLevel level, Colony colony, LivingEntity attacker) {
+    }
+
+    /** Adds hostility points against a player (theft, griefing, trespass; 02 §4). */
+    public static void addPlayerHostility(ServerLevel level, Colony colony, net.minecraft.world.entity.player.Player player, int points) {
+    }
 }

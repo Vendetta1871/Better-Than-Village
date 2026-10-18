@@ -28,6 +28,7 @@ neoForge {
         }
         configureEach {
             logLevel = org.slf4j.event.Level.INFO
+            jvmArgument '-Xmx2G'
         }
     }
 

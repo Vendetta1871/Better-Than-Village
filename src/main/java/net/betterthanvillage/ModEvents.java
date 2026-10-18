@@ -28,6 +28,11 @@ public final class ModEvents {
         bus.addListener(ModEvents::onRightClickBlock);
         bus.addListener(ModEvents::onRegisterCommands);
         bus.addListener(ModEvents::onServerStopped);
+        net.betterthanvillage.defense.DefenseEvents.register(bus);
+        net.betterthanvillage.gather.GatherEvents.register(bus);
+        net.betterthanvillage.food.FoodEvents.register(bus);
+        net.betterthanvillage.construction.ConstructionEvents.register(bus);
+        net.betterthanvillage.society.SocietyEvents.register(bus);
     }
 
     private static void onLevelTick(LevelTickEvent.Post event) {
