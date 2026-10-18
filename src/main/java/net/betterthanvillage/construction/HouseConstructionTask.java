@@ -466,7 +466,7 @@ public final class HouseConstructionTask extends ColonyTask {
     /** Deposits non-accepted stacks, then withdraws the best accepted stack into the main hand (05 §2.6). */
     static boolean withdrawFor(ServerLevel level, Colony colony, Villager v, BlockPos pos, BlockState target,
                                Predicate<ItemStack> p, Predicate<ItemStack> pp, int logs, int stone) {
-        Container inv = v.getInventory();
+        net.minecraft.world.SimpleContainer inv = v.getInventory();
         boolean keptFood = false;
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);

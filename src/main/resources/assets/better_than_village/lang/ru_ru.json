@@ -8,5 +8,15 @@
   "entity.better_than_village.role.rancher": "Животновод",
   "entity.better_than_village.role.elder": "Старейшина",
   "entity.better_than_village.role.founder": "Основатель",
-  "death.attack.better_than_village.golem_attack": "%1$s наказан %2$s за преступления против деревни"
+  "death.attack.better_than_village.golem_attack": "%1$s наказан %2$s за преступления против деревни",
+  "command.better_than_village.repair.none": "Рядом нет колонии.",
+  "command.better_than_village.repair.done": "Аудит ремонта: новых записей %s.",
+  "command.better_than_village.house.missing": "Шаблон тестового дома не найден. Проверьте версию мода.",
+  "command.better_than_village.house.bounds": "Дом выходит за высоту мира или его границу.",
+  "command.better_than_village.house.unloaded": "Вся площадка должна быть загружена. Подойдите ближе.",
+  "command.better_than_village.house.entity": "Внутри площадки есть игрок или животное. Освободите её и повторите команду.",
+  "command.better_than_village.house.overlap": "Площадка пересекает существующий дом или заказ строителя.",
+  "command.better_than_village.house.occupied": "Площадка занята в %1$s. Нужен свободный участок %2$s×%3$s; постройки не перезаписываются.",
+  "command.better_than_village.house.failed": "Не удалось поставить дом; прежние блоки возвращены.",
+  "command.better_than_village.house.done": "Здание готово: %1$s. Участок: %2$s; размер %3$s×%4$s; фасад смотрит на север."
 }

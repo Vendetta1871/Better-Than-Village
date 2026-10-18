@@ -8,5 +8,15 @@
   "entity.better_than_village.role.rancher": "Rancher",
   "entity.better_than_village.role.elder": "Elder",
   "entity.better_than_village.role.founder": "Founder",
-  "death.attack.better_than_village.golem_attack": "%1$s was punished by %2$s for crimes against the village"
+  "death.attack.better_than_village.golem_attack": "%1$s was punished by %2$s for crimes against the village",
+  "command.better_than_village.repair.none": "No colony nearby.",
+  "command.better_than_village.repair.done": "Repair audit: %s new repair entries.",
+  "command.better_than_village.house.missing": "Test house template not found. Check the mod version.",
+  "command.better_than_village.house.bounds": "The house would exceed the world height or border.",
+  "command.better_than_village.house.unloaded": "The whole site must be loaded. Move closer.",
+  "command.better_than_village.house.entity": "There is a player or an animal inside the site. Clear it and repeat the command.",
+  "command.better_than_village.house.overlap": "The site overlaps an existing house or builder order.",
+  "command.better_than_village.house.occupied": "The site is occupied at %1$s. A free %2$s×%3$s site is needed; buildings are not overwritten.",
+  "command.better_than_village.house.failed": "Could not place the house; previous blocks were restored.",
+  "command.better_than_village.house.done": "Building ready: %1$s. Site: %2$s; size %3$s×%4$s; the facade faces north."
 }
