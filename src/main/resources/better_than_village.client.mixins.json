@@ -4,7 +4,11 @@
   "package": "net.betterthanvillage.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
-  "client": [],
+  "client": [
+    "EntityRendererMixin",
+    "FishingHookClientMixin",
+    "FishingHookRendererMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
