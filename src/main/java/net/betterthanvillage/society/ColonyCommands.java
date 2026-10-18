@@ -544,7 +544,6 @@ public final class ColonyCommands {
         }
         long now = level.getGameTime();
         c.simulatedUntil = now - days * 24000L;
-        c.lastMemberTick = Colony.NEVER;
         OfflineSim.bookkeeping(level, c);
         ok(ctx.getSource(), Msg.command("film.develop.done", days, c.catchupHouses, OfflineSim.summary(level, c)));
         return 1;
