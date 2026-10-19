@@ -130,6 +130,10 @@ public final class StoragePlacer {
             if (!ground.isFaceSturdy(level, below, Direction.UP)) return false;
             if (ground.is(Blocks.DIRT_PATH) || ground.is(Blocks.FARMLAND) || ground.getBlock() instanceof ChestBlock) return false;
         }
+        // The neighbourhood scan below must not load chunks (the box spans at most 2x2 chunks).
+        int minX = pos.getX() - 2, maxX = east.getX() + 2, minZ = pos.getZ() - 2, maxZ = pos.getZ() + 2;
+        if (!level.hasChunk(minX >> 4, minZ >> 4) || !level.hasChunk(maxX >> 4, minZ >> 4)
+                || !level.hasChunk(minX >> 4, maxZ >> 4) || !level.hasChunk(maxX >> 4, maxZ >> 4)) return false;
         AABB cells = new AABB(pos.getX(), pos.getY(), pos.getZ(), east.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
         if (!level.getEntitiesOfClass(LivingEntity.class, cells).isEmpty()) return false;
         for (BlockPos p : BlockPos.betweenClosed(pos.offset(-2, -1, -2), east.offset(2, 2, 2))) {

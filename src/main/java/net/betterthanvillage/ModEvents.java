@@ -7,10 +7,13 @@ import net.betterthanvillage.society.ColonyCommands;
 import net.betterthanvillage.society.Deeds;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
@@ -27,6 +30,7 @@ public final class ModEvents {
         bus.addListener(ModEvents::onServerTick);
         bus.addListener(ModEvents::onChunkLoad);
         bus.addListener(ModEvents::onRightClickBlock);
+        bus.addListener(ModEvents::onEntityLeave);
         bus.addListener(ModEvents::onRegisterCommands);
         bus.addListener(ModEvents::onServerStopped);
         net.betterthanvillage.defense.DefenseEvents.register(bus);
@@ -64,6 +68,16 @@ public final class ModEvents {
         }
         if (level.getBlockState(event.getPos()).is(Blocks.BELL)) {
             ColonyManager.bellAlarm(level, event.getPos());
+        }
+    }
+
+    /** A villager removed for good (killed, converted, discarded) loses its colony role entries; unloads keep them. */
+    private static void onEntityLeave(EntityLeaveLevelEvent event) {
+        if (event.getLevel() instanceof ServerLevel level && event.getEntity() instanceof Villager v) {
+            Entity.RemovalReason reason = v.getRemovalReason();
+            if (reason != null && reason.shouldDestroy()) {
+                ColonyManager.forgetVillager(level, v.getUUID());
+            }
         }
     }
 

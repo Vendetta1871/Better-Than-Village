@@ -453,6 +453,7 @@ public final class Colony implements VillageCapability {
         c.skippedRoadSegments = Math.max(0, tag.getInt("skipped_road_segments"));
         c.mineRoute.addAll(NbtHelper.unpackPositions(tag.getLongArray("mine_route")));
         c.mineDirection = Math.floorMod(tag.getInt("mine_direction"), 4);
+        // Golem cooldown counts server ticks (MinecraftServer#getTickCount), which restart at 0 with the server.
         c.nextGolemTick = 0;
         c.nextEconomyTick = tag.getLong("next_economy_tick");
         c.economyCursor = Math.max(0, tag.getInt("economy_cursor"));
@@ -513,11 +514,14 @@ public final class Colony implements VillageCapability {
             }
         }
         c.autoPairManaged();
+        // Runtime storage list starts with the managed storages so stock is visible before the first scan finishes.
+        c.storages.addAll(c.managedStorages.keySet());
         ListTag roleList = tag.getList("roles", Tag.TAG_COMPOUND);
         for (int i = 0; i < roleList.size(); i++) {
             CompoundTag e = roleList.getCompound(i);
             UUID villager = NbtHelper.uuid(e, "villager");
-            c.roles.put(villager != null ? villager : UUID.randomUUID(), new RoleEntry(ColonyRole.byName(e.getString("role")),
+            if (villager == null) continue;
+            c.roles.put(villager, new RoleEntry(ColonyRole.byName(e.getString("role")),
                     e.contains("changed_at") ? e.getLong("changed_at") : ROLE_CHANGED_DEFAULT));
         }
         ListTag jobList = tag.getList("construction_jobs", Tag.TAG_COMPOUND);

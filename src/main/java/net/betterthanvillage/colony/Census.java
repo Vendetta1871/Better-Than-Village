@@ -328,6 +328,8 @@ public final class Census {
                 Direction chosen = StoragePlacer.chooseFacing(level, colony, left);
                 if (chosen != null) facing = chosen;
             }
+            // An x-axis pair can only face north or south; leave it alone rather than write a broken pair.
+            if (facing != Direction.NORTH && facing != Direction.SOUTH) continue;
             ChestType expLeft = facing == Direction.NORTH ? ChestType.LEFT : ChestType.RIGHT;
             ChestType expRight = facing == Direction.NORTH ? ChestType.RIGHT : ChestType.LEFT;
             if (ls.getValue(ChestBlock.FACING) != facing || rs.getValue(ChestBlock.FACING) != facing
@@ -340,7 +342,7 @@ public final class Census {
     private static boolean blocked(ServerLevel level, BlockPos left, Direction side) {
         for (BlockPos cell : new BlockPos[]{left, left.east()}) {
             BlockPos n = cell.relative(side);
-            if (!level.getBlockState(n).getCollisionShape(level, n).isEmpty()) return true;
+            if (!level.isLoaded(n) || !level.getBlockState(n).getCollisionShape(level, n).isEmpty()) return true;
         }
         return false;
     }
@@ -389,6 +391,7 @@ public final class Census {
     private static boolean adjacentToCollision(ServerLevel level, BlockPos pos) {
         for (Direction d : Direction.values()) {
             BlockPos n = pos.relative(d);
+            if (!level.isLoaded(n)) continue;
             if (!level.getBlockState(n).getCollisionShape(level, n).isEmpty()) return true;
         }
         return false;

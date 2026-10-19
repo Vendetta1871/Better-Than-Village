@@ -127,6 +127,7 @@ public final class ColonyManager {
         colony.lastThreatTick = Colony.NEVER;
         colony.simulatedUntil = 0;
         colony.initialDevelopment = true;
+        expandFromStructure(colony, structureBox);
         data.addColony(colony);
         BetterThanVillage.LOGGER.info("Registered generated vanilla village at {}", bell);
     }
@@ -152,6 +153,27 @@ public final class ColonyManager {
         Colony colony = colonyAt(level, bell);
         if (colony != null && colony.core().distSqr(bell) <= 1024) {
             colony.lastThreatTick = level.getGameTime();
+            markDirty(level);
+        }
+    }
+
+    /** Drops colony references to a villager that left the world for good (death, conversion, discard). */
+    public static void forgetVillager(ServerLevel level, UUID id) {
+        boolean changed = false;
+        for (Colony colony : data(level).colonies()) {
+            changed |= colony.roles.remove(id) != null;
+            if (id.equals(colony.elder)) {
+                colony.elder = null;
+                changed = true;
+            }
+            for (ConstructionJob job : colony.jobs) {
+                if (id.equals(job.builder)) {
+                    job.releaseBuilder();
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
             markDirty(level);
         }
     }
@@ -214,7 +236,10 @@ public final class ColonyManager {
         if (!entityTicking && !playerNear) {
             return;
         }
-        if (colony.lastPopulation == 0 && entityTicking && colony.lastCensusTick != now) {
+        // Census needs real stock numbers (first storage scan done); an empty colony re-checks every 20 ticks, not every tick.
+        boolean scanned = colony.lastScanFinish != Colony.NEVER;
+        if (colony.lastPopulation == 0 && entityTicking && scanned
+                && (colony.lastCensusTick == Colony.NEVER || now - colony.lastCensusTick >= 20)) {
             Census.run(level, colony);
         }
         OfflineSim.bookkeeping(level, colony);
@@ -236,7 +261,7 @@ public final class ColonyManager {
         if (Math.floorMod(phase, 10L) == 0 && ThreatManager.threatNear(level, colony)) {
             colony.lastThreatTick = now;
         }
-        if (colony.lastCensusTick == Colony.NEVER || now - colony.lastCensusTick >= 100) {
+        if (scanned && (colony.lastCensusTick == Colony.NEVER || now - colony.lastCensusTick >= 100)) {
             Census.run(level, colony);
             Census.afterCensus(level, colony);
         }

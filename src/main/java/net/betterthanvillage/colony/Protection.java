@@ -76,7 +76,7 @@ public final class Protection {
     /** Sets both halves of a double chest to SINGLE (flags 18). */
     public static void splitChest(ServerLevel level, BlockPos pos) {
         BlockPos other = otherChestHalf(level, pos);
-        if (other == null) {
+        if (other == null || !level.isLoaded(other)) {
             return;
         }
         SafeEditScope.run(() -> {
