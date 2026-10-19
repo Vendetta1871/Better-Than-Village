@@ -56,6 +56,8 @@ public final class ColonyConfig {
 
     public static final class Debug {
         public boolean render_build_boxes = false;
+        /** Logs every villager teleport with the code path that caused it. */
+        public boolean log_teleports = false;
     }
 
     public static final class Work {
@@ -63,6 +65,8 @@ public final class ColonyConfig {
         public int placement_ticks = 10;
         public int farming_ticks = 8;
         public int deep_mining_ticks = 1200;
+        /** Lets miners teleport to the end of a long mine route instead of walking it. */
+        public boolean miner_route_teleport = false;
     }
 
     public static ColonyConfig get() {

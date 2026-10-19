@@ -7,6 +7,7 @@ import net.betterthanvillage.ai.work.SafeEdit;
 import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
+import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
@@ -47,6 +48,8 @@ import java.util.Set;
 
 /** Miner (03 §3): shaft route, ore veins, torches, bridging, return/outfitting and deep expeditions. */
 public final class MinerTask extends ColonyTask {
+    /** Walking pace along the mine route (1.05 looked like a sprint next to other villagers). */
+    private static final double ROUTE_SPEED = 0.7;
     public static final String EMERGENCY_TAG = "btv_emergency_return";
     public static final String STATUS_ROUTE_ACCESS = "восстановление доступа к шахтному маршруту";
     public static final String STATUS_STORAGE_ACCESS = "восстановление доступа к складу шахтёра";
@@ -783,11 +786,11 @@ public final class MinerTask extends ColonyTask {
                 }
             }
         }
-        Nav.approach(level, v, target, 1.05);
+        Nav.approach(level, v, target, ROUTE_SPEED);
         if (phase == Phase.MINING && now - moveLastImprove > 400) {
             moveLastImprove = now;
-            if (routeWalkIndex == 0 && blockTarget == null && lootCount(v) == 0) {
-                teleportToRouteEnd(level, colony, v);
+            if (routeWalkIndex == 0 && blockTarget == null && lootCount(v) == 0 && teleportToRouteEnd(level, colony, v)) {
+                // Shortcut taken.
             } else {
                 if (blockTarget != null) oreBlacklist.put(blockTarget, now + 1200);
                 if (oreTarget != null) oreBlacklist.put(oreTarget, now + 6000);
@@ -809,6 +812,7 @@ public final class MinerTask extends ColonyTask {
     }
 
     private boolean teleportToRouteEnd(ServerLevel level, Colony colony, Villager v) {
+        if (!ColonyConfig.get().work.miner_route_teleport) return false;
         List<BlockPos> route = colony.mineRoute;
         for (int i = route.size() - 1; i >= Math.max(0, route.size() - 8); i--) {
             BlockPos p = route.get(i);

@@ -101,6 +101,12 @@ public final class AntiStuck {
             }
         }
         BlockPos target = Nav.currentTarget(v, now);
+        // A villager that stands still on purpose (fishing at the shore, working a block face) is not
+        // stuck: its target memory may be a few blocks away while it has no movement request at all.
+        if (target == null && v.getNavigation().isDone()) {
+            STATES.remove(v);
+            return;
+        }
         if (target == null) {
             for (MemoryModuleType<BlockPos> mem : ModRegistries.targetMemories()) {
                 Optional<BlockPos> value = v.getBrain().getMemory(mem);

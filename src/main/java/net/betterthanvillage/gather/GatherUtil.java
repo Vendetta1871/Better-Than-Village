@@ -1,10 +1,12 @@
 package net.betterthanvillage.gather;
 
+import com.mojang.logging.LogUtils;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.Protection;
+import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.Damage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -18,9 +20,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.slf4j.Logger;
 
 /** Shared block predicates and helpers of the gather subsystem (03 §2-§3). */
 public final class GatherUtil {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private GatherUtil() {
     }
 
@@ -61,6 +66,13 @@ public final class GatherUtil {
 
     /** Teleports to the bottom centre of a cell: stop navigation, zero velocity, reset fall distance. */
     public static void teleport(LivingEntity e, BlockPos pos) {
+        if (ColonyConfig.get().debug.log_teleports) {
+            // The direct caller names the reason (pit escape, emergency, route shortcut, ...).
+            String caller = StackWalker.getInstance().walk(fr -> fr.skip(1).limit(2)
+                    .map(f -> f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1) + "." + f.getMethodName() + ":" + f.getLineNumber())
+                    .reduce((a, b) -> a + " <- " + b).orElse("?"));
+            LOGGER.info("[btv teleport] {} {} -> {} via {}", e.getName().getString(), e.blockPosition().toShortString(), pos.toShortString(), caller);
+        }
         if (e instanceof net.minecraft.world.entity.Mob mob) {
             mob.getNavigation().stop();
         }
