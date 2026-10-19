@@ -3,7 +3,6 @@ package net.betterthanvillage.mixin;
 import com.google.common.collect.ImmutableList;
 import net.betterthanvillage.ai.ColonyBrain;
 import net.betterthanvillage.ai.VillagerController;
-import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.registry.ModRegistries;
 import net.betterthanvillage.society.Trading;
 import net.minecraft.server.level.ServerLevel;
@@ -71,9 +70,7 @@ public abstract class VillagerMixin {
         if (hand != InteractionHand.MAIN_HAND || self.isBaby() || !(self.level() instanceof ServerLevel level)) {
             return;
         }
-        if (ColonyManager.colonyAt(level, self.blockPosition()) == null) {
-            return;
-        }
+        // Routed by membership (Trading.interact); non-members only lose stale colony-built offers.
         InteractionResult result = Trading.interact(level, self, player, hand);
         if (result != null) {
             cir.setReturnValue(result);

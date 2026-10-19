@@ -42,6 +42,11 @@ public final class OfflineSim {
     private static final int STOCK_CAP = 4096;
     private static final String CHEST_RETRY = "society.catchupChestRetry";
     private static final String BIRTH_RETRY = "society.catchupBirthRetry";
+    private static final String DEFER_SINCE = "society.deferSince";
+    /** A ticking colony defers catch-up for unloaded storages at most this long. */
+    private static final long DEFER_DEADLINE = 600;
+    /** Initial development of a generated village (capped by offline_max_days). */
+    private static final long INITIAL_TICKS = 3 * 24000L;
 
     private OfflineSim() {
     }
@@ -73,14 +78,24 @@ public final class OfflineSim {
         if (!(ticking || initial || !set || now <= old || now - old >= MIN_GAP || deferred != 0)) return;
         colony.simulatedUntil = now;
         if (!set || now <= old || !(now - old >= MIN_GAP || initial || deferred != 0) || !enabled(level)) return;
-        long elapsed = (now - old < MIN_GAP && !initial && ticking) ? 0 : now - old;
+        // A generated village gets a fixed initial development, independent of the world's age.
+        long elapsed = initial ? INITIAL_TICKS : (now - old < MIN_GAP && ticking) ? 0 : now - old;
         long ticks = Math.min(elapsed + deferred, ColonyConfig.get().village.offline_max_days * 24000L);
         if (ticks <= 0) return;
-        if (!initial && shouldDefer(level, colony, ticks)) {
+        boolean defer = !initial && shouldDefer(level, colony, ticks);
+        if (defer && ticking) {
+            // Deadline: a ticking colony stops waiting for unloaded storages and simulates with what is loaded.
+            long since = (Long) colony.runtime.computeIfAbsent(DEFER_SINCE, k -> now);
+            defer = now - since < DEFER_DEADLINE;
+        } else if (!ticking) {
+            colony.runtime.remove(DEFER_SINCE);
+        }
+        if (defer) {
             colony.deferredCatchupTicks = Math.max(0, Math.min(MAX_DEFERRED, ticks));
             ColonyManager.markDirty(level);
             return;
         }
+        colony.runtime.remove(DEFER_SINCE);
         simulate(level, colony, ticks);
     }
 

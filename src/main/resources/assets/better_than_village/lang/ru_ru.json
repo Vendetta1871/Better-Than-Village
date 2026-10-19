@@ -27,6 +27,7 @@
   "message.better_than_village.deed.already_used": "Этот листок уже использован. Повторный заказ невозможен.",
   "message.better_than_village.deed.accepted": "Строитель принял заказ. Дом: %s",
   "message.better_than_village.deed.rejected": "Заказ пока не принят: нужно завершить дорогу/предыдущий заказ или найти свободный участок. Листок не использован.",
+  "message.better_than_village.theft.warning": "Жители видели, как вы взяли их припасы. В следующий раз придёт стража.",
   "commands.better_than_village.status.none": "Better Than Village: рядом нет сгенерированной ванильной деревни.",
   "commands.better_than_village.status.main": "Better Than Village: ядро=%s, радиус=%s, население=%s/%s кроватей, еда=%s, еда у жителей=%s, брёвна=%s, камень=%s, железо=%s, алмазы=%s, склады=%s, роли=%s, задания=%s, работают=%s, после угрозы=%s",
   "commands.better_than_village.status.workers": "Работники: [%s]",

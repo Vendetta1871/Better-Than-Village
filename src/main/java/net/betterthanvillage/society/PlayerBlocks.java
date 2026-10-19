@@ -6,6 +6,7 @@ import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.Protection;
+import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.Damage;
 import net.betterthanvillage.defense.ThreatManager;
 import net.minecraft.core.BlockPos;
@@ -14,6 +15,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.BedBlock;
@@ -27,7 +29,10 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Player-block registry recording, griefing on player breaks, storage protection and theft detection (06 §4). */
@@ -41,15 +46,39 @@ public final class PlayerBlocks {
         BlockState state = level.getBlockState(pos);
         LandNotices.onPlacement(level, player, pos, state);
         ColonySavedData data = ColonyManager.data(level);
-        long now = level.getGameTime();
-        data.recordPlacement(pos.immutable(), player.getUUID(), now);
-        if (state.getBlock() instanceof DoorBlock) {
-            data.recordPlacement(pos.above(), player.getUUID(), now);
-        } else if (state.getBlock() instanceof BedBlock) {
-            data.recordPlacement(pos.relative(state.getValue(BedBlock.FACING)), player.getUUID(), now);
+        if (nearAnyColony(level, pos)) {
+            long now = level.getGameTime();
+            data.recordPlacement(pos.immutable(), player.getUUID(), now);
+            if (state.getBlock() instanceof DoorBlock) {
+                data.recordPlacement(pos.above(), player.getUUID(), now);
+            } else if (state.getBlock() instanceof BedBlock) {
+                data.recordPlacement(pos.relative(state.getValue(BedBlock.FACING)), player.getUUID(), now);
+            }
         }
         splitFromColonyChest(level, pos, state);
-        Protection.sanitizeStorages(level);
+        if (level.getBlockEntity(pos) instanceof Container || nextToColonyStorage(level, pos)) {
+            Protection.sanitizeStorages(level);
+        }
+    }
+
+    /**
+     * Player blocks matter only where colonies can reach: the largest territory plus the 104-block player-build
+     * check of colonization sites (founded up to {@link Colonization#MAX_SITE_DISTANCE} from a core).
+     */
+    private static boolean nearAnyColony(ServerLevel level, BlockPos pos) {
+        long range = Math.max(ColonyConfig.get().village.expansion_radius_max, Colonization.MAX_SITE_DISTANCE) + 104L;
+        for (Colony colony : ColonyManager.data(level).colonies()) {
+            long dx = pos.getX() - colony.core().getX(), dz = pos.getZ() - colony.core().getZ();
+            if (dx * dx + dz * dz <= range * range) return true;
+        }
+        return false;
+    }
+
+    private static boolean nextToColonyStorage(ServerLevel level, BlockPos pos) {
+        for (Direction d : Direction.values()) {
+            if (Deeds.isColonyStorage(level, pos.relative(d))) return true;
+        }
+        return false;
     }
 
     /** A player chest that joined a colony chest is split back into two single chests. */
@@ -74,6 +103,10 @@ public final class PlayerBlocks {
         /** Other half of a broken door or bed and its block. */
         BlockPos companion;
         Block companionBlock;
+        /** Colony whose storage is being broken, its item count and whether it holds valuables. */
+        Colony storageColony;
+        int storageItems;
+        boolean storageValuable;
     }
 
     /** The other half of a door or bed, or null. */
@@ -93,7 +126,14 @@ public final class PlayerBlocks {
         BreakState s = new BreakState();
         s.companion = companionHalf(pos, state);
         s.companionBlock = state.getBlock();
-        BreakState companionOnly = s.companion == null ? null : s;
+        if (level.getBlockEntity(pos) instanceof Container c && (s.storageColony = Theft.storageOwner(level, pos)) != null) {
+            for (int i = 0; i < c.getContainerSize(); i++) {
+                ItemStack item = c.getItem(i);
+                s.storageItems += item.getCount();
+                s.storageValuable |= !item.isEmpty() && Theft.valuable(item);
+            }
+        }
+        BreakState companionOnly = s.companion == null && s.storageColony == null ? null : s;
         Colony colony = ColonyManager.colonyAt(level, pos);
         if (colony == null || !Damage.isColonyOwned(level, colony, pos)) return companionOnly;
         for (ConstructionJob job : colony.jobs) {
@@ -117,6 +157,10 @@ public final class PlayerBlocks {
         if (s.companion != null && !level.getBlockState(s.companion).is(s.companionBlock)) {
             data.forgetPlacement(s.companion);
         }
+        if (s.storageColony != null) {
+            // A broken storage drops its contents: theft of the contents plus the chest, if noticed.
+            Theft.taken(level, s.storageColony, player, s.storageItems + 1, s.storageValuable);
+        }
         Colony colony = s.colony;
         if (colony == null) return;
         if (s.ownedByPlayer) {
@@ -125,19 +169,9 @@ public final class PlayerBlocks {
             s.plot.status = JobStatus.COMPLETE;
             s.plot.completedOnce = true;
         } else {
+            // The repair queue restores the block; the plot itself stays complete.
             Damage.recordRepairs(level, colony, s.snapshot);
-            if (s.plot != null && s.plot.status == JobStatus.COMPLETE) {
-                if (s.plot.owner != null && s.plot.countsAsCompleted()) {
-                    s.plot.builder = null;
-                } else {
-                    s.plot.status = JobStatus.QUEUED;
-                    s.plot.builder = null;
-                    s.plot.nextBlock = 0;
-                    s.plot.retryAfter = 0;
-                    s.plot.lastProgressTick = level.getGameTime();
-                }
-            }
-            if (!player.isCreative() && !player.isSpectator()) {
+            if (s.storageColony == null && !player.isCreative() && !player.isSpectator()) {
                 ThreatManager.addPlayerHostility(level, colony, player, 4);
             }
         }
@@ -146,10 +180,13 @@ public final class PlayerBlocks {
 
     // ---------------------------------------------------------------- theft (02 §2.5 onClickSlot)
 
-    /** Container snapshot captured before a click. */
+    /** One open colony container (per menu): net balance of what the player put in (+) or took out (-). */
     public static final class TheftState {
         UUID colony;
+        AbstractContainerMenu menu;
         Container container;
+        final Map<Key, Integer> balance = new HashMap<>();
+        /** Snapshot before the current click. */
         Map<Key, Integer> before;
     }
 
@@ -166,11 +203,25 @@ public final class PlayerBlocks {
         }
     }
 
-    public static TheftState beforeClick(ServerLevel level, Player player) {
+    /** Before a container click: keeps the session of the open menu (or opens one) and snapshots the container. */
+    public static TheftState beforeClick(ServerLevel level, Player player, TheftState session) {
         if (!(player.containerMenu instanceof ChestMenu menu)) return null;
+        if (session == null || session.menu != menu) {
+            session = openSession(level, menu);
+        }
+        if (session != null) {
+            session.before = snapshot(session.container);
+        }
+        return session;
+    }
+
+    /** Session for a chest menu showing a colony storage (managed or scanned, either half of a double chest). */
+    private static TheftState openSession(ServerLevel level, ChestMenu menu) {
         Container container = menu.getContainer();
         for (Colony colony : ColonyManager.data(level).colonies()) {
-            for (BlockPos pos : colony.managedStorages.keySet()) {
+            Set<BlockPos> positions = new LinkedHashSet<>(colony.storages);
+            positions.addAll(colony.managedStorages.keySet());
+            for (BlockPos pos : positions) {
                 if (!level.isLoaded(pos)) continue;
                 BlockEntity be = level.getBlockEntity(pos);
                 if (!(be instanceof Container c)) continue;
@@ -178,8 +229,8 @@ public final class PlayerBlocks {
                 if ((c == container || (container instanceof CompoundContainer cc && cc.contains(c))) && !Protection.isProtectedContainer(level, pos)) {
                     TheftState s = new TheftState();
                     s.colony = colony.id();
+                    s.menu = menu;
                     s.container = container;
-                    s.before = snapshot(container);
                     return s;
                 }
             }
@@ -187,18 +238,31 @@ public final class PlayerBlocks {
         return null;
     }
 
+    /** After a click: only items taken beyond what the player deposited in this session count as theft. */
     public static void afterClick(ServerLevel level, Player player, TheftState s) {
-        if (s == null) return;
+        if (s == null || s.before == null) return;
+        Map<Key, Integer> before = s.before;
+        s.before = null;
         Colony colony = ColonyManager.data(level).colony(s.colony);
         if (colony == null) return;
         Map<Key, Integer> after = snapshot(s.container);
-        int taken = 0;
-        for (Map.Entry<Key, Integer> e : s.before.entrySet()) {
-            taken += Math.max(0, e.getValue() - after.getOrDefault(e.getKey(), 0));
+        Set<Key> keys = new HashSet<>(before.keySet());
+        keys.addAll(after.keySet());
+        int stolen = 0;
+        boolean valuable = false;
+        for (Key key : keys) {
+            int delta = after.getOrDefault(key, 0) - before.getOrDefault(key, 0);
+            if (delta == 0) continue;
+            int balance = s.balance.getOrDefault(key, 0);
+            int next = balance + delta;
+            int newlyTaken = Math.max(0, -next) - Math.max(0, -balance);
+            if (newlyTaken > 0) {
+                stolen += newlyTaken;
+                valuable |= Theft.valuable(key.stack());
+            }
+            s.balance.put(key, next);
         }
-        if (taken > 0 && !player.isCreative() && !player.isSpectator()) {
-            ThreatManager.reportTheft(level, colony, player, taken);
-        }
+        Theft.taken(level, colony, player, stolen, valuable);
     }
 
     private static Map<Key, Integer> snapshot(Container container) {
@@ -214,8 +278,11 @@ public final class PlayerBlocks {
 
     // ---------------------------------------------------------------- hoppers (06 §4.3)
 
-    /** True when a hopper must not pull from the block above it (a managed colony storage that is not player storage). */
+    /** True when a hopper must not pull from the block above it (a colony storage, or a double chest with one). */
     public static boolean blocksHopper(ServerLevel level, BlockPos above) {
-        return Protection.isManagedAnywhere(level, above) && !Protection.isProtectedContainer(level, above);
+        if (!level.getBlockState(above).hasBlockEntity()) return false;
+        if (Theft.storageOwner(level, above) != null) return true;
+        BlockPos other = Protection.otherChestHalf(level, above);
+        return other != null && Theft.storageOwner(level, other) != null;
     }
 }

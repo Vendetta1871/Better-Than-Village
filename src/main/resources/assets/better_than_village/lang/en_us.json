@@ -27,6 +27,7 @@
   "message.better_than_village.deed.already_used": "This sheet is already used. Ordering again is impossible.",
   "message.better_than_village.deed.accepted": "The builder accepted the order. House: %s",
   "message.better_than_village.deed.rejected": "Order not accepted yet: finish the road/previous order or find a free plot. The sheet was not used.",
+  "message.better_than_village.theft.warning": "The villagers saw you take their goods. Next time the guards will come.",
   "commands.better_than_village.status.none": "Better Than Village: no generated vanilla village nearby.",
   "commands.better_than_village.status.main": "Better Than Village: core=%s, radius=%s, population=%s/%s beds, food=%s, carriedFood=%s, logs=%s, stone=%s, iron=%s, diamonds=%s, storages=%s, roles=%s, jobs=%s, activeWorkers=%s, threatAge=%s",
   "commands.better_than_village.status.workers": "Workers: [%s]",

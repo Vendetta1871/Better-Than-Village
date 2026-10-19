@@ -7,6 +7,7 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
@@ -98,6 +99,10 @@ public final class Economy {
     private static boolean needs(ServerLevel level, Colony colony, Villager w, ColonyRole role) {
         switch (role) {
             case BUILDER -> {
+                // Beds cost wool: without a sheep pen the colony would never furnish its houses.
+                boolean bedsWanted = colony.repairs.values().stream().anyMatch(st -> st.is(BlockTags.BEDS));
+                if (bedsWanted && ColonyStorage.count(level, colony, Goods.WOOL) < 3
+                        && buy(level, colony, w, new ItemStack(Items.WHITE_WOOL, 6), 1, "шерсть для кроватей")) return true;
                 if (colony.cachedLogs < 48 && buy(level, colony, w, new ItemStack(Items.OAK_LOG, 16), 2, "брёвна")) return true;
                 return colony.cachedStone < 96 && buy(level, colony, w, new ItemStack(Items.COBBLESTONE, 32), 2, "камень");
             }

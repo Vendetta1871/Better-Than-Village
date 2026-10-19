@@ -58,12 +58,14 @@ public final class Trading {
     }
 
     /**
-     * Villager right-click by a player (main hand, adult, server side, villager inside a colony).
-     * Returns a result to cancel vanilla, or null to let vanilla handle it.
+     * Villager right-click by a player (main hand, adult, server side), routed by colony membership.
+     * Returns a result to cancel vanilla, or null to let vanilla handle it. Colony-built offers that are not
+     * tracked (e.g. loaded from NBT after a restart) never reach the vanilla trade screen.
      */
     public static InteractionResult interact(ServerLevel level, Villager v, Player player, InteractionHand hand) {
-        Colony colony = ColonyManager.colonyAt(level, v.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony == null) {
+            dropColonyOffers(v, false);
             return null;
         }
         ColonyRole role = colony.roleOf(v.getUUID());
@@ -72,7 +74,13 @@ public final class Trading {
             Deeds.builderOrder(level, colony, player, hand);
             return InteractionResult.SUCCESS;
         }
-        if (role == ColonyRole.CITIZEN || v.isSleeping() || v.getTradingPlayer() != null) {
+        if (!hasTable(role)) {
+            dropColonyOffers(v, true);
+            // Expedition members do not trade at all (their cartographer profession would offer vanilla maps).
+            return role == ColonyRole.FOUNDER ? InteractionResult.SUCCESS : null;
+        }
+        if (v.isSleeping() || v.getTradingPlayer() != null) {
+            dropColonyOffers(v, true);
             return null;
         }
         RoleBalancer.applyRole(level, colony, v);
@@ -83,6 +91,25 @@ public final class Trading {
     }
 
     // ---------------------------------------------------------------- offers
+
+    /** Price multiplier of every colony-built offer; vanilla trade tables only use 0.05 and 0.2, so it marks ours. */
+    private static final float COLONY_MULTIPLIER = 0f;
+
+    /**
+     * Removes colony-built offers (all of them, or only untracked ones when keepTracked). If nothing remains the
+     * offers are reset so vanilla regenerates the villager's own trades on demand.
+     */
+    static void dropColonyOffers(Villager v, boolean keepTracked) {
+        Map<MerchantOffer, Desc> tracked = keepTracked ? TRACKED.get(v) : null;
+        MerchantOffers offers = v.getOffers();
+        boolean removed = offers.removeIf(o -> o.getPriceMultiplier() == COLONY_MULTIPLIER && (tracked == null || !tracked.containsKey(o)));
+        if (!keepTracked) {
+            TRACKED.remove(v);
+        }
+        if (removed && offers.isEmpty()) {
+            v.setOffers(null);
+        }
+    }
 
     private static boolean hasTable(ColonyRole role) {
         return switch (role) {
@@ -162,7 +189,7 @@ public final class Trading {
             }
         }
         if (b.offers.isEmpty()) {
-            MerchantOffer placeholder = new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(placeholderItem(role)), 1, 0, 0f);
+            MerchantOffer placeholder = new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(placeholderItem(role)), 1, 0, COLONY_MULTIPLIER);
             placeholder.setToOutOfStock();
             b.offers.add(placeholder);
         }
@@ -199,7 +226,7 @@ public final class Trading {
         }
 
         void permission(ItemStack item, int price, int uses, int xp) {
-            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), item, uses, xp, 0f);
+            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), item, uses, xp, COLONY_MULTIPLIER);
             add(offer, new Desc(colony.id(), role, item.getItem(), item.getCount(), price, true, 0, s -> false, true));
         }
 
@@ -228,7 +255,7 @@ public final class Trading {
             if (chosen == null) return;
             int uses = Math.min(12, Math.min((stock - reserve2) / batch, itemTotal / batch));
             if (uses <= 0) return;
-            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), new ItemStack(chosen, batch), uses, 1, 0f);
+            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), new ItemStack(chosen, batch), uses, 1, COLONY_MULTIPLIER);
             add(offer, new Desc(colony.id(), role, chosen, batch, price, true, reserve2, pred, false));
         }
 
@@ -249,7 +276,7 @@ public final class Trading {
             int wanted = (Math.max(0, target2 - have) + batch - 1) / batch;
             int uses = Math.min(12, Math.min(affordable, wanted));
             if (uses <= 0 || ColonyStorage.freeCapacity(level, colony, new ItemStack(item)) < batch) return;
-            MerchantOffer offer = new MerchantOffer(new ItemCost(item, batch), new ItemStack(Items.EMERALD, price), uses, 1, 0f);
+            MerchantOffer offer = new MerchantOffer(new ItemCost(item, batch), new ItemStack(Items.EMERALD, price), uses, 1, COLONY_MULTIPLIER);
             add(offer, new Desc(colony.id(), role, item, batch, price, false, 0, s -> s.is(item), false));
         }
 

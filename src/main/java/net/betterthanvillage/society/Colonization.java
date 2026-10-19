@@ -50,6 +50,12 @@ import java.util.function.Predicate;
 /** Founder expeditions (06 §6): start, settler selection, site search, travel, founding and deaths. */
 public final class Colonization {
     private static final int SETTLERS = 5;
+    /** Founding sites lie MIN_SITE_DISTANCE..MAX_SITE_DISTANCE blocks from the home core. */
+    static final int MIN_SITE_DISTANCE = 192;
+    static final int MAX_SITE_DISTANCE = 320;
+    private static final long FOUNDER_MISSING_TICKS = 6000;
+    private static final long EXPEDITION_MAX_TICKS = 3 * 24000L;
+    private static final String MISSING_KEY = "society.founderMissingSince";
     private static final long CORE_SPACING_SQ = 160L * 160L;
     private static final String BRIDGE_KEY = "society.bridge";
     private static final Predicate<ItemStack> FOOD = ColonyStorage::isFood;
@@ -107,7 +113,8 @@ public final class Colonization {
         for (Villager v : adults) {
             if (out.size() >= SETTLERS) break;
             ColonyRole role = colony.roleOf(v.getUUID());
-            if (v.getTradingPlayer() != null || v.isSleeping() || role == ColonyRole.ELDER || role == ColonyRole.FOUNDER) continue;
+            if (v.getTradingPlayer() != null || v.isSleeping() || role == ColonyRole.ELDER || role == ColonyRole.FOUNDER
+                    || RoleBalancer.isIndependentTrader(colony, v)) continue;
             if (role == ColonyRole.CITIZEN) {
                 out.add(v);
             } else if (counts.getOrDefault(role, 0) > 1) {
@@ -165,7 +172,7 @@ public final class Colonization {
     static BlockPos searchSite(ServerLevel level, Colony home) {
         for (int i = 0; i < 16; i++) {
             double angle = level.random.nextDouble() * Math.PI * 2;
-            int dist = 192 + level.random.nextInt(129);
+            int dist = MIN_SITE_DISTANCE + level.random.nextInt(MAX_SITE_DISTANCE - MIN_SITE_DISTANCE + 1);
             int x = home.core().getX() + (int) Math.round(Math.cos(angle) * dist);
             int z = home.core().getZ() + (int) Math.round(Math.sin(angle) * dist);
             if (!level.hasChunk(x >> 4, z >> 4)) continue;
@@ -246,8 +253,31 @@ public final class Colonization {
                 && e.tickCount - e.getLastHurtByMobTimestamp() < 100;
     }
 
+    /**
+     * Expedition timeout, checked only while the home core ticks (so the cargo can be delivered): the leader has
+     * not been found for FOUNDER_MISSING_TICKS, or the expedition is older than EXPEDITION_MAX_TICKS.
+     */
+    private static boolean timedOut(ServerLevel level, Colony colony, long now) {
+        if (!level.isPositionEntityTicking(colony.core())) return false;
+        if (now - colony.founderStartedTick > EXPEDITION_MAX_TICKS) return true;
+        boolean leaderPresent = colony.founderLeaderLost
+                ? colony.founderCompanions.stream().anyMatch(id -> villager(level, id) != null)
+                : colony.founder != null && level.getEntity(colony.founder) != null;
+        if (leaderPresent) {
+            colony.runtime.remove(MISSING_KEY);
+            return false;
+        }
+        long since = (Long) colony.runtime.computeIfAbsent(MISSING_KEY, k -> now);
+        return now - since >= FOUNDER_MISSING_TICKS;
+    }
+
     static void advance(ServerLevel level, Colony colony) {
         long now = level.getGameTime();
+        if (timedOut(level, colony, now)) {
+            deliverCargo(level, colony, colony, colony.core());
+            abort(level, colony, true);
+            return;
+        }
         if (colony.founderLeaderLost) {
             for (Iterator<UUID> it = colony.founderCompanions.iterator(); it.hasNext(); ) {
                 UUID id = it.next();
@@ -471,6 +501,14 @@ public final class Colonization {
 
     /** Ends the expedition: cargo cleared, members become citizens, founder fields reset, next try in a day. */
     static void abort(ServerLevel level, Colony colony, boolean applyVisuals) {
+        end(level, colony, applyVisuals, false);
+    }
+
+    /**
+     * Resets the expedition. Members become citizens again, or lose their home role entirely when they moved to a
+     * new colony; any leftover FOUNDER role is cleared so future expeditions can select settlers.
+     */
+    private static void end(ServerLevel level, Colony colony, boolean applyVisuals, boolean moved) {
         long now = level.getGameTime();
         List<UUID> members = new ArrayList<>(colony.founderCompanions);
         if (colony.founder != null) {
@@ -479,8 +517,13 @@ public final class Colonization {
             else members.add(0, colony.founder);
         }
         for (UUID id : members) {
-            colony.setRole(id, ColonyRole.CITIZEN, now);
+            if (moved) colony.roles.remove(id);
+            else colony.setRole(id, ColonyRole.CITIZEN, now);
         }
+        for (UUID id : new ArrayList<>(colony.roles.keySet())) {
+            if (colony.roleOf(id) == ColonyRole.FOUNDER) colony.setRole(id, ColonyRole.CITIZEN, now);
+        }
+        colony.runtime.remove(MISSING_KEY);
         colony.founderCargo.clear();
         colony.founderCargoReserved = false;
         colony.founder = null;
@@ -498,7 +541,7 @@ public final class Colonization {
                 Villager v = villager(level, id);
                 if (v != null && v.isAlive()) {
                     Nav.reset(v);
-                    RoleBalancer.applyRole(level, ColonyManager.colonyAt(level, v.blockPosition()), v);
+                    RoleBalancer.applyRole(level, ColonyManager.colonyOf(level, v), v);
                 }
             }
         }
@@ -598,6 +641,8 @@ public final class Colonization {
         Colony fresh = new Colony(UUID.randomUUID(), target);
         // A new colony has no absence to catch up on.
         fresh.simulatedUntil = level.getGameTime();
+        // The founding party is the population; no top-up to the bootstrap minimum.
+        fresh.professionBootstrapComplete = true;
         BlockPos chest = StoragePlacer.findSite(level, fresh);
         if (chest == null || !level.getEntitiesOfClass(LivingEntity.class, new AABB(target)).isEmpty()) return;
         if (!SafeEdit.place(level, target, Blocks.BELL.defaultBlockState(), 3)) return;
@@ -629,7 +674,7 @@ public final class Colonization {
             }
         }
         Nav.reset(founder);
-        abort(level, home, false);
+        end(level, home, false, true);
         ColonyManager.markDirty(level);
     }
 

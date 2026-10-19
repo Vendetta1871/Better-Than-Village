@@ -49,7 +49,8 @@ public final class ColonyCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("btv")
-                .then(Commands.literal("status").executes(ColonyCommands::status))
+                // Debug dump (storage coordinates, thief UUID) and expensive: operators only.
+                .then(Commands.literal("status").requires(s -> s.hasPermission(2)).executes(ColonyCommands::status))
                 .then(film()));
     }
 
