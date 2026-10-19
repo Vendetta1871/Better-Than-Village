@@ -50,6 +50,8 @@ import java.util.Set;
 public final class MinerTask extends ColonyTask {
     /** Walking pace along the mine route (1.05 looked like a sprint next to other villagers). */
     private static final double ROUTE_SPEED = 0.7;
+    /** Ticks a miner may spend walking to the route end before a deep expedition starts where it stands. */
+    private static final long DEEP_WALK_LIMIT = 2400;
     public static final String EMERGENCY_TAG = "btv_emergency_return";
     public static final String STATUS_ROUTE_ACCESS = "восстановление доступа к шахтному маршруту";
     public static final String STATUS_STORAGE_ACCESS = "восстановление доступа к складу шахтёра";
@@ -94,6 +96,10 @@ public final class MinerTask extends ColonyTask {
     private final Deque<BlockPos> widenQueue = new ArrayDeque<>();
     private int lastWidenSize = -1;
     private long deepEnd;
+    /** Deep expedition: walking down to the route end before the timer starts. */
+    private boolean deepArrived;
+    private long deepWalkStart;
+    private int deepTicks;
     // movement tracking
     private BlockPos moveTarget;
     private double moveBest;
@@ -1032,14 +1038,31 @@ public final class MinerTask extends ColonyTask {
         blockTarget = null;
         oreTarget = null;
         adjacentTarget = null;
-        int ticks = Math.max(400, Math.min(12000, net.betterthanvillage.config.ColonyConfig.get().work.deep_mining_ticks));
-        deepEnd = now + ticks;
+        deepTicks = Math.max(400, Math.min(12000, ColonyConfig.get().work.deep_mining_ticks));
+        deepEnd = Long.MAX_VALUE;
+        deepArrived = false;
+        deepWalkStart = now;
+        Colony colony = colony(level, v);
+        routeWalkIndex = colony == null || colony.mineRoute.isEmpty() ? 0 : nearestIndex(colony.mineRoute, v.blockPosition());
         Nav.reset(v);
-        v.getBrain().setMemory(ModRegistries.MINE_TARGET_POS.get(), v.blockPosition());
         WorkTracker.status(v, STATUS_DEEP);
     }
 
     private void deepTick(ServerLevel level, Colony colony, Villager v, long now, long worldTime) {
+        if (!deepArrived) {
+            // Work happens at the face, so walk down the shaft first instead of idling at the storage.
+            List<BlockPos> route = colony.mineRoute;
+            int idx = route.isEmpty() ? -1 : Math.min(routeWalkIndex, route.size() - 1);
+            boolean atEnd = idx < 0 || (idx == route.size() - 1 && at(v, route.get(idx)));
+            if (!atEnd && now - deepWalkStart <= DEEP_WALK_LIMIT) {
+                if (at(v, route.get(idx))) routeWalkIndex = ++idx;
+                move(level, colony, v, route.get(Math.min(idx, route.size() - 1)), now);
+                return;
+            }
+            deepArrived = true;
+            deepEnd = now + deepTicks;
+            v.getBrain().setMemory(ModRegistries.MINE_TARGET_POS.get(), v.blockPosition());
+        }
         Nav.reset(v);
         if (worldTime % 40 == 0) v.swing(InteractionHand.MAIN_HAND);
         if (now < deepEnd) return;

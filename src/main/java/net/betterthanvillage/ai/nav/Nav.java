@@ -16,6 +16,7 @@ import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -173,7 +174,14 @@ public final class Nav {
         boolean thinSnow = s.is(Blocks.SNOW) && s.getValue(SnowLayerBlock.LAYERS) < 8;
         if (!thinSnow && !s.getCollisionShape(level, pos).isEmpty()) return false;
         if (!level.getBlockState(pos.above()).getCollisionShape(level, pos.above()).isEmpty()) return false;
-        return level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), Direction.UP);
+        BlockPos b = pos.below();
+        BlockState floor = level.getBlockState(b);
+        if (floor.isFaceSturdy(level, b, Direction.UP)) return true;
+        // Dirt paths and farmland are 15/16 tall: not a sturdy face, but perfectly walkable.
+        VoxelShape shape = floor.getCollisionShape(level, b);
+        if (shape.isEmpty()) return false;
+        double top = shape.max(Direction.Axis.Y);
+        return top >= 0.8 && top <= 1.0;
     }
 
     /** Stored target if the last approach call was less than 60 ticks ago. */

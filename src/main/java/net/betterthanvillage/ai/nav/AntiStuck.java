@@ -172,7 +172,8 @@ public final class AntiStuck {
 
     /** Returns true when the villager is in a small pit (handled here). */
     private static boolean pitEscape(ServerLevel level, Villager v, long now) {
-        BlockPos p = v.blockPosition();
+        // Feet cell: on a dirt path (15/16 tall) blockPosition() is the path block itself.
+        BlockPos p = BlockPos.containing(v.getX(), v.getY() + 0.5, v.getZ());
         for (Direction d : Direction.Plane.HORIZONTAL) {
             if (Nav.standable(level, p.relative(d))) {
                 PITS.remove(v);
