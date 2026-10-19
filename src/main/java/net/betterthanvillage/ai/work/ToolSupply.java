@@ -63,6 +63,18 @@ public final class ToolSupply {
         return true;
     }
 
+    /** Equips the best stored tool of this kind if it beats the held one; never crafts. */
+    public static boolean takeStored(ServerLevel level, Colony colony, Villager v, Kind kind) {
+        int score = kind.score(v.getMainHandItem());
+        if (score >= 4) return false;
+        ItemStack tool = ColonyStorage.withdrawOne(level, colony, s -> s.is(kind.tag) && kind.score(s) > score);
+        if (tool.isEmpty()) return false;
+        ItemStack old = v.getMainHandItem().copy();
+        v.setItemSlot(EquipmentSlot.MAINHAND, tool);
+        stash(level, colony, v, old);
+        return true;
+    }
+
     private static ItemStack craft(ServerLevel level, Colony colony, Kind kind, int score) {
         int cost = kind.cost;
         if (ColonyStorage.count(level, colony, s -> s.is(Items.DIAMOND)) >= cost && ColonyStorage.count(level, colony, s -> s.is(ItemTags.LOGS)) >= 1) {

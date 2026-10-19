@@ -21,6 +21,7 @@ import net.betterthanvillage.mixin.gather.TrapDoorBlockAccessor;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.Path;
@@ -50,6 +51,8 @@ public final class DoorHandler {
         if (v.getNavigation() instanceof GroundPathNavigation ground) {
             ground.setCanOpenDoors(!v.isSleeping());
         }
+        // Sleeping villagers neither open nor close anything.
+        if (v.isSleeping()) return;
         long now = level.getGameTime();
         if ((now + v.getId()) % 3 != 0) return;
         BlockPos center = v.blockPosition();
@@ -88,6 +91,10 @@ public final class DoorHandler {
     private static boolean needed(ServerLevel level, Villager v, BlockPos pos, Kind kind, double d2, long now) {
         if (v.isSleeping() || v.getTradingPlayer() != null) return false;
         if (kind == Kind.TRAPDOOR && pos.equals(v.blockPosition().below())) return false;
+        // A closed trapdoor lying on the ground is walkable; opening it flips it upright and walls
+        // the villager in (the vanilla self-locking bug), so leave it shut.
+        if (kind == Kind.TRAPDOOR && level.getBlockState(pos).getValue(TrapDoorBlock.HALF) == Half.BOTTOM
+                && !level.getBlockState(pos).getValue(TrapDoorBlock.OPEN)) return false;
         Path path = v.getNavigation().getPath();
         if (path != null && !path.isDone() && d2 <= 12) {
             int idx = path.getNextNodeIndex();

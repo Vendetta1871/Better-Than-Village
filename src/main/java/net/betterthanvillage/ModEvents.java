@@ -1,5 +1,6 @@
 package net.betterthanvillage;
 
+import net.betterthanvillage.ai.work.RoleTools;
 import net.betterthanvillage.colony.BellScanner;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.society.ColonyCommands;
@@ -72,6 +73,7 @@ public final class ModEvents {
 
     private static void onServerStopped(ServerStoppedEvent event) {
         ColonyManager.clearCaches();
+        RoleTools.clearCaches();
         BellScanner.clear();
     }
 }
