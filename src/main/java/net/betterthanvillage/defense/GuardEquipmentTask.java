@@ -35,9 +35,10 @@ public final class GuardEquipmentTask extends ColonyTask {
             new ArmorSlot(EquipmentSlot.LEGS, Items.DIAMOND_LEGGINGS, Items.IRON_LEGGINGS, 7),
             new ArmorSlot(EquipmentSlot.HEAD, Items.DIAMOND_HELMET, Items.IRON_HELMET, 5),
             new ArmorSlot(EquipmentSlot.FEET, Items.DIAMOND_BOOTS, Items.IRON_BOOTS, 4)};
-    private static final EquipmentSlot[] CHECK_ORDER = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
-    private static final Predicate<ItemStack> MELEE = s -> s.is(ItemTags.SWORDS) || s.is(ItemTags.AXES);
+    // axes stay with the lumberjacks: guards fight with swords and bows only
+    private static final Predicate<ItemStack> MELEE = s -> s.is(ItemTags.SWORDS);
+    private static final Predicate<ItemStack> GOOD_SWORD = s -> s.is(Items.DIAMOND_SWORD) || s.is(Items.IRON_SWORD);
     private static final Predicate<ItemStack> BOW = s -> s.is(Items.BOW);
     private static final Predicate<ItemStack> WEAPON = s -> BOW.test(s) || MELEE.test(s);
     private static final Predicate<ItemStack> LOG = s -> s.is(ItemTags.LOGS);
@@ -58,7 +59,7 @@ public final class GuardEquipmentTask extends ColonyTask {
                 || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) {
             return false;
         }
-        if (!needsEquipment(v, colony) && !GolemManager.workNeeded(level, colony)) {
+        if (!needsEquipment(level, v, colony) && !GolemManager.workNeeded(level, colony)) {
             // the golem check scans a large box: do not repeat it every tick
             nextRunAt = level.getGameTime() + 100;
             return false;
@@ -116,22 +117,31 @@ public final class GuardEquipmentTask extends ColonyTask {
 
     // ---------------------------------------------------------------- needs
 
-    /** False only with a bow, a melee weapon, a shield and four armor pieces that cannot be upgraded. */
-    public static boolean needsEquipment(Villager v, Colony colony) {
-        if (!carries(v, BOW) || !carries(v, MELEE) || !v.getOffhandItem().is(Items.SHIELD)) return true;
-        for (EquipmentSlot slot : CHECK_ORDER) {
-            ItemStack worn = v.getItemBySlot(slot);
-            if (worn.isEmpty()) return true;
-            if (!topTier(worn) && colony.cachedDiamonds >= costOf(slot)) return true;
+    /** True when a missing or upgradable piece can actually be obtained from storage (stocked or craftable). */
+    public static boolean needsEquipment(ServerLevel level, Villager v, Colony colony) {
+        int logs = colony.cachedLogs;
+        int iron = colony.cachedIron;
+        int diamonds = colony.cachedDiamonds;
+        if (!carries(v, BOW) && (logs >= 4 || ColonyStorage.has(level, colony, BOW)
+                || (logs >= 1 && ColonyStorage.count(level, colony, s -> s.is(Items.STRING)) >= 3))) {
+            return true;
+        }
+        if (!carries(v, MELEE) && (((diamonds >= 2 || iron >= 2) && logs >= 1) || ColonyStorage.has(level, colony, GOOD_SWORD))) {
+            return true;
+        }
+        if (!v.getOffhandItem().is(Items.SHIELD) && ((iron >= 1 && logs >= 6) || ColonyStorage.has(level, colony, s -> s.is(Items.SHIELD)))) {
+            return true;
+        }
+        for (ArmorSlot a : ARMOR) {
+            ItemStack worn = v.getItemBySlot(a.slot());
+            if (topTier(worn)) continue;
+            if (diamonds >= a.cost() || ColonyStorage.has(level, colony, s -> s.is(a.diamond()))) return true;
+            if (worn.isEmpty() && (ColonyStorage.has(level, colony, s -> s.is(a.iron()))
+                    || (iron >= a.cost() && iron >= GuardGear.ironReserve(level, colony) + a.cost()))) {
+                return true;
+            }
         }
         return false;
-    }
-
-    private static int costOf(EquipmentSlot slot) {
-        for (ArmorSlot a : ARMOR) {
-            if (a.slot() == slot) return a.cost();
-        }
-        return 0;
     }
 
     private static boolean topTier(ItemStack stack) {
@@ -166,7 +176,7 @@ public final class GuardEquipmentTask extends ColonyTask {
             }
         }
         if (!carries(v, MELEE)) {
-            ItemStack sword = ColonyStorage.withdrawOne(level, colony, s -> s.is(Items.DIAMOND_SWORD) || s.is(Items.IRON_SWORD) || s.is(ItemTags.AXES));
+            ItemStack sword = ColonyStorage.withdrawOne(level, colony, GOOD_SWORD);
             if (!sword.isEmpty()) return give(level, colony, v, sword);
             if (ColonyStorage.count(level, colony, s -> s.is(Items.DIAMOND)) >= 2 && ColonyStorage.count(level, colony, LOG) >= 1) {
                 ColonyStorage.consume(level, colony, s -> s.is(Items.DIAMOND), 2);
@@ -228,8 +238,11 @@ public final class GuardEquipmentTask extends ColonyTask {
                 return true;
             }
             if (empty) {
-                ToolSupply.smeltTo(level, colony, a.cost());
-                if (ColonyStorage.consume(level, colony, s -> s.is(Items.IRON_INGOT), a.cost())) {
+                // armor never eats the iron kept for golems (same reserve as the guard gear stock)
+                int reserve = GuardGear.ironReserve(level, colony);
+                ToolSupply.smeltTo(level, colony, reserve + a.cost());
+                if (ColonyStorage.count(level, colony, s -> s.is(Items.IRON_INGOT)) >= reserve + a.cost()
+                        && ColonyStorage.consume(level, colony, s -> s.is(Items.IRON_INGOT), a.cost())) {
                     v.setItemSlot(a.slot(), new ItemStack(a.iron()));
                     return true;
                 }

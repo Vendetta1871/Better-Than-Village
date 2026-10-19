@@ -385,6 +385,7 @@ public final class ColonyManager {
         colony.runtime.clear();
         colony.storages.clear();
         data(level).removeColony(colony);
+        ThreatManager.forget(colony.id());
         BetterThanVillage.LOGGER.info("Dissolved colony {} at {}: bell gone and no members", colony.id(), colony.core());
     }
 
@@ -397,6 +398,7 @@ public final class ColonyManager {
         DoorHandler.clearCaches();
         net.betterthanvillage.defense.RaidShelter.clearCaches();
         net.betterthanvillage.defense.GuardShield.clearCaches();
+        net.betterthanvillage.defense.GuardPatrol.clearCaches();
         net.betterthanvillage.ai.nav.WaypointNavigator.clearCaches();
         TerrainSurvey.clear();
         Protection.clearCaches();

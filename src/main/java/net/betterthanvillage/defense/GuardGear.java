@@ -46,10 +46,7 @@ public final class GuardGear {
 
     /** Tops each equipment item up to 2 copies in storage when materials allow (before guard offers are built). */
     public static void ensureStock(ServerLevel level, Colony colony) {
-        BlockPos core = colony.core();
-        double r2 = (double) colony.radius() * colony.radius();
-        int golemsNear = level.getEntitiesOfClass(IronGolem.class, new AABB(core).inflate(colony.radius()),
-                g -> g.isAlive() && g.blockPosition().distSqr(core) <= r2).size();
+        int golemsNear = golemsNear(level, colony);
         Predicate<ItemStack> logs = s -> s.is(ItemTags.LOGS);
         for (Entry e : TABLE) {
             ItemStack plain = new ItemStack(e.item());
@@ -64,6 +61,18 @@ public final class GuardGear {
                     () -> ColonyStorage.consume(level, colony, mat, matNeed) && ColonyStorage.consume(level, colony, logs, logNeed),
                     List.of(new ItemStack(e.item(), missing)));
         }
+    }
+
+    private static int golemsNear(ServerLevel level, Colony colony) {
+        BlockPos core = colony.core();
+        double r2 = (double) colony.radius() * colony.radius();
+        return level.getEntitiesOfClass(IronGolem.class, new AABB(core).inflate(colony.radius()),
+                g -> g.isAlive() && g.blockPosition().distSqr(core) <= r2).size();
+    }
+
+    /** Iron ingots kept back for golem building (guard gear never dips below it). */
+    public static int ironReserve(ServerLevel level, Colony colony) {
+        return reserve(Items.IRON_INGOT, golemsNear(level, colony));
     }
 
     private static int reserve(Item material, int golemsNear) {

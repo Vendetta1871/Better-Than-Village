@@ -82,14 +82,17 @@ public final class GolemManager {
                 && ColonyStorage.count(level, colony, s -> s.is(Items.IRON_INGOT) || s.is(Items.RAW_IRON)) >= IRON_COST;
     }
 
-    /** 2x2 footprint on full solid tops without fluid, three air cells high, and no entity in the way. */
+    /**
+     * 2x2 footprint on natural ground (never a roof or a floor of a building) without fluid, three air
+     * cells high, and no entity in the way.
+     */
     public static boolean validSite(ServerLevel level, BlockPos pos) {
         for (int dx = 0; dx <= 1; dx++) {
             for (int dz = 0; dz <= 1; dz++) {
                 BlockPos cell = pos.offset(dx, 0, dz);
                 BlockPos below = cell.below();
                 if (!level.isLoaded(below) || !level.getBlockState(below).isFaceSturdy(level, below, Direction.UP)
-                        || !level.getFluidState(below).isEmpty()) {
+                        || !level.getFluidState(below).isEmpty() || !naturalGround(level.getBlockState(below))) {
                     return false;
                 }
                 for (int dy = 0; dy <= 2; dy++) {
@@ -99,6 +102,12 @@ public final class GolemManager {
         }
         AABB box = new AABB(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 2, pos.getY() + 3, pos.getZ() + 2);
         return level.getEntities((net.minecraft.world.entity.Entity) null, box, e -> true).isEmpty();
+    }
+
+    private static boolean naturalGround(BlockState s) {
+        return s.is(BlockTags.DIRT) || s.is(BlockTags.SAND) || s.is(BlockTags.BASE_STONE_OVERWORLD) || s.is(Blocks.GRAVEL)
+                || s.is(Blocks.DIRT_PATH) || s.is(Blocks.SNOW_BLOCK) || s.is(BlockTags.TERRACOTTA) || s.is(Blocks.CLAY)
+                || s.is(Blocks.MUD) || s.is(Blocks.PACKED_ICE);
     }
 
     /** First standable cell 2..4 blocks from the site in N, E, S, W order. */
@@ -172,7 +181,8 @@ public final class GolemManager {
                 BlockPos column = guard.blockPosition().relative(dir, r);
                 if (!level.isLoaded(column)) continue;
                 BlockPos pos = surface(level, column.getX(), column.getZ());
-                if (validSite(level, pos) && !nearActiveJob(colony, pos, 3)) site = pos;
+                // near the guard's own ground level: no building next to it on a cliff or roof
+                if (Math.abs(pos.getY() - guard.getBlockY()) <= 8 && validSite(level, pos) && !nearActiveJob(colony, pos, 3)) site = pos;
             }
         }
         if (site == null || spawnGolem(level, site) == null) return;
@@ -332,7 +342,8 @@ public final class GolemManager {
             golem.addEffect(new MobEffectInstance(MobEffects.ABSORPTION, 240, 0, false, false), golem);
             golem.setAbsorptionAmount(Math.min(golem.getMaxAbsorption(), golem.getAbsorptionAmount() + 1f));
         }
-        if (golem.isInWater()) {
+        // only a submerged golem is pushed up (wading through a stream or farm channel is left alone)
+        if (golem.isUnderWater()) {
             Vec3 goal;
             LivingEntity target = golem.getTarget();
             if (target != null) goal = target.position();
@@ -341,13 +352,10 @@ public final class GolemManager {
             double dx = goal.x - golem.getX();
             double dz = goal.z - golem.getZ();
             double h = Math.sqrt(dx * dx + dz * dz);
-            golem.setSwimming(true);
             Vec3 vel = golem.getDeltaMovement();
             double vx = h > 0.01 ? dx / h * 0.075 : vel.x * 0.5;
             double vz = h > 0.01 ? dz / h * 0.075 : vel.z * 0.5;
             golem.setDeltaMovement(vx, Math.max(vel.y, 0.11), vz);
-        } else if (golem.isSwimming()) {
-            golem.setSwimming(false);
         }
         if (Math.floorMod(now + golem.getId(), 4L) != 0) return;
         LivingEntity target = golem.getTarget();
@@ -356,24 +364,30 @@ public final class GolemManager {
             if (target instanceof Player && golem.getPersistentData().getBoolean(ThreatManager.MOBILIZED_TAG)) calmDown(golem);
             return;
         }
-        if (target != null && !ThreatManager.inColony(colony, target)) {
-            golem.setTarget(null);
-            golem.getNavigation().stop();
-        }
-        target = golem.getTarget();
         if (target instanceof Villager tv && ThreatManager.memberOf(level, colony, tv)) {
             golem.setTarget(null);
-        }
-        // player anger never decays while targeting the player (NeutralMob): drop it once the alarm is over
-        if (target instanceof Player p && (golem.isPlayerCreated() || !ThreatManager.isWanted(level, colony, p))) {
+            target = null;
+        } else if (target instanceof Player p && (golem.isPlayerCreated() || !ThreatManager.isWanted(level, colony, p))) {
+            // player anger never decays while targeting the player (NeutralMob): drop it once the alarm is over
             calmDown(golem);
+            target = null;
+        } else if (target != null && (!target.isAlive() || !ThreatManager.inColony(colony, target, ThreatManager.BORDER_MARGIN))) {
+            // the margin keeps a golem from flip-flopping on a target standing at the border
+            golem.setTarget(null);
+            golem.getNavigation().stop();
+            target = null;
         }
-        LivingEntity threat = ThreatManager.findThreat(level, colony);
-        if (threat instanceof Player && golem.isPlayerCreated()) threat = null;
-        if (threat != null) {
-            if (threat instanceof Player) golem.getPersistentData().putBoolean(ThreatManager.MOBILIZED_TAG, true);
-            golem.setTarget(threat);
-            WaypointNavigator.travel(level, golem, threat.blockPosition(), 1.8);
+        if (target == null) {
+            // only a golem without a valid target picks a new one: the nearest threat to itself
+            LivingEntity threat = ThreatManager.nearestThreat(level, colony, golem, e -> e instanceof Player && golem.isPlayerCreated(), false);
+            if (threat != null) {
+                if (threat instanceof Player) golem.getPersistentData().putBoolean(ThreatManager.MOBILIZED_TAG, true);
+                golem.setTarget(threat);
+                WaypointNavigator.travel(level, golem, threat.blockPosition(), 1.8);
+            }
+        } else if (golem.distanceToSqr(target) > 24 * 24) {
+            // long way: route with waypoints; close by, the vanilla melee goal chases the moving target itself
+            WaypointNavigator.travel(level, golem, target.blockPosition(), 1.8);
         }
         breakPillar(level, golem, colony);
     }

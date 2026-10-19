@@ -8,37 +8,36 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.monster.AbstractSkeleton;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** Guard shield against incoming projectiles and aiming archers (02 §3.5). */
+/**
+ * Guard shield against incoming projectiles (02 §3.5). The shield only goes up for an arrow that
+ * would actually hit, and the guard keeps walking while blocking (no stalemate against archers).
+ */
 public final class GuardShield {
     public static final String STATUS = "прикрывается щитом от стрелы";
+    /** Projectile scan radius around each guard. */
+    private static final double SCAN_RADIUS = 24.0;
 
     private record Memo(long time, boolean result) {
     }
 
-    private record Scan(ServerLevel level, long time, List<AbstractArrow> projectiles) {
-    }
-
     private static final Map<Villager, Long> RAISE_UNTIL = new WeakHashMap<>();
     private static final Map<Villager, Memo> MEMO = new WeakHashMap<>();
-    private static final Map<Colony, Scan> SCANS = new WeakHashMap<>();
     /** Debug counter of projectile scans. */
     public static long scans;
 
     private GuardShield() {
     }
 
-    /** Returns true when the guard is raising its shield this tick (the caller then stops). */
+    /** Returns true while the guard holds its shield up this tick (the caller must not attack). */
     public static boolean tick(ServerLevel level, Villager v, Colony colony) {
         if (colony == null || colony.roleOf(v.getUUID()) != ColonyRole.GUARD || v.isSleeping() || v.isTrading()
                 || !v.getOffhandItem().is(Items.SHIELD)) {
@@ -49,12 +48,11 @@ public final class GuardShield {
         if (memo != null && memo.time() == now) {
             return memo.result();
         }
-        Entity danger = incomingProjectile(level, v, colony, now);
-        boolean archer = false;
-        if (danger == null) {
-            danger = aimingArcher(v, now);
-            archer = danger != null;
-        }
+        Long until = RAISE_UNTIL.get(v);
+        // peacetime: no scan at all
+        boolean alert = until != null || colony.recentThreat(now, 200) || RaidShelter.isActive(level, colony)
+                || v.getBrain().hasMemoryValue(ModRegistries.THREAT_TARGET.get());
+        Entity danger = alert ? incomingProjectile(level, v, colony) : null;
         if (danger != null) {
             double dx = danger.getX() - v.getX();
             double dz = danger.getZ() - v.getZ();
@@ -63,11 +61,10 @@ public final class GuardShield {
             v.setYBodyRot(yaw);
             v.setYHeadRot(yaw);
             v.getLookControl().setLookAt(danger, 90f, 90f);
-            boolean archerIdle = archer && !((LivingEntity) danger).isUsingItem();
-            RAISE_UNTIL.put(v, now + (archerIdle ? 6 : 12));
+            until = now + 12;
+            RAISE_UNTIL.put(v, until);
         }
-        Long until = RAISE_UNTIL.get(v);
-        if (now >= (until == null ? Long.MIN_VALUE : until)) {
+        if (until == null || now >= until) {
             RAISE_UNTIL.remove(v);
             if (until != null && v.isUsingItem() && v.getUsedItemHand() == InteractionHand.OFF_HAND) {
                 v.stopUsingItem();
@@ -79,31 +76,19 @@ public final class GuardShield {
             v.stopUsingItem();
             v.startUsingItem(InteractionHand.OFF_HAND);
         }
-        v.getNavigation().stop();
         WorkTracker.status(v, STATUS);
         MEMO.put(v, new Memo(now, true));
         return true;
     }
 
-    private static List<AbstractArrow> scan(ServerLevel level, Colony colony, long now) {
-        Scan s = SCANS.get(colony);
-        if (s != null && s.level() == level && s.time() == now) {
-            return s.projectiles();
-        }
+    private static Entity incomingProjectile(ServerLevel level, Villager v, Colony colony) {
         scans++;
-        AABB box = ThreatManager.colonyBox(colony).inflate(32);
-        List<AbstractArrow> list = level.getEntitiesOfClass(AbstractArrow.class, box,
-                p -> !p.isRemoved() && p.getDeltaMovement().lengthSqr() >= 0.04);
-        SCANS.put(colony, new Scan(level, now, list));
-        return list;
-    }
-
-    private static Entity incomingProjectile(ServerLevel level, Villager v, Colony colony, long now) {
         AbstractArrow best = null;
         int bestSteps = Integer.MAX_VALUE;
-        for (AbstractArrow p : scan(level, colony, now)) {
+        for (AbstractArrow p : level.getEntitiesOfClass(AbstractArrow.class, v.getBoundingBox().inflate(SCAN_RADIUS),
+                a -> !a.isRemoved() && a.getDeltaMovement().lengthSqr() >= 0.04)) {
             Entity owner = p.getOwner();
-            if (owner == v || p.isRemoved()) continue;
+            if (owner == v) continue;
             if (owner instanceof Villager ov && colony.roleOf(ov.getUUID()) == ColonyRole.GUARD) continue;
             int steps = stepsToHit(p, v);
             if (steps < 0 || steps >= bestSteps || !v.hasLineOfSight(p)) continue;
@@ -132,18 +117,9 @@ public final class GuardShield {
         return -1;
     }
 
-    private static LivingEntity aimingArcher(Villager v, long now) {
-        LivingEntity e = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get()).orElse(null);
-        if (e == null || !e.isAlive() || e.distanceToSqr(v) > 576 || !v.hasLineOfSight(e)) return null;
-        boolean drawing = e.isUsingItem() && (e.getUseItem().is(Items.BOW) || e.getUseItem().is(Items.CROSSBOW));
-        boolean skeleton = e instanceof AbstractSkeleton sk && sk.getTarget() == v && sk.isHolding(Items.BOW) && Math.floorMod(now, 40L) < 20;
-        return drawing || skeleton ? e : null;
-    }
-
     public static void clearCaches() {
         RAISE_UNTIL.clear();
         MEMO.clear();
-        SCANS.clear();
         scans = 0;
     }
 }

@@ -68,6 +68,12 @@ public final class RaidShelterTask extends ColonyTask {
         }
         if (shelter == null) {
             WorkTracker.status(v, STATUS_NONE);
+            // no enclosed room: at least get to a bed, the guards or the core instead of standing in the open
+            if (now >= nextMove) {
+                BlockPos fallback = RaidShelter.fallback(level, colony, v);
+                if (fallback != null && v.blockPosition().distSqr(fallback) > 4) Nav.approach(level, v, fallback, 1.05);
+                nextMove = now + 20;
+            }
             return;
         }
         WorkTracker.status(v, STATUS_HIDING + shelter.getX() + ", " + shelter.getY() + ", " + shelter.getZ());

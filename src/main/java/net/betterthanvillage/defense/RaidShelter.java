@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
@@ -111,6 +112,26 @@ public final class RaidShelter {
     }
 
     // ---------------------------------------------------------------- search
+
+    /** Where a villager without a shelter goes: the nearest bed, else the nearest guard, else the core. */
+    public static BlockPos fallback(ServerLevel level, Colony colony, Villager v) {
+        BlockPos from = v.blockPosition();
+        BlockPos bed = level.getPoiManager()
+                .findClosest(t -> t.is(PoiTypes.HOME), p -> colony.containsXZ(p) && level.isLoaded(p), from, 48, PoiManager.Occupancy.ANY)
+                .orElse(null);
+        if (bed != null) return bed;
+        Villager guard = null;
+        double best = Double.MAX_VALUE;
+        for (Villager g : level.getEntitiesOfClass(Villager.class, v.getBoundingBox().inflate(48), LivingEntity::isAlive)) {
+            if (colony.roleOf(g.getUUID()) != ColonyRole.GUARD) continue;
+            double d = g.distanceToSqr(v);
+            if (d < best) {
+                best = d;
+                guard = g;
+            }
+        }
+        return guard != null ? guard.blockPosition() : colony.core();
+    }
 
     private static boolean playerProperty(ServerLevel level, BlockPos pos) {
         return ColonyManager.data(level).inLand(pos) || Protection.inPlayerOwnedJob(level, pos);

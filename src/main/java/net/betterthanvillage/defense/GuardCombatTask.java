@@ -33,11 +33,14 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.schedule.Activity;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Predicate;
 
 /** Guard combat task, the only FIGHT task (02 §3.1). */
 public final class GuardCombatTask extends ColonyTask {
-    private static final Predicate<ItemStack> MELEE = s -> s.is(ItemTags.SWORDS) || s.is(ItemTags.AXES);
+    // axes stay with the lumberjacks: guards fight with swords and bows only
+    private static final Predicate<ItemStack> MELEE = s -> s.is(ItemTags.SWORDS);
     private static final Predicate<ItemStack> ANY_WEAPON = s -> MELEE.test(s) || s.is(ItemTags.BOW_ENCHANTABLE);
 
     private Colony colony;
@@ -46,6 +49,14 @@ public final class GuardCombatTask extends ColonyTask {
     private long retargetAt;
     private long moveAt;
     private long swapAt;
+    /** Give-up bookkeeping: tracked target id, best distance so far and the tick of the last progress. */
+    private int trackedId = -1;
+    private double trackedBest;
+    private long trackedSince;
+    /** Targets this guard gave up on (entity id -> until tick). */
+    private final Map<Integer, Long> unreachable = new HashMap<>();
+    private static final int GIVE_UP_TICKS = 200;
+    private static final int IGNORE_TICKS = 600;
 
     public GuardCombatTask() {
         super(1200);
@@ -55,14 +66,50 @@ public final class GuardCombatTask extends ColonyTask {
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.isTrading() || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) return false;
         this.colony = colony;
-        LivingEntity t = pickTarget(level, v, colony);
+        LivingEntity t = pickTarget(level, v);
         return t != null || recentAlarm(level, colony) || v.getHealth() < v.getMaxHealth() * 0.3f;
     }
 
-    private static LivingEntity pickTarget(ServerLevel level, Villager v, Colony colony) {
+    /** Memory target if it attacks the colony; else the nearest attacker; else memory; else the nearest threat. */
+    private LivingEntity pickTarget(ServerLevel level, Villager v) {
+        long now = level.getGameTime();
+        unreachable.values().removeIf(until -> until <= now);
         LivingEntity mem = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get()).orElse(null);
-        if (ThreatManager.isValidHostile(mem) && ThreatManager.inColony(colony, mem)) return mem;
-        return ThreatManager.findThreat(level, colony);
+        boolean memOk = mem != null && ThreatManager.keepsTarget(level, colony, mem) && !gaveUp(mem)
+                && !ThreatManager.isIgnored(colony, mem, now);
+        if (memOk && ThreatManager.isAttacking(level, colony, mem)) return mem;
+        LivingEntity attacker = ThreatManager.nearestThreat(level, colony, v, this::gaveUp, true);
+        if (attacker != null) return attacker;
+        if (memOk) return mem;
+        return ThreatManager.nearestThreat(level, colony, v, this::gaveUp, false);
+    }
+
+    private boolean gaveUp(LivingEntity e) {
+        return unreachable.containsKey(e.getId());
+    }
+
+    /** True (and the target is dropped) when the guard made no progress on it for GIVE_UP_TICKS. */
+    private boolean giveUpIfStuck(ServerLevel level, Villager v, long now) {
+        double dist = Math.sqrt(v.distanceToSqr(target));
+        boolean hitting = target.getLastHurtByMob() == v && target.tickCount - target.getLastHurtByMobTimestamp() <= 100;
+        if (target.getId() != trackedId) {
+            trackedId = target.getId();
+            trackedBest = dist;
+            trackedSince = now;
+        } else if (dist < trackedBest - 1.0 || hitting) {
+            trackedBest = Math.min(trackedBest, dist);
+            trackedSince = now;
+        } else if (now - trackedSince > GIVE_UP_TICKS) {
+            unreachable.put(target.getId(), now + IGNORE_TICKS);
+            // nobody can reach it: it must not keep the alarm alive either (cleared again if it hurts someone)
+            ThreatManager.ignore(level, colony, target, IGNORE_TICKS);
+            v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
+            WaypointNavigator.reset(v);
+            target = null;
+            trackedId = -1;
+            return true;
+        }
+        return false;
     }
 
     private static boolean recentAlarm(ServerLevel level, Colony colony) {
@@ -74,14 +121,15 @@ public final class GuardCombatTask extends ColonyTask {
         if (v.isSleeping() || v.isTrading() || colony == null || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) return false;
         // running behaviors keep ticking after an activity switch: stop once the controller leaves FIGHT
         if (VillagerUtil.currentActivity(v) != Activity.FIGHT) return false;
-        return (target != null && target.isAlive() && ThreatManager.inColony(colony, target))
+        return (target != null && target.isAlive() && ThreatManager.inColony(colony, target, ThreatManager.BORDER_MARGIN))
                 || recentAlarm(level, colony) || v.getHealth() < v.getMaxHealth() * 0.6f;
     }
 
     @Override
     protected void start(ServerLevel level, Villager v, long now) {
         attackReadyAt = retargetAt = moveAt = swapAt = now;
-        target = pickTarget(level, v, colony);
+        target = pickTarget(level, v);
+        trackedId = -1;
         if (v.getMainHandItem().isEmpty() && !swapWeapon(level, v, ANY_WEAPON)) {
             ItemStack weapon = ColonyStorage.withdrawOne(level, colony, ANY_WEAPON);
             if (!weapon.isEmpty()) v.setItemSlot(EquipmentSlot.MAINHAND, weapon);
@@ -90,14 +138,17 @@ public final class GuardCombatTask extends ColonyTask {
 
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
-        if (GuardShield.tick(level, v, colony)) return;
+        boolean shielding = GuardShield.tick(level, v, colony);
         if (v.getHealth() < v.getMaxHealth() * 0.3f) {
             retreat(level, v, now);
             return;
         }
         if (now >= retargetAt) {
-            target = pickTarget(level, v, colony);
+            target = pickTarget(level, v);
             retargetAt = now + 10;
+        }
+        if (target != null && giveUpIfStuck(level, v, now)) {
+            retargetAt = now;
         }
         if (target == null) {
             v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
@@ -112,7 +163,7 @@ public final class GuardCombatTask extends ColonyTask {
             }
             return;
         }
-        fight(level, v, now);
+        fight(level, v, now, shielding);
     }
 
     private void retreat(ServerLevel level, Villager v, long now) {
@@ -141,9 +192,17 @@ public final class GuardCombatTask extends ColonyTask {
         return best == null || best == v ? colony.core() : best.blockPosition();
     }
 
-    private void fight(ServerLevel level, Villager v, long now) {
+    private void fight(ServerLevel level, Villager v, long now, boolean shielding) {
         v.getBrain().setMemory(ModRegistries.THREAT_TARGET.get(), target);
         double d2 = v.distanceToSqr(target);
+        if (shielding) {
+            // blocking an arrow: keep closing in, just do not attack
+            if (d2 > 4 && now >= moveAt && !v.getMainHandItem().is(Items.BOW)) {
+                WaypointNavigator.travel(level, v, target.blockPosition(), 0.72);
+                moveAt = now + 12;
+            }
+            return;
+        }
         boolean recentlyHurt = v.getLastHurtByMob() != null && v.tickCount - v.getLastHurtByMobTimestamp() <= 30;
         boolean visible = v.hasLineOfSight(target);
         boolean preferRanged = d2 >= 25 && !recentlyHurt && visible;
@@ -282,5 +341,6 @@ public final class GuardCombatTask extends ColonyTask {
         v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
         colony = null;
         target = null;
+        trackedId = -1;
     }
 }

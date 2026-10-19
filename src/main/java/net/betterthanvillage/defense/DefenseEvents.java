@@ -54,7 +54,7 @@ public final class DefenseEvents {
         if (!(victim instanceof Villager) && (!(victim instanceof IronGolem) || !ThreatManager.isValidHostile(attacker))) {
             return;
         }
-        Colony colony = ColonyManager.colonyAt(level, victim.blockPosition());
+        Colony colony = victim instanceof Villager v ? ColonyManager.colonyOf(level, v) : ColonyManager.colonyAt(level, victim.blockPosition());
         if (colony != null) ThreatManager.reportAttack(level, colony, attacker);
     }
 
@@ -67,10 +67,9 @@ public final class DefenseEvents {
         }
         Entity victim = hit.getEntity();
         if (!(victim instanceof Villager) && !(victim instanceof IronGolem)) return;
-        Colony shooter = ColonyManager.colonyAt(level, owner.blockPosition());
+        Colony shooter = ColonyManager.colonyOf(level, owner);
         if (shooter == null || shooter.roleOf(owner.getUUID()) != ColonyRole.GUARD) return;
-        Colony at = ColonyManager.colonyAt(level, victim.blockPosition());
-        if (at != null && at.id().equals(shooter.id())) {
+        if (ThreatManager.memberOf(level, shooter, victim)) {
             p.discard();
             event.setCanceled(true);
         }
