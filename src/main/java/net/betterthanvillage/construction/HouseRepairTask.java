@@ -12,17 +12,16 @@ import net.betterthanvillage.colony.PathBudget;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -32,6 +31,7 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
@@ -44,6 +44,7 @@ public final class HouseRepairTask extends ColonyTask {
     private BlockPos target;
     private BlockPos stand;
     private long startTime;
+    private int standPage;
 
     public HouseRepairTask() {
         super(600);
@@ -72,7 +73,15 @@ public final class HouseRepairTask extends ColonyTask {
     protected void stop(ServerLevel level, Villager v, long now) {
         Colony colony = colony(level, v);
         if (colony != null && target != null && colony.repairs.containsKey(target) && now - startTime >= 500) {
-            Damage.cooldowns(colony).put(target, now + Damage.REPAIR_COOLDOWN);
+            // a repair that keeps failing is dropped after three attempts
+            int n = Damage.failures(colony).merge(target, 1, Integer::sum);
+            if (n >= 3) {
+                colony.repairs.remove(target);
+                Damage.failures(colony).remove(target);
+                ColonyManager.markDirty(level);
+            } else {
+                Damage.cooldowns(colony).put(target, now + Damage.REPAIR_COOLDOWN);
+            }
         }
         target = null;
     }
@@ -84,10 +93,14 @@ public final class HouseRepairTask extends ColonyTask {
         if (colony == null) return;
         target = null;
         double best = Double.MAX_VALUE;
+        int bestY = Integer.MAX_VALUE;
         Damage.Supply[] supply = new Damage.Supply[1];
+        // bottom-up (supports first), nearest among the lowest
         for (Map.Entry<BlockPos, BlockState> e : new ArrayList<>(colony.repairs.entrySet())) {
+            int y = e.getKey().getY();
             double d = e.getKey().distSqr(v.blockPosition());
-            if (d < best && Damage.actionable(level, colony, e.getKey(), e.getValue(), supply)) {
+            if ((y < bestY || (y == bestY && d < best)) && Damage.actionable(level, colony, e.getKey(), e.getValue(), supply)) {
+                bestY = y;
                 best = d;
                 target = e.getKey();
             }
@@ -117,16 +130,20 @@ public final class HouseRepairTask extends ColonyTask {
                 return;
             }
         }
-        Predicate<ItemStack> accepted = s -> BuildPlan.accepts(intended, s);
-        ItemStack stack = accepted.test(v.getMainHandItem()) ? v.getMainHandItem() : ItemStack.EMPTY;
-        if (stack.isEmpty()) {
-            SimpleContainer inv = v.getInventory();
-            for (int i = 0; i < inv.getContainerSize() && stack.isEmpty(); i++) {
-                if (accepted.test(inv.getItem(i))) stack = inv.getItem(i);
+        BuildCost.Cost cost = BuildCost.at(level, pos, intended);
+        BuildCost.Source carried = BuildCost.inventory(v);
+        if (!cost.free() && BuildCost.payable(cost, carried) == null) {
+            BuildCost.Option option = BuildCost.payable(cost, BuildCost.union(carried, BuildCost.storage(level, colony)));
+            if (option == null) {
+                WorkTracker.status(v, STATUS_NEED_MATERIALS);
+                return;
             }
-        }
-        if (stack.isEmpty()) {
-            BlockPos storage = ColonyStorage.nearestContaining(level, colony, v.blockPosition(), accepted);
+            List<BuildCost.Part> missing = new ArrayList<>();
+            for (BuildCost.Part part : option.parts()) {
+                if (carried.count(part) < part.count()) missing.add(part);
+            }
+            Predicate<ItemStack> wanted = st -> missing.stream().anyMatch(part -> part.match().test(st));
+            BlockPos storage = ColonyStorage.nearestContaining(level, colony, v.blockPosition(), wanted);
             if (storage == null) {
                 WorkTracker.status(v, STATUS_NEED_MATERIALS);
                 return;
@@ -135,15 +152,19 @@ public final class HouseRepairTask extends ColonyTask {
                 Nav.approach(level, v, storage, 0.8, Nav.R2_DEFAULT);
                 return;
             }
-            Item item = BuildPlan.materialItem(intended);
-            int same = 0;
-            for (BlockState s : colony.repairs.values()) {
-                if (BuildPlan.materialItem(s) == item) same++;
+            for (BuildCost.Part part : missing) {
+                int need = part.count() - carried.count(part);
+                // bulk material for several repairs at once
+                if (part.bulk()) need = Math.max(need, Math.min(16, colony.repairs.size()));
+                while (need > 0) {
+                    ItemStack taken = ColonyStorage.takeFrom(level, colony, storage, part.match(), need);
+                    if (taken.isEmpty()) break;
+                    need -= taken.getCount();
+                    ItemStack rest = v.getInventory().addItem(taken);
+                    if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
+                    if (!rest.isEmpty()) v.spawnAtLocation(rest);
+                }
             }
-            ItemStack taken = ColonyStorage.takeFrom(level, colony, storage, accepted, Math.max(1, Math.min(16, same)));
-            ItemStack rest = v.getInventory().addItem(taken);
-            if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
-            if (!rest.isEmpty()) v.spawnAtLocation(rest);
             return;
         }
         if (!HouseConstructionTask.withinReach(v, pos)) {
@@ -167,31 +188,34 @@ public final class HouseRepairTask extends ColonyTask {
             SafeEditScope.run(() -> level.setBlock(pos, before, 3));
             return;
         }
-        stack.shrink(1);
-        if (v.getMainHandItem().isEmpty()) v.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        BlockPos partnerDone = partner;
+        if (!BuildCost.pay(cost, carried)) {
+            SafeEditScope.run(() -> {
+                if (partnerDone != null) level.setBlock(partnerDone, Blocks.AIR.defaultBlockState(), 3);
+                level.setBlock(pos, before, 3);
+            });
+            return;
+        }
         v.swing(InteractionHand.MAIN_HAND);
         WorkTracker.credit(v, "восстановление дома", 1);
         colony.repairs.remove(pos);
+        Damage.failures(colony).remove(pos);
         if (partner != null) colony.repairs.remove(partner);
         ColonyManager.markDirty(level);
         target = null;
     }
 
-    /** Door: other half; bed: the other part along facing. */
+    /** Door/double plant: other half; bed: the other part along facing. */
     static BlockPos partnerPos(BlockPos pos, BlockState s) {
-        if (s.getBlock() instanceof DoorBlock) {
-            return s.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
-        }
-        if (s.getBlock() instanceof BedBlock) {
-            Direction facing = s.getValue(BedBlock.FACING);
-            return s.getValue(BedBlock.PART) == BedPart.FOOT ? pos.relative(facing) : pos.relative(facing.getOpposite());
-        }
-        return null;
+        return BuildCost.partner(pos, s);
     }
 
     static BlockState partnerState(BlockState s) {
         if (s.getBlock() instanceof DoorBlock) {
             return s.setValue(DoorBlock.HALF, s.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? DoubleBlockHalf.UPPER : DoubleBlockHalf.LOWER);
+        }
+        if (s.getBlock() instanceof DoublePlantBlock) {
+            return s.setValue(DoublePlantBlock.HALF, s.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.LOWER ? DoubleBlockHalf.UPPER : DoubleBlockHalf.LOWER);
         }
         return s.setValue(BedBlock.PART, s.getValue(BedBlock.PART) == BedPart.FOOT ? BedPart.HEAD : BedPart.FOOT);
     }
@@ -228,11 +252,15 @@ public final class HouseRepairTask extends ColonyTask {
             }
         }
         if (candidates.isEmpty() || !PathBudget.tryAcquire(level)) return;
-        Path path = Paths.find(v, candidates);
+        List<BlockPos> ordered = new ArrayList<>(candidates);
+        ordered.sort(java.util.Comparator.comparingDouble(c -> HouseConstructionTask.horizontal(c, pos) + 0.35 * c.distSqr(v.blockPosition())));
+        Path path = Paths.find(v, Paths.window(ordered, standPage));
         if (path != null && path.canReach() && path.getTarget() != null) {
             stand = path.getTarget();
+            standPage = 0;
             Nav.approach(level, v, stand, 0.85, Nav.R2_DEFAULT);
         } else {
+            standPage++;
             WorkTracker.status(v, STATUS_SEARCH_APPROACH);
         }
     }

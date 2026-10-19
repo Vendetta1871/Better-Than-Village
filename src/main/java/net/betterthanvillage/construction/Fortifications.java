@@ -61,6 +61,8 @@ public final class Fortifications {
         long builderTime = Long.MIN_VALUE;
         UUID builder;
         boolean builderHasJob;
+        /** Wall gates the gate controller opened (only those are closed again). */
+        final java.util.Set<BlockPos> opened = new java.util.HashSet<>();
     }
 
     static Runtime runtime(Colony colony) {
@@ -203,11 +205,38 @@ public final class Fortifications {
     public static void onPlotAccepted(ServerLevel level, Colony colony, int x0, int z0, int w, int d) {
         FortificationState f = colony.fortifications;
         if (f.radius == 0) return;
-        double max = cornerDist(colony.core(), new BoundingBox(x0 - 4, 0, z0 - 4, x0 + w - 1 + 4, 0, z0 + d - 1 + 4));
-        int need = (int) Math.ceil((max + 8) / 8) * 8;
-        if (need > f.radius && need <= colony.radius() - 4) {
-            relocate(level, colony, need);
+        int need = neededFor(colony, x0, z0, w, d);
+        if (need <= f.radius) return;
+        if (need > colony.radius() - 4) {
+            if (need + 8 > ColonyConfig.get().village.expansion_radius_max) return;
+            colony.growRadius(need + 8);
         }
+        relocate(level, colony, need);
+    }
+
+    /** Wall radius needed to enclose a footprint (plus 4) with the usual 8-block margin. */
+    private static int neededFor(Colony colony, int x0, int z0, int w, int d) {
+        double max = cornerDist(colony.core(), new BoundingBox(x0 - 4, 0, z0 - 4, x0 + w - 1 + 4, 0, z0 + d - 1 + 4));
+        return (int) Math.ceil((max + 8) / 8) * 8;
+    }
+
+    /** The wall ring crosses the footprint (within 1 block) and cannot be moved out (radius cap). */
+    public static boolean wallBlocksPlot(Colony colony, int x0, int z0, int w, int d) {
+        int r = colony.fortifications.radius;
+        if (r == 0) return false;
+        BlockPos core = colony.core();
+        int minX = x0 - 1, minZ = z0 - 1, maxX = x0 + w, maxZ = z0 + d;
+        double nx = Math.max(minX, Math.min(core.getX(), maxX)) - core.getX();
+        double nz = Math.max(minZ, Math.min(core.getZ(), maxZ)) - core.getZ();
+        double near = Math.sqrt(nx * nx + nz * nz);
+        double far = cornerDist(core, new BoundingBox(minX, 0, minZ, maxX, 0, maxZ));
+        if (near > r + 1 || far < r - 1) return false;
+        return neededFor(colony, x0, z0, w, d) + 8 > ColonyConfig.get().village.expansion_radius_max;
+    }
+
+    /** Postpones a wall job without counting a failure. */
+    static void postpone(Colony colony, FortBlock job, long now) {
+        runtime(colony).retry.put(job.pos(), now + FAILURE_RETRY);
     }
 
     // ---------------------------------------------------------------- ring layout
@@ -349,7 +378,7 @@ public final class Fortifications {
         for (FortBlock b : f.pending.values()) {
             if (removals && !b.remove()) continue;
             if (rt.retry.containsKey(b.pos()) || !level.isLoaded(b.pos())) continue;
-            if (!b.remove() && stock(level, colony, b.state()) <= 32) continue;
+            if (!b.remove() && stock(level, colony, b.state()) <= stockReserve(colony)) continue;
             boolean near = nearWork(colony, b.pos());
             if (requireNear && !b.remove() && !near) continue;
             boolean priority = b.remove() && near;
@@ -402,6 +431,11 @@ public final class Fortifications {
             }
         }
         return rt.builderHasJob && v.getUUID().equals(rt.builder);
+    }
+
+    /** Material the wall leaves in storage: houses come first while one is under construction. */
+    static int stockReserve(Colony colony) {
+        return colony.hasActiveConstruction() ? 128 : 32;
     }
 
     /** Requires a single builder with an active project to stay near the current works. */
@@ -461,13 +495,25 @@ public final class Fortifications {
 
     /** Opens wall gates for nearby villagers/golems and closes them otherwise (05 §4.6). */
     static void gateControl(ServerLevel level, Colony colony) {
+        java.util.Set<BlockPos> opened = runtime(colony).opened;
         for (FortBlock b : colony.fortifications.managed.values()) {
             if (!(b.state().getBlock() instanceof FenceGateBlock) || !level.isLoaded(b.pos())) continue;
             BlockState s = level.getBlockState(b.pos());
             if (!(s.getBlock() instanceof FenceGateBlock) || s.getValue(FenceGateBlock.POWERED)) continue;
-            boolean open = wanted(level, b.pos());
-            if (s.getValue(FenceGateBlock.OPEN) != open) {
-                SafeEditScope.run(() -> level.setBlock(b.pos(), s.setValue(FenceGateBlock.OPEN, open), 3));
+            boolean isOpen = s.getValue(FenceGateBlock.OPEN);
+            boolean colonist = wanted(level, b.pos());
+            boolean want = colonist || playerAt(level, b.pos());
+            if (want && !isOpen) {
+                SafeEditScope.run(() -> level.setBlock(b.pos(), s.setValue(FenceGateBlock.OPEN, true), 3));
+                opened.add(b.pos());
+            } else if (colonist && isOpen && !playerAt(level, b.pos())) {
+                // an open gate in colony use is closed after it (also after a restart lost the tracking)
+                opened.add(b.pos());
+            } else if (!want && isOpen && opened.remove(b.pos())) {
+                // only gates opened here are closed again; a gate a player opened stays open
+                SafeEditScope.run(() -> level.setBlock(b.pos(), s.setValue(FenceGateBlock.OPEN, false), 3));
+            } else if (!isOpen) {
+                opened.remove(b.pos());
             }
         }
     }
@@ -487,6 +533,11 @@ public final class Fortifications {
             }
         }
         return false;
+    }
+
+    /** A player stands in or next to the gate. */
+    private static boolean playerAt(ServerLevel level, BlockPos gate) {
+        return !level.getEntitiesOfClass(net.minecraft.world.entity.player.Player.class, new AABB(gate).inflate(1, 1, 1), p -> !p.isSpectator()).isEmpty();
     }
 
     /** Living entity occupying a block. */

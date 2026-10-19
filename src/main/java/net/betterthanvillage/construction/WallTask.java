@@ -91,7 +91,14 @@ public final class WallTask extends ColonyTask {
             finish(level, colony, false);
             return;
         }
-        if (Fortifications.blockedPosition(level, pos) || Damage.isProtectedHousePiece(level, pos) || (!job.remove() && nearActivePlot(colony, pos))) {
+        if (!job.remove() && nearActivePlot(colony, pos)) {
+            // retry once the plot is finished instead of leaving a permanent gap
+            Fortifications.postpone(colony, job, now);
+            current = null;
+            timer.cancel(level);
+            return;
+        }
+        if (Fortifications.blockedPosition(level, pos) || Damage.isProtectedHousePiece(level, pos)) {
             finish(level, colony, false);
             return;
         }
@@ -173,7 +180,7 @@ public final class WallTask extends ColonyTask {
     private void placeBlock(ServerLevel level, Colony colony, Villager v, FortBlock job) {
         BlockPos pos = job.pos();
         v.swing(InteractionHand.MAIN_HAND);
-        if (Fortifications.stock(level, colony, job.state()) <= 32 || Fortifications.occupied(level, pos)) return;
+        if (Fortifications.stock(level, colony, job.state()) <= Fortifications.stockReserve(colony) || Fortifications.occupied(level, pos)) return;
         boolean ok = ColonyStorage.transaction(level, colony, () -> {
             ItemStack one = ColonyStorage.withdrawOne(level, colony, s -> Fortifications.accepts(job.state(), s));
             return !one.isEmpty() && SafeEditScope.call(() -> level.setBlock(pos, job.state(), 3));

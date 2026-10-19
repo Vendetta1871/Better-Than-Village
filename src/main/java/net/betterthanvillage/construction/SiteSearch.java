@@ -10,11 +10,13 @@ import net.betterthanvillage.colony.PathBudget;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.ai.nav.Nav;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -22,8 +24,10 @@ import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Plot site selection: square spiral, fit test and reachability (05 §2.3). */
@@ -46,35 +50,96 @@ public final class SiteSearch {
         return new int[]{k, k - (m - 3 * side)};
     }
 
-    /** One search call; returns the plot origin or null. Uses and advances colony.houseSiteCursor. */
-    public static BlockPos step(ServerLevel level, Colony colony, int w, int d, int h, boolean offline) {
+    /** Template footprint (unrotated) and entrance (local position and outward face, null if unknown). */
+    public record Spec(int w, int d, int h, BlockPos entrance, Direction facing) {
+    }
+
+    /** Accepted site: origin (min corner of the rotated footprint), rotation ordinal and rotated footprint. */
+    public record Site(BlockPos origin, int rotation, int w, int d) {
+    }
+
+    /** Per-call cache of Terrain.treeLog results (the leaf scan is expensive in forests). */
+    private static Map<Long, Boolean> treeCache;
+
+    /** One search call; returns the site or null. Uses and advances colony.houseSiteCursor. */
+    public static Site step(ServerLevel level, Colony colony, Spec spec, boolean offline) {
         if (colony.houseSiteCursor < 0) return null;
         int r = Math.min(colony.radius(), ColonyConfig.get().village.expansion_radius_max);
         long maxIndex = (2L * r + 1) * (2L * r + 1);
-        int big = Math.max(w, d);
+        int big = Math.max(spec.w(), spec.d());
         BlockPos core = colony.core();
-        for (int i = 0; i < CANDIDATES_PER_CALL && colony.houseSiteCursor < maxIndex; i++) {
-            int index = colony.houseSiteCursor++;
-            int[] o = spiral(index);
-            int dx = o[0], dz = o[1];
-            int cheb = Math.max(Math.abs(dx), Math.abs(dz));
-            if (cheb < 8 || cheb > r - big) continue;
-            long lim = r - big - 4;
-            if ((long) dx * dx + (long) dz * dz > lim * lim || lim < 0) continue;
-            int x0 = core.getX() + dx, z0 = core.getZ() + dz;
-            if (!Terrain.loaded(level, x0 - 4, z0 - 4, x0 + w + 3, z0 + d + 3)) continue;
-            BlockPos site = fit(level, colony, x0, z0, w, d, h);
-            if (site == null) continue;
-            List<BlockPos> road = Roads.route(level, colony, x0, z0, w, d);
-            if (road == null) continue;
-            if (!offline && !reachable(level, colony, x0, z0, w, d)) continue;
-            Fortifications.onPlotAccepted(level, colony, x0, z0, w, d);
-            Roads.store(colony, road, offline);
-            colony.houseSiteCursor = -1;
-            return site;
+        if (colony.houseSiteCursor == 0) colony.runtime.put(EDGE_KEY, Boolean.FALSE);
+        treeCache = new HashMap<>();
+        try {
+            for (int i = 0; i < CANDIDATES_PER_CALL && colony.houseSiteCursor < maxIndex; i++) {
+                int index = colony.houseSiteCursor++;
+                int[] o = spiral(index);
+                int dx = o[0], dz = o[1];
+                int cheb = Math.max(Math.abs(dx), Math.abs(dz));
+                if (cheb < 8 || cheb > r - big) continue;
+                long lim = r - big - 4;
+                long dist2 = (long) dx * dx + (long) dz * dz;
+                if (dist2 > lim * lim || lim < 0) continue;
+                int rotation = rotationFacing(spec, dx, dz);
+                boolean quarter = rotation % 2 == 1;
+                int w = quarter ? spec.d() : spec.w(), d = quarter ? spec.w() : spec.d();
+                int x0 = core.getX() + dx, z0 = core.getZ() + dz;
+                if (!Terrain.loaded(level, x0 - 4, z0 - 4, x0 + w + 3, z0 + d + 3)) continue;
+                if (dist2 >= (lim - 8) * (lim - 8)) colony.runtime.put(EDGE_KEY, Boolean.TRUE);
+                BlockPos site = fit(level, colony, x0, z0, w, d, spec.h());
+                if (site == null) continue;
+                if (Fortifications.wallBlocksPlot(colony, x0, z0, w, d)) continue;
+                List<BlockPos> road = Roads.route(level, colony, x0, z0, w, d, entranceDoor(spec, site, rotation, w, d));
+                if (road == null) continue;
+                if (!offline && !reachable(level, colony, x0, z0, w, d)) continue;
+                Fortifications.onPlotAccepted(level, colony, x0, z0, w, d);
+                Roads.store(colony, road, offline);
+                colony.houseSiteCursor = -1;
+                return new Site(site, rotation, w, d);
+            }
+        } finally {
+            treeCache = null;
         }
         if (colony.houseSiteCursor >= maxIndex) colony.houseSiteCursor = -1;
         return null;
+    }
+
+    private static final String EDGE_KEY = "btv_site_edge";
+
+    /** The last (or running) search pass evaluated loaded candidates at the edge of the search radius. */
+    public static boolean passReachedEdge(Colony colony) {
+        return Boolean.TRUE.equals(colony.runtime.get(EDGE_KEY));
+    }
+
+    /** Rotation that turns the entrance toward the core (0 without an entrance). */
+    static int rotationFacing(Spec spec, int dx, int dz) {
+        if (spec.facing() == null) return 0;
+        Direction toCore = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? Direction.WEST : Direction.EAST) : (dz > 0 ? Direction.NORTH : Direction.SOUTH);
+        for (Rotation r : Rotation.values()) {
+            if (r.rotate(spec.facing()) == toCore) return r.ordinal();
+        }
+        return 0;
+    }
+
+    /** Road start in front of the rotated entrance, as an offset from the origin (null without an entrance). */
+    static int[] entranceDoor(Spec spec, BlockPos origin, int rotation, int w, int d) {
+        if (spec.entrance() == null || spec.facing() == null) return null;
+        Rotation r = Rotation.values()[rotation];
+        BlockPos e = BuildPlan.toWorld(origin, r, w, d, spec.entrance());
+        int ex = e.getX() - origin.getX(), ez = e.getZ() - origin.getZ();
+        return switch (r.rotate(spec.facing())) {
+            case NORTH -> new int[]{ex, -3};
+            case SOUTH -> new int[]{ex, d + 2};
+            case WEST -> new int[]{-3, ez};
+            default -> new int[]{w + 2, ez};
+        };
+    }
+
+    private static boolean treeLog(ServerLevel level, BlockPos p, BlockState s) {
+        if (!s.is(BlockTags.LOGS)) return false;
+        Map<Long, Boolean> cache = treeCache;
+        if (cache == null) return Terrain.treeLog(level, p, s);
+        return cache.computeIfAbsent(p.asLong(), k -> Terrain.treeLog(level, BlockPos.of(k), s));
     }
 
     /** Ground height for a footprint column (05 §2.3 step 3), or Integer.MIN_VALUE if rejected. */
@@ -82,7 +147,7 @@ public final class SiteSearch {
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1, z);
         for (int i = 0; i < 16 && p.getY() > level.getMinBuildHeight(); i++) {
             BlockState s = level.getBlockState(p);
-            if (Fortifications.isWallBlock(level, p) || s.canBeReplaced() || s.is(BlockTags.LEAVES) || Terrain.treeLog(level, p, s)) {
+            if (Fortifications.isWallBlock(level, p) || s.canBeReplaced() || s.is(BlockTags.LEAVES) || treeLog(level, p, s)) {
                 p.move(0, -1, 0);
             } else {
                 break;
@@ -119,13 +184,15 @@ public final class SiteSearch {
         int y = (min + max + 1) / 2;
         if (y > colony.core().getY() + 16) return null;
         BoundingBox b = new BoundingBox(x0 - 4, y - 4, z0 - 4, x0 + w + 3, y + h + 2, z0 + d + 3);
+        // finished houses keep a 3-block gap
+        BoundingBox near = new BoundingBox(x0 - 3, y - 4, z0 - 3, x0 + w + 2, y + h + 2, z0 + d + 2);
         ColonySavedData data = ColonyManager.data(level);
         for (LandPlot plot : data.land) {
             if (plot.intersects(b)) return null;
         }
         for (Colony c : data.colonies()) {
             for (ConstructionJob job : c.jobs) {
-                if (HousePlanner.activePlot(job) && job.box().intersects(b)) return null;
+                if (HousePlanner.activePlot(job) ? job.box().intersects(b) : job.countsAsCompleted() && job.box().intersects(near)) return null;
             }
         }
         for (BlockPos m : colony.mineRoute) {
@@ -141,7 +208,7 @@ public final class SiteSearch {
                     if (!s.getFluidState().isEmpty()) return null;
                     boolean ok = Fortifications.isWallBlock(level, p) || s.isAir() || s.canBeReplaced()
                             || (Terrain.natural(s) && !s.is(Blocks.DIRT_PATH) && !s.is(Blocks.FARMLAND))
-                            || s.is(BlockTags.LEAVES) || Terrain.treeLog(level, p, s) || Terrain.smallPlant(s);
+                            || s.is(BlockTags.LEAVES) || treeLog(level, p, s) || Terrain.smallPlant(s);
                     if (!ok) return null;
                 }
             }

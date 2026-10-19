@@ -21,16 +21,14 @@ import net.betterthanvillage.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.Path;
@@ -83,6 +81,8 @@ public final class HouseConstructionTask extends ColonyTask {
     private long fetchWatchdog;
     /** The last fetch found no material anywhere (a no-progress stall is then not the plot's fault). */
     private boolean starved;
+    /** Candidate window of the next stand probe. */
+    private int standPage;
 
     public HouseConstructionTask() {
         super(12000);
@@ -219,7 +219,7 @@ public final class HouseConstructionTask extends ColonyTask {
             job.blockCount = 0;
         }
         if (job.nextBlock >= job.totalBlocks) {
-            HousePlanner.complete(level, job);
+            finish(level, colony);
             return;
         }
         current = plan.get(job.nextBlock);
@@ -227,8 +227,25 @@ public final class HouseConstructionTask extends ColonyTask {
         BlockPos pos = current.pos();
         v.getBrain().setMemory(ModRegistries.BUILD_TARGET_POS.get(), pos);
         BlockState world = level.getBlockState(pos);
-        if (!current.clear() && !BuildPlan.free(current.state()) && !BuildPlan.matches(world, current.state()) && !hasMaterial(v, current.state())) {
-            fetch(level, colony, v, current, now);
+        BuildCost.Cost cost = cost(level, current);
+        if (cost != null && !cost.free() && !BuildPlan.matches(world, current.state())
+                && !placementProtected(level, pos, world) && BuildCost.payable(cost, BuildCost.inventory(v)) == null) {
+            BuildCost.Option option = BuildCost.payable(cost, BuildCost.union(BuildCost.inventory(v), BuildCost.storage(level, colony)));
+            if (option != null) {
+                fetch(level, colony, v, cost, option, now);
+                return;
+            }
+            if (cost.kind() == BuildCost.Kind.STRUCTURAL) {
+                WorkTracker.status(v, STATUS_WAIT_MATERIALS);
+                starved = true;
+                nextActionTime = now + 40;
+                return;
+            }
+            // functional blocks wait as repair entries (built when material arrives); decoration is skipped
+            if (cost.kind() == BuildCost.Kind.DEFERRABLE) Damage.defer(level, colony, pos, current.state());
+            job.nextBlock++;
+            job.lastProgressTick = now;
+            if (job.nextBlock >= job.totalBlocks) finish(level, colony);
             return;
         }
         boolean occupied = current.clear() ? standsOn(v, pos)
@@ -254,7 +271,7 @@ public final class HouseConstructionTask extends ColonyTask {
                     WorkTracker.credit(v, current.clear() ? "подготовка участка" : current.foundation() ? "фундамент" : "строительство", 1);
                 }
                 nextActionTime = now + 1;
-                if (job.nextBlock >= job.totalBlocks) HousePlanner.complete(level, job);
+                if (job.nextBlock >= job.totalBlocks) finish(level, colony);
             }
             return;
         }
@@ -267,6 +284,23 @@ public final class HouseConstructionTask extends ColonyTask {
             nextStandTime = now + 20;
             approachStand(level, v, pos, now);
         }
+    }
+
+    /** Completion with a final check: damage done while building rewinds the plan (05 §2.5). */
+    private void finish(ServerLevel level, Colony colony) {
+        int rewind = BuildPlan.verify(level, colony, job, plan, !job.verified);
+        job.verified = true;
+        if (rewind >= 0) {
+            job.nextBlock = rewind;
+            return;
+        }
+        HousePlanner.complete(level, job);
+    }
+
+    /** Material cost of a step (null for clear steps). */
+    static BuildCost.Cost cost(ServerLevel level, BuildPlan.Step s) {
+        if (s.clear()) return null;
+        return s.foundation() ? BuildCost.FOUNDATION : BuildCost.at(level, s.pos(), s.state());
     }
 
     // ---------------------------------------------------------------- steps
@@ -316,7 +350,10 @@ public final class HouseConstructionTask extends ColonyTask {
                     nextStandTime = now;
                     return false;
                 }
-                return SafeEdit.breakBlock(level, v, pos);
+                List<ItemStack> drops = Block.getDrops(world, level, pos, level.getBlockEntity(pos), v, v.getMainHandItem());
+                if (!SafeEdit.breakBlock(level, v, pos)) return false;
+                depositDrops(level, colony, v, drops);
+                return true;
             }
             return true;
         }
@@ -331,8 +368,9 @@ public final class HouseConstructionTask extends ColonyTask {
             ColonyManager.markDirty(level);
             return false;
         }
-        boolean free = BuildPlan.free(s.state());
-        if (!free && !hasMaterial(v, s.state())) return false;
+        BuildCost.Cost cost = cost(level, s);
+        BuildCost.Source carried = BuildCost.inventory(v);
+        if (!cost.free() && BuildCost.payable(cost, carried) == null) return false;
         if (blockedByEntity(level, pos, s.state())) {
             WorkTracker.status(v, STATUS_OCCUPIED + pos.toShortString());
             for (LivingEntity e : Paths.occupants(level, pos)) {
@@ -346,7 +384,7 @@ public final class HouseConstructionTask extends ColonyTask {
             pushOut(level, job, pos, now);
             return false;
         }
-        if (!free && !consumeMaterial(v, s.state())) {
+        if (!BuildCost.pay(cost, carried)) {
             SafeEditScope.run(() -> level.setBlock(pos, world, 3));
             return false;
         }
@@ -413,36 +451,21 @@ public final class HouseConstructionTask extends ColonyTask {
 
     // ---------------------------------------------------------------- materials
 
-    static boolean hasMaterial(Villager v, BlockState state) {
-        return Damage.carried(v, state);
+    /** Deposits drops of a cleared block into colony storage (leftovers drop at the villager). */
+    static void depositDrops(ServerLevel level, Colony colony, Villager v, List<ItemStack> drops) {
+        for (ItemStack d : drops) {
+            ColonyStorage.deposit(level, colony, d);
+            if (!d.isEmpty()) v.spawnAtLocation(d);
+        }
     }
 
-    /** Consumes one accepted item (main hand first, then inventory). */
-    static boolean consumeMaterial(Villager v, BlockState state) {
-        ItemStack hand = v.getMainHandItem();
-        if (BuildPlan.accepts(state, hand)) {
-            hand.shrink(1);
-            if (hand.isEmpty()) v.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
-            return true;
+    private void fetch(ServerLevel level, Colony colony, Villager v, BuildCost.Cost cost, BuildCost.Option option, long now) {
+        BuildCost.Source carried = BuildCost.inventory(v);
+        List<BuildCost.Part> missing = new ArrayList<>();
+        for (BuildCost.Part part : option.parts()) {
+            if (carried.count(part) < part.count()) missing.add(part);
         }
-        Container inv = v.getInventory();
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (BuildPlan.accepts(state, s)) {
-                s.shrink(1);
-                inv.setChanged();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void fetch(ServerLevel level, Colony colony, Villager v, BuildPlan.Step step, long now) {
-        BlockState target = step.state();
-        int logs = ColonyStorage.count(level, colony, s -> s.is(ItemTags.LOGS));
-        int stone = ColonyStorage.count(level, colony, s -> s.is(ItemTags.STONE_CRAFTING_MATERIALS));
-        Predicate<ItemStack> p = s -> BuildPlan.accepts(target, s);
-        Predicate<ItemStack> pp = s -> p.test(s) && (!s.is(ItemTags.LOGS) || logs > 8) && (!s.is(ItemTags.STONE_CRAFTING_MATERIALS) || stone > 8);
+        Predicate<ItemStack> pp = s -> missing.stream().anyMatch(part -> part.match().test(s));
         boolean remote = false;
         BlockPos container = nearestContaining(level, colony, v, pp, true);
         if (container == null) {
@@ -480,7 +503,7 @@ public final class HouseConstructionTask extends ColonyTask {
             return;
         }
         v.getNavigation().stop();
-        if (withdrawFor(level, colony, v, container, target, p, pp, logs, stone)) {
+        if (withdrawFor(level, colony, v, container, cost, missing)) {
             starved = false;
             job.supplyStallTicks = 0;
             fetchWatchdog = now;
@@ -494,14 +517,18 @@ public final class HouseConstructionTask extends ColonyTask {
         nextActionTime = now + 10;
     }
 
-    /** Deposits non-accepted stacks, then withdraws the best accepted stack into the main hand (05 §2.6). */
-    static boolean withdrawFor(ServerLevel level, Colony colony, Villager v, BlockPos pos, BlockState target,
-                               Predicate<ItemStack> p, Predicate<ItemStack> pp, int logs, int stone) {
+    /**
+     * Deposits stacks that are no ingredient of the cost, then withdraws the missing parts from the
+     * container (05 §2.6): bulk parts (logs, stone, dirt, sand) up to a stack while keeping the
+     * storage reserve, other parts exactly as needed.
+     */
+    static boolean withdrawFor(ServerLevel level, Colony colony, Villager v, BlockPos pos, BuildCost.Cost cost, List<BuildCost.Part> missing) {
         net.minecraft.world.SimpleContainer inv = v.getInventory();
         boolean keptFood = false;
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (s.isEmpty() || p.test(s)) continue;
+            // building material and tools stay with the builder (no storage round trip per block)
+            if (s.isEmpty() || BuildCost.useful(cost, s) || BuildCost.buildingMaterial(s) || s.isDamageableItem()) continue;
             if (!keptFood && ColonyStorage.isFood(s)) {
                 keptFood = true;
                 continue;
@@ -511,38 +538,31 @@ public final class HouseConstructionTask extends ColonyTask {
         }
         Container c = ColonyStorage.container(level, pos);
         if (c == null) return false;
-        boolean wood = BuildPlan.woodLike(target), stoneLike = BuildPlan.stoneLike(target);
-        var exact = BuildPlan.materialItem(target);
-        List<Integer> slots = new ArrayList<>();
-        for (int i = 0; i < c.getContainerSize(); i++) {
-            if (pp.test(c.getItem(i))) slots.add(i);
-        }
-        slots.sort(Comparator.comparingInt(i -> {
-            ItemStack s = c.getItem(i);
-            if (exact != Items.AIR && s.is(exact)) return 0;
-            if (s.is(ItemTags.STONE_CRAFTING_MATERIALS)) return stoneLike ? 1 : 2;
-            if (!s.is(ItemTags.LOGS)) return 1;
-            return wood && logs >= 40 ? 1 : 3;
-        }));
-        for (int i : slots) {
-            ItemStack s = c.getItem(i);
-            if (!pp.test(s)) continue;
-            int amount = s.is(ItemTags.LOGS) ? logs - 8 : s.is(ItemTags.STONE_CRAFTING_MATERIALS) ? stone - 8 : 32;
-            if (amount <= 0) continue;
-            ItemStack taken = s.split(Math.min(64, Math.min(amount, s.getCount())));
-            c.setChanged();
-            ColonyStorage.decrementCounters(colony, taken);
-            ItemStack previous = v.getMainHandItem();
-            v.setItemSlot(EquipmentSlot.MAINHAND, taken);
-            if (!previous.isEmpty()) {
-                ItemStack rest = inv.addItem(previous);
-                if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
-                if (!rest.isEmpty()) v.spawnAtLocation(rest);
+        boolean any = false;
+        BuildCost.Source carried = BuildCost.inventory(v);
+        for (BuildCost.Part part : missing) {
+            int want = part.count() - carried.count(part);
+            if (part.bulk()) {
+                int stored = ColonyStorage.count(level, colony, part.match()) - BuildCost.BULK_RESERVE;
+                want = Math.min(Math.max(want, 64), stored);
             }
-            v.swing(InteractionHand.MAIN_HAND);
-            return true;
+            for (int i = 0; i < c.getContainerSize() && want > 0; i++) {
+                ItemStack s = c.getItem(i);
+                if (s.isEmpty() || !part.match().test(s)) continue;
+                ItemStack taken = s.split(Math.min(want, s.getCount()));
+                want -= taken.getCount();
+                c.setChanged();
+                ColonyStorage.decrementCounters(colony, taken);
+                ItemStack rest = inv.addItem(taken);
+                if (!rest.isEmpty()) {
+                    ColonyStorage.deposit(level, colony, rest);
+                    if (!rest.isEmpty()) v.spawnAtLocation(rest);
+                }
+                any = true;
+            }
         }
-        return false;
+        if (any) v.swing(InteractionHand.MAIN_HAND);
+        return any;
     }
 
     /** Nearest usable storage containing a matching item (optionally skipping blacklisted ones). */
@@ -610,12 +630,17 @@ public final class HouseConstructionTask extends ColonyTask {
         }
         candidates.sort(Comparator.comparingDouble(c -> 0.35 * horizontal(c, target) + c.distSqr(v.blockPosition())));
         if (!PathBudget.tryAcquire(level)) return;
-        Path path = Paths.find(v, new LinkedHashSet<>(candidates));
+        // probes see 16 goals at a time: page through the candidates until one is reachable
+        Path path = Paths.find(v, Paths.window(candidates, standPage));
         if (path != null && path.canReach() && path.getTarget() != null) {
             stand = path.getTarget();
+            standPage = 0;
         } else {
-            stand = candidates.get(0);
             WorkTracker.status(v, STATUS_SEARCH_APPROACH);
+            if (++standPage < Paths.pages(candidates)) return;
+            // nothing reachable in any window: walk toward the best candidate (blacklisted if it stays out of reach)
+            standPage = 0;
+            stand = candidates.get(0);
         }
         Nav.approach(level, v, stand, 0.8, Nav.R2_DEFAULT);
     }

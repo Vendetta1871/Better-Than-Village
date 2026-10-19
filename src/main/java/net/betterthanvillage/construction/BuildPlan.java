@@ -7,7 +7,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -17,13 +16,13 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
-import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BedPart;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.betterthanvillage.colony.Colony;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -58,7 +57,7 @@ public final class BuildPlan {
 
     /** Loads (cached) the plan for a job, or null if the template is missing. */
     public static List<Step> load(ServerLevel level, ConstructionJob job) {
-        String key = job.template + "@" + job.origin.asLong() + "/" + job.sizeX + "," + job.sizeY + "," + job.sizeZ;
+        String key = job.template + "@" + job.origin.asLong() + "/" + job.sizeX + "," + job.sizeY + "," + job.sizeZ + "/" + job.rotation;
         synchronized (CACHE) {
             List<Step> cached = CACHE.get(key);
             if (cached != null) return cached;
@@ -77,23 +76,24 @@ public final class BuildPlan {
 
     private static List<Step> build(ConstructionJob job, StructureTemplate template) {
         BoundingBox box = job.box();
-        BlockPos origin = job.origin;
+        Rotation rotation = rotation(job);
         Map<BlockPos, BlockState> blocks = new HashMap<>();
         Set<BlockPos> keep = new HashSet<>();
         for (StructureTemplate.StructureBlockInfo info : HouseCatalog.blocks(template)) {
             BlockState s = info.state();
+            BlockPos p = toWorld(job, info.pos());
             if (s.is(Blocks.JIGSAW)) {
                 s = jigsawFinalState(info);
                 if (s == null) {
                     // structure_void (or unreadable) final state: leave the world as it is
-                    keep.add(origin.offset(info.pos()));
+                    keep.add(p);
                     continue;
                 }
             }
             if (s.is(Blocks.STRUCTURE_BLOCK)) {
                 continue;
             }
-            blocks.put(origin.offset(info.pos()), s);
+            blocks.put(p, s.rotate(rotation));
         }
         List<Step> steps = new ArrayList<>();
         for (int x = box.minX() - 1; x <= box.maxX() + 1; x++) {
@@ -126,6 +126,54 @@ public final class BuildPlan {
                 .thenComparingInt(s -> -s.pos().getZ())
                 .thenComparingInt(s -> -s.pos().getX()));
         return List.copyOf(steps);
+    }
+
+    public static Rotation rotation(ConstructionJob job) {
+        return Rotation.values()[Math.floorMod(job.rotation, 4)];
+    }
+
+    /**
+     * World position of a template-local position: the template is rotated about its origin and
+     * shifted so that the rotated footprint starts at the job origin (job.sizeX/sizeZ are the
+     * rotated footprint; rotation 0 is the plain offset).
+     */
+    public static BlockPos toWorld(ConstructionJob job, BlockPos local) {
+        return toWorld(job.origin, rotation(job), job.sizeX, job.sizeZ, local);
+    }
+
+    /** As {@link #toWorld(ConstructionJob, BlockPos)} for a rotated footprint rx * rz at origin. */
+    public static BlockPos toWorld(BlockPos origin, Rotation rotation, int rx, int rz, BlockPos local) {
+        BlockPos p = StructureTemplate.calculateRelativePosition(new StructurePlaceSettings().setRotation(rotation), local);
+        // rx/rz are rotated sizes: the unrotated x size is rz for quarter turns
+        int ox = switch (rotation) {
+            case CLOCKWISE_90 -> rx - 1;
+            case CLOCKWISE_180 -> rx - 1;
+            default -> 0;
+        };
+        int oz = switch (rotation) {
+            case CLOCKWISE_180 -> rz - 1;
+            case COUNTERCLOCKWISE_90 -> rz - 1;
+            default -> 0;
+        };
+        return origin.offset(p.getX() + ox, p.getY(), p.getZ() + oz);
+    }
+
+    /**
+     * Final check of a finished plan: returns the index of the first structural placement step that
+     * is undone again (damage while building; only when rewinding is allowed), else -1. Unbuilt
+     * functional blocks (and, without rewinding, structural ones) become repair entries.
+     */
+    static int verify(ServerLevel level, Colony colony, ConstructionJob job, List<Step> plan, boolean rewind) {
+        if (plan == null) return -1;
+        for (int i = 0; i < plan.size(); i++) {
+            Step s = plan.get(i);
+            if (s.clear() || !level.isLoaded(s.pos()) || colony.repairs.containsKey(s.pos()) || satisfied(level, s)) continue;
+            if (HouseConstructionTask.placementProtected(level, s.pos(), level.getBlockState(s.pos()))) continue;
+            BuildCost.Cost c = HouseConstructionTask.cost(level, s);
+            if (c.kind() == BuildCost.Kind.STRUCTURAL && rewind) return i;
+            if (c.kind() != BuildCost.Kind.OPTIONAL && !s.foundation()) Damage.defer(level, colony, s.pos(), s.state());
+        }
+        return -1;
     }
 
     /** Final state of a template jigsaw block (as JigsawReplacementProcessor), or null for structure_void/unreadable. */
@@ -201,19 +249,6 @@ public final class BuildPlan {
         return Items.AIR;
     }
 
-    /** Second half of a two-block piece (upper door, bed head, upper double plant): paid with the first half. */
-    public static boolean secondaryHalf(BlockState state) {
-        if (state.getBlock() instanceof DoorBlock) return state.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER;
-        if (state.getBlock() instanceof BedBlock) return state.getValue(BedBlock.PART) == BedPart.HEAD;
-        if (state.getBlock() instanceof DoublePlantBlock) return state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER;
-        return false;
-    }
-
-    /** Placement costs no material. */
-    public static boolean free(BlockState state) {
-        return materialItem(state) == Items.AIR || secondaryHalf(state);
-    }
-
     public static boolean woodLike(BlockState state) {
         String path = path(state.getBlock());
         return WOOD_LIKE.stream().anyMatch(path::contains);
@@ -224,12 +259,8 @@ public final class BuildPlan {
         return STONE_LIKE.stream().anyMatch(path::contains);
     }
 
-    /** Accepted item for a state (exact item, or any #logs / #stone_crafting_materials substitute, or sand for sandstone). */
+    /** The stack is an ingredient of some way to pay for the state (see BuildCost). */
     public static boolean accepts(BlockState state, ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        Item needed = materialItem(state);
-        if (needed != Items.AIR && stack.is(needed)) return true;
-        if (stack.is(ItemTags.LOGS) || stack.is(ItemTags.STONE_CRAFTING_MATERIALS)) return true;
-        return path(state.getBlock()).contains("sandstone") && (stack.is(Items.SAND) || stack.is(Items.RED_SAND));
+        return BuildCost.useful(BuildCost.of(state), stack);
     }
 }

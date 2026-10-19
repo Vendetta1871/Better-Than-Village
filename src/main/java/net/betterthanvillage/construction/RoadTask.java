@@ -8,6 +8,7 @@ import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
+import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.config.ColonyConfig;
@@ -16,9 +17,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 /** Builder road task: lays the queued 1-wide dirt path (05 §3.2). */
 public final class RoadTask extends ColonyTask {
+    static final java.util.function.Predicate<net.minecraft.world.item.ItemStack> ROAD_MATERIAL =
+            s -> s.is(net.minecraft.tags.ItemTags.LOGS) || s.is(net.minecraft.tags.ItemTags.STONE_CRAFTING_MATERIALS);
     static final String STATUS_SKIPPED = "непроходимый сегмент дороги пропущен: ";
 
     private final BlockWorkTimer timer = new BlockWorkTimer();
@@ -55,12 +59,24 @@ public final class RoadTask extends ColonyTask {
             return;
         }
         BlockPos node = colony.roadQueue.get(0);
+        if (!level.isLoaded(node)) {
+            // postponed, not dropped: the node moves to the end of the queue
+            colony.roadQueue.remove(0);
+            colony.roadQueue.add(node);
+            colony.roadAttemptHead = colony.roadQueue.get(0);
+            return;
+        }
         if (!node.equals(colony.roadAttemptHead)) {
             colony.roadAttemptHead = node;
             colony.roadStallTicks = 0;
         }
         if (Roads.isRoad(level, node)) {
             Roads.pop(colony, false);
+            return;
+        }
+        // one log or stone per path block, as in the offline catch-up
+        if (!ColonyStorage.has(level, colony, ROAD_MATERIAL)) {
+            WorkTracker.status(v, HouseConstructionTask.STATUS_WAIT_MATERIALS);
             return;
         }
         BlockPos above = node.above();
@@ -83,7 +99,12 @@ public final class RoadTask extends ColonyTask {
         }
         if (!timer.tickAction(level, v, node, ColonyConfig.get().work.placement_ticks)) return;
         timer.reset();
+        BlockState ground = level.getBlockState(node);
         if (SafeEdit.place(level, node, Blocks.DIRT_PATH.defaultBlockState(), 3)) {
+            if (ColonyStorage.withdrawOne(level, colony, ROAD_MATERIAL).isEmpty()) {
+                SafeEditScope.run(() -> level.setBlock(node, ground, 3));
+                return;
+            }
             Roads.pop(colony, false);
             WorkTracker.credit(v, "дорога", 1);
             v.swing(InteractionHand.MAIN_HAND);

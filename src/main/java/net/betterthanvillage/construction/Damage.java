@@ -6,7 +6,6 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
-import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.mixin.construction.SinglePoolElementAccessor;
@@ -17,11 +16,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.StructureTags;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
@@ -41,12 +38,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 /** Colony ownership of blocks, restore snapshots, repair bookkeeping and the repair audit (05 §6, 02 §2.5). */
@@ -174,23 +169,6 @@ public final class Damage {
         }
     }
 
-    /**
-     * Plot damaged by a player (05 §2.1 onPlayerDamage): an owned completed plot stays COMPLETE
-     * (builder cleared); otherwise it is reset to QUEUED for a full re-run of its plan.
-     */
-    public static void onPlayerDamage(ConstructionJob job, long now) {
-        if (job.owner != null && job.countsAsCompleted()) {
-            job.status = JobStatus.COMPLETE;
-            job.builder = null;
-            return;
-        }
-        job.status = JobStatus.QUEUED;
-        job.builder = null;
-        job.nextBlock = 0;
-        job.retryAfter = 0;
-        job.lastProgressTick = now;
-    }
-
     // ---------------------------------------------------------------- griefing listener
 
     /** Generic block change hook (02 §2.5): records colony-owned blocks destroyed outside mod edits. */
@@ -214,42 +192,62 @@ public final class Damage {
         return colony.runtime("btv_repair_cooldowns", HashMap::new);
     }
 
-    /**
-     * Repair materials sampled once per scan: items in usable storage and carried by builders.
-     * Any #logs / #stone_crafting_materials item satisfies every material (see BuildPlan.accepts).
-     */
-    static final class Supply {
-        private final Set<Item> items = new HashSet<>();
-        private boolean substitute;
-        private boolean sand;
+    /** Runtime-only failed repair attempts per position (entry dropped after 3). */
+    static Map<BlockPos, Integer> failures(Colony colony) {
+        return colony.runtime("btv_repair_failures", HashMap::new);
+    }
+
+    /** A plot block that could not be paid for: built later as a repair when material arrives. */
+    public static void defer(ServerLevel level, Colony colony, BlockPos pos, BlockState state) {
+        if (colony.repairs.putIfAbsent(pos.immutable(), state) == null) ColonyManager.markDirty(level);
+    }
+
+    /** Repair materials sampled once per scan: usable storage (keeping the bulk reserve) plus builders' inventories. */
+    static final class Supply implements BuildCost.Source {
+        private final Map<Item, Integer> storage = new HashMap<>();
+        private final Map<Item, Integer> carried = new HashMap<>();
 
         static Supply sample(ServerLevel level, Colony colony) {
             Supply s = new Supply();
             for (ColonyStorage.Slot slot : ColonyStorage.usable(level, colony)) {
                 Container c = slot.container();
-                for (int i = 0; i < c.getContainerSize(); i++) s.add(c.getItem(i));
+                for (int i = 0; i < c.getContainerSize(); i++) add(s.storage, c.getItem(i));
             }
             for (Villager v : ColonyManager.adultMembers(level, colony)) {
                 if (colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) continue;
-                s.add(v.getMainHandItem());
-                for (int i = 0; i < v.getInventory().getContainerSize(); i++) s.add(v.getInventory().getItem(i));
+                add(s.carried, v.getMainHandItem());
+                for (int i = 0; i < v.getInventory().getContainerSize(); i++) add(s.carried, v.getInventory().getItem(i));
             }
             return s;
         }
 
-        private void add(ItemStack stack) {
-            if (stack.isEmpty()) return;
-            items.add(stack.getItem());
-            if (stack.is(ItemTags.LOGS) || stack.is(ItemTags.STONE_CRAFTING_MATERIALS)) substitute = true;
-            if (stack.is(Items.SAND) || stack.is(Items.RED_SAND)) sand = true;
+        private static void add(Map<Item, Integer> map, ItemStack stack) {
+            if (!stack.isEmpty()) map.merge(stack.getItem(), stack.getCount(), Integer::sum);
         }
 
-        /** Same rule as BuildPlan.accepts over the sampled items. */
-        boolean has(BlockState state) {
-            if (substitute) return true;
-            Item needed = BuildPlan.materialItem(state);
-            if (needed != Items.AIR && items.contains(needed)) return true;
-            return sand && BuildPlan.path(state.getBlock()).contains("sandstone");
+        private static int sum(Map<Item, Integer> map, BuildCost.Part part) {
+            int n = 0;
+            for (Map.Entry<Item, Integer> e : map.entrySet()) {
+                if (part.match().test(new ItemStack(e.getKey()))) n += e.getValue();
+            }
+            return n;
+        }
+
+        @Override
+        public int count(BuildCost.Part part) {
+            int stored = sum(storage, part);
+            if (part.bulk()) stored = Math.max(0, stored - BuildCost.BULK_RESERVE);
+            return stored + sum(carried, part);
+        }
+
+        @Override
+        public void take(BuildCost.Part part, int n) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void give(ItemStack stack) {
+            throw new UnsupportedOperationException();
         }
     }
 
@@ -266,25 +264,55 @@ public final class Damage {
         Long until = cooldowns(colony).get(pos);
         if (until != null && level.getGameTime() < until) return false;
         if (!(world.isAir() || world.canBeReplaced())) return false;
-        if (BuildPlan.materialItem(intended) == Items.AIR) return false;
-        Supply s;
-        if (supply == null) {
-            s = Supply.sample(level, colony);
-        } else {
-            if (supply[0] == null) supply[0] = Supply.sample(level, colony);
-            s = supply[0];
+        BlockPos partner = BuildCost.partner(pos, intended);
+        if (partner != null && !partnerPlaceable(level, partner, intended)) return false;
+        BuildCost.Cost cost = BuildCost.at(level, pos, intended);
+        if (!cost.free()) {
+            Supply s;
+            if (supply == null) {
+                s = Supply.sample(level, colony);
+            } else {
+                if (supply[0] == null) supply[0] = Supply.sample(level, colony);
+                s = supply[0];
+            }
+            if (BuildCost.payable(cost, s) == null) return false;
         }
-        if (!s.has(intended)) return false;
         return Protection.terrainModifiable(level, pos);
     }
 
-    /** Any actionable repair entry (cached per game tick). */
+    /** Why a repair entry is (not) actionable, for /btv jobs. */
+    public static String explain(ServerLevel level, Colony colony, BlockPos pos, BlockState intended) {
+        if (!level.isLoaded(pos)) return "unloaded";
+        if (ColonyManager.data(level).inLand(pos)) return "land";
+        BlockState world = level.getBlockState(pos);
+        if (world.getBlock() == intended.getBlock()) return "done";
+        Long until = cooldowns(colony).get(pos);
+        if (until != null && level.getGameTime() < until) return "cooldown";
+        if (!(world.isAir() || world.canBeReplaced())) return "occupied";
+        BlockPos partner = BuildCost.partner(pos, intended);
+        if (partner != null && !partnerPlaceable(level, partner, intended)) return "partner";
+        BuildCost.Cost cost = BuildCost.at(level, pos, intended);
+        if (!cost.free() && BuildCost.payable(cost, Supply.sample(level, colony)) == null) return "material(" + cost.kind() + ")";
+        if (!Protection.terrainModifiable(level, pos)) return "protected";
+        return "ok";
+    }
+
+    /** The other half's spot already holds the piece, or is free and editable. */
+    static boolean partnerPlaceable(ServerLevel level, BlockPos partner, BlockState intended) {
+        if (!level.isLoaded(partner)) return false;
+        BlockState pw = level.getBlockState(partner);
+        if (pw.is(intended.getBlock())) return true;
+        return (pw.isAir() || pw.canBeReplaced()) && Protection.terrainModifiable(level, partner);
+    }
+
+    /** Any actionable repair entry (cached per game tick); prunes dead entries every 100 ticks. */
     public static boolean hasActionableRepair(ServerLevel level, Colony colony) {
         if (colony.repairs.isEmpty()) return false;
         long now = level.getGameTime();
         Actionable cached = (Actionable) colony.runtime.get("btv_repair_actionable");
         if (cached != null && cached.time() == now) return cached.any();
         cooldowns(colony).values().removeIf(t -> t <= now);
+        if (now % 100 == 0) prune(level, colony);
         boolean any = false;
         Supply[] supply = new Supply[1];
         for (Map.Entry<BlockPos, BlockState> e : new ArrayList<>(colony.repairs.entrySet())) {
@@ -297,13 +325,18 @@ public final class Damage {
         return any;
     }
 
-    static boolean carried(Villager v, BlockState state) {
-        if (BuildPlan.accepts(state, v.getMainHandItem())) return true;
-        for (int i = 0; i < v.getInventory().getContainerSize(); i++) {
-            ItemStack s = v.getInventory().getItem(i);
-            if (BuildPlan.accepts(state, s)) return true;
+    /** Drops entries whose spot now holds a different solid block or whose state costs nothing. */
+    static void prune(ServerLevel level, Colony colony) {
+        boolean removed = colony.repairs.entrySet().removeIf(e -> {
+            if (BuildCost.of(e.getValue()).free()) return true;
+            if (!level.isLoaded(e.getKey())) return false;
+            BlockState w = level.getBlockState(e.getKey());
+            return !w.is(e.getValue().getBlock()) && !w.isAir() && !w.canBeReplaced();
+        });
+        if (removed) {
+            failures(colony).keySet().removeIf(p -> !colony.repairs.containsKey(p));
+            ColonyManager.markDirty(level);
         }
-        return false;
     }
 
     // ---------------------------------------------------------------- audit
@@ -331,10 +364,12 @@ public final class Damage {
             Optional<StructureTemplate> t = HouseCatalog.template(level, job.template);
             if (t.isEmpty()) continue;
             var size = t.get().getSize();
-            if (size.getX() != job.sizeX || size.getY() != job.sizeY || size.getZ() != job.sizeZ) continue;
+            boolean quarter = job.rotation % 2 == 1;
+            if ((quarter ? size.getZ() : size.getX()) != job.sizeX || size.getY() != job.sizeY || (quarter ? size.getX() : size.getZ()) != job.sizeZ) continue;
+            var rotation = BuildPlan.rotation(job);
             for (StructureTemplate.StructureBlockInfo info : HouseCatalog.blocks(t.get())) {
                 BlockState state = info.state().is(Blocks.JIGSAW) ? BuildPlan.jigsawFinalState(info) : info.state();
-                if (state != null) auditBlock(level, colony, job.origin.offset(info.pos()), state, job.box());
+                if (state != null) auditBlock(level, colony, BuildPlan.toWorld(job, info.pos()), state.rotate(rotation), job.box());
             }
         }
         if (colony.repairs.size() != before) ColonyManager.markDirty(level);

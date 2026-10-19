@@ -48,6 +48,7 @@ public final class ConstructionEvents {
         Damage.clearCaches();
         HouseCatalog.clear();
         BuildPlan.clearCache();
+        BuildCost.clearCache();
     }
 
     /** After /reload (player == null) templates may have changed: rebuild catalog and plans lazily. */
@@ -55,6 +56,7 @@ public final class ConstructionEvents {
         if (event.getPlayer() == null) {
             HouseCatalog.clear();
             BuildPlan.clearCache();
+            BuildCost.clearCache();
         }
     }
 
@@ -102,6 +104,13 @@ public final class ConstructionEvents {
                     .append(" hand ").append(v.getMainHandItem()).append(" running ").append(v.getBrain().getRunningBehaviors().stream().map(b -> b.getClass().getSimpleName()).toList())
                     .append(" nav ").append(net.betterthanvillage.ai.nav.Nav.currentTarget(v, source.getLevel().getGameTime())).append(" moving ").append(v.getNavigation().isInProgress())
                     .append(" status ").append(net.betterthanvillage.ai.work.WorkTracker.status(v)).append('\n');
+        }
+        sb.append("repairs ").append(colony.repairs.size()).append('\n');
+        int shown = 0;
+        for (var e : colony.repairs.entrySet()) {
+            if (shown++ >= 8) break;
+            sb.append("  ").append(e.getKey().toShortString()).append(' ').append(BuildPlan.path(e.getValue().getBlock()))
+                    .append(' ').append(Damage.explain(source.getLevel(), colony, e.getKey(), e.getValue())).append('\n');
         }
         sb.append("site cursor ").append(colony.houseSiteCursor).append(" next plan ").append(colony.nextHousePlanTick);
         String text = sb.toString();

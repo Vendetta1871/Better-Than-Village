@@ -17,7 +17,7 @@ public final class ConstructionJob {
     public int sizeX = 1;
     public int sizeY = 1;
     public int sizeZ = 1;
-    /** Template rotation, stored as Rotation ordinal (0 = NONE). */
+    /** Template rotation, stored as Rotation ordinal (0 = NONE); sizeX/sizeZ are the rotated footprint. */
     public int rotation;
     public UUID builder;
     public int nextBlock;
@@ -35,6 +35,8 @@ public final class ConstructionJob {
     public int blockCount;
     /** Runtime: first tick of the current catch-up obstacle stall (not persisted). */
     public long catchupStallSince = Long.MIN_VALUE;
+    /** Runtime: the completion check already rewound this plot once (not persisted). */
+    public boolean verified;
     private long lastStallTick = Long.MIN_VALUE;
 
     public BoundingBox box() {

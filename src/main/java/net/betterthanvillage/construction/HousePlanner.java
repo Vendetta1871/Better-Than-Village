@@ -6,7 +6,6 @@ import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.config.ColonyConfig;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Vec3i;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -35,18 +34,18 @@ public final class HousePlanner {
         if (population == 0) return;
         int completed = completeCount(colony);
         boolean commission = colony.propertyOwner != null;
-        int freeBeds = Math.max(0, colony.beds() - population);
-        int wantedFreeBeds = Mth.clamp((population + 3) / 4, 4, 16);
-        if (!(freeBeds < wantedFreeBeds || completed < maxHouses() || commission)) return;
+        // the house cap holds even when beds are short (as in the offline planner); commissions are paid for
+        if (!commission && completed >= maxHouses()) return;
         if (hasActiveProject(colony)) return;
         String biome = biomeKey(level, colony.core());
         HouseCatalog.Entry entry = commission ? HouseCatalog.commission(level, biome, colony.propertyLevel) : HouseCatalog.home(level, biome, completed);
         if (entry == null) return;
+        SiteSearch.Spec spec = HouseCatalog.spec(level, entry.id());
+        if (spec == null) return;
         if (colony.houseSiteCursor < 0) colony.houseSiteCursor = 0;
-        Vec3i size = entry.size();
-        BlockPos site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), false);
+        SiteSearch.Site site = SiteSearch.step(level, colony, spec, false);
         if (site != null) {
-            ConstructionJob job = newJob(entry, site);
+            ConstructionJob job = newJob(entry.id(), spec, site);
             job.owner = colony.propertyOwner;
             job.propertyLevel = colony.propertyLevel;
             if (job.owner == null && colony.catchupHouses > 0 && colony.catchupLabor > 0 && now < colony.catchupExpires) {
@@ -57,14 +56,28 @@ public final class HousePlanner {
                 colony.propertyLevel = 0;
             }
             colony.jobs.add(job);
-            int reach = (int) Math.ceil(Math.sqrt(colony.core().distSqr(site))) + Math.max(size.getX(), size.getZ()) + 4;
+            int reach = (int) Math.ceil(Math.sqrt(colony.core().distSqr(site.origin()))) + Math.max(site.w(), site.d()) + 4;
             colony.growRadius(Math.min(cfg.village.expansion_radius_max, reach));
+            colony.runtime.remove(FAILS_KEY);
             ColonyManager.markDirty(level);
         }
-        if (colony.houseSiteCursor < 0 && !hasActiveProject(colony)) {
-            colony.growRadius(Math.min(cfg.village.expansion_radius_max, colony.radius() + 16));
-            colony.nextHousePlanTick = now + 200;
+        if (colony.houseSiteCursor < 0 && !hasActiveProject(colony)) failedPass(colony, now);
+    }
+
+    private static final String FAILS_KEY = "btv_site_fails";
+
+    /**
+     * A full search pass found nothing: retry with exponential backoff (200 .. 6400 ticks) and grow
+     * the colony radius only if the pass actually evaluated loaded ground at its edge.
+     */
+    private static void failedPass(Colony colony, long now) {
+        int fails = (Integer) colony.runtime.getOrDefault(FAILS_KEY, 0) + 1;
+        colony.runtime.put(FAILS_KEY, fails);
+        int max = ColonyConfig.get().village.expansion_radius_max;
+        if (SiteSearch.passReachedEdge(colony) && colony.radius() < max) {
+            colony.growRadius(Math.min(max, colony.radius() + 16));
         }
+        colony.nextHousePlanTick = now + (200L << Math.min(fails - 1, 5));
     }
 
     /**
@@ -85,21 +98,20 @@ public final class HousePlanner {
         }
         HouseCatalog.Entry entry = HouseCatalog.home(level, biomeKey(level, colony.core()), completeCount(colony));
         if (entry == null) return false;
+        SiteSearch.Spec spec = HouseCatalog.spec(level, entry.id());
+        if (spec == null) return false;
         if (colony.houseSiteCursor < 0) colony.houseSiteCursor = 0;
-        Vec3i size = entry.size();
-        BlockPos site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), true);
+        SiteSearch.Site site = SiteSearch.step(level, colony, spec, true);
         boolean queued = false;
         if (site != null) {
-            ConstructionJob job = newJob(entry, site);
+            ConstructionJob job = newJob(entry.id(), spec, site);
             job.catchup = true;
             colony.jobs.add(job);
             queued = true;
+            colony.runtime.remove(FAILS_KEY);
             ColonyManager.markDirty(level);
         }
-        if (colony.houseSiteCursor < 0 && !hasActiveProject(colony)) {
-            colony.growRadius(Math.min(cfg.village.expansion_radius_max, colony.radius() + 16));
-            colony.nextHousePlanTick = now + 200;
-        }
+        if (colony.houseSiteCursor < 0 && !hasActiveProject(colony)) failedPass(colony, now);
         return queued;
     }
 
@@ -122,10 +134,11 @@ public final class HousePlanner {
         }
         HouseCatalog.Entry entry = HouseCatalog.commission(level, biomeKey(level, colony.core()), tier);
         if (entry == null) return null;
-        Vec3i size = entry.size();
-        BlockPos site = commissionSearch(level, colony, size);
+        SiteSearch.Spec spec = HouseCatalog.spec(level, entry.id());
+        if (spec == null) return null;
+        SiteSearch.Site site = commissionSearch(level, colony, spec);
         if (site == null) return null;
-        ConstructionJob job = newJob(entry, site);
+        ConstructionJob job = newJob(entry.id(), spec, site);
         job.owner = player;
         job.propertyLevel = tier;
         colony.jobs.add(job);
@@ -135,36 +148,37 @@ public final class HousePlanner {
 
     /**
      * Commissioned-house site search for the property-deed code ({@code Deeds.siteFinder}, 05 §2.2):
-     * starts the site cursor if idle and runs up to 32 site-search calls with the unrotated template
-     * footprint. Returns an unowned job with template, origin and size set, or null.
+     * up to 32 site-search calls from the spiral start, entrance turned toward the core. Returns an
+     * unowned job with template, origin, rotation and rotated size set, or null.
      */
     public static ConstructionJob findCommissionSite(ServerLevel level, Colony colony, net.minecraft.resources.ResourceLocation templateId,
                                                      net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate template) {
-        Vec3i size = template.getSize();
-        BlockPos site = commissionSearch(level, colony, size);
+        SiteSearch.Spec spec = HouseCatalog.spec(template);
+        SiteSearch.Site site = commissionSearch(level, colony, spec);
         if (site == null) return null;
-        return newJob(new HouseCatalog.Entry("", "", templateId, size, 0), site);
+        return newJob(templateId, spec, site);
     }
 
     /** Commission search from the spiral start; a running automatic search resumes afterwards if nothing was found. */
-    private static BlockPos commissionSearch(ServerLevel level, Colony colony, Vec3i size) {
+    private static SiteSearch.Site commissionSearch(ServerLevel level, Colony colony, SiteSearch.Spec spec) {
         int saved = colony.houseSiteCursor;
         colony.houseSiteCursor = 0;
-        BlockPos site = null;
+        SiteSearch.Site site = null;
         for (int i = 0; i < COMMISSION_SEARCH_CALLS && site == null && colony.houseSiteCursor >= 0; i++) {
-            site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), false);
+            site = SiteSearch.step(level, colony, spec, false);
         }
         if (site == null) colony.houseSiteCursor = saved;
         return site;
     }
 
-    private static ConstructionJob newJob(HouseCatalog.Entry entry, BlockPos site) {
+    private static ConstructionJob newJob(net.minecraft.resources.ResourceLocation template, SiteSearch.Spec spec, SiteSearch.Site site) {
         ConstructionJob job = new ConstructionJob();
-        job.template = entry.id();
-        job.origin = site.immutable();
-        job.sizeX = Math.max(1, entry.size().getX());
-        job.sizeY = Math.max(1, entry.size().getY());
-        job.sizeZ = Math.max(1, entry.size().getZ());
+        job.template = template;
+        job.origin = site.origin().immutable();
+        job.rotation = site.rotation();
+        job.sizeX = site.w();
+        job.sizeY = spec.h();
+        job.sizeZ = site.d();
         job.planVersion = BuildPlan.PLAN_VERSION;
         return job;
     }

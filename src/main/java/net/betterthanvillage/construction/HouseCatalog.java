@@ -2,16 +2,21 @@ package net.betterthanvillage.construction;
 
 import net.betterthanvillage.BetterThanVillage;
 import net.betterthanvillage.mixin.society.StructureTemplateAccess;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.JigsawBlock;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +69,49 @@ public final class HouseCatalog {
     public static synchronized void clear() {
         owner = null;
         catalog = Map.of();
+        synchronized (SPECS) {
+            SPECS.clear();
+        }
+    }
+
+    private static final Map<ResourceLocation, SiteSearch.Spec> SPECS = new HashMap<>();
+
+    /** Footprint and entrance of a template (cached), or null if missing. */
+    public static SiteSearch.Spec spec(ServerLevel level, ResourceLocation id) {
+        synchronized (SPECS) {
+            SiteSearch.Spec cached = SPECS.get(id);
+            if (cached != null) return cached;
+        }
+        Optional<StructureTemplate> t = template(level, id);
+        if (t.isEmpty()) return null;
+        SiteSearch.Spec spec = spec(t.get());
+        synchronized (SPECS) {
+            SPECS.put(id, spec);
+        }
+        return spec;
+    }
+
+    /**
+     * Footprint and entrance: the "building_entrance" jigsaw (any horizontal jigsaw as fallback);
+     * its front faces the street the house is meant to face.
+     */
+    public static SiteSearch.Spec spec(StructureTemplate template) {
+        Vec3i size = template.getSize();
+        BlockPos entrance = null;
+        Direction facing = null;
+        for (StructureTemplate.StructureBlockInfo info : blocks(template)) {
+            if (!info.state().is(Blocks.JIGSAW)) continue;
+            Direction front = JigsawBlock.getFrontFacing(info.state());
+            if (!front.getAxis().isHorizontal()) continue;
+            String name = info.nbt() == null ? "" : info.nbt().getString("name");
+            boolean named = name.endsWith("building_entrance") || name.endsWith("buidling_entrance");
+            if (entrance == null || named) {
+                entrance = info.pos();
+                facing = front;
+                if (named) break;
+            }
+        }
+        return new SiteSearch.Spec(Math.max(1, size.getX()), Math.max(1, size.getZ()), Math.max(1, size.getY()), entrance, facing);
     }
 
     /** Round-robin dwelling for the given count of completed plots (05 §2.2). */

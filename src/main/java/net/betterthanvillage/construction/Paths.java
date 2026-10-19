@@ -14,22 +14,32 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 
+import java.util.List;
 import java.util.Set;
 
 /** Path searches and entity relocation helpers used by the construction tasks. */
 public final class Paths {
+    static final int MAX_GOALS = 16;
+
     private Paths() {
     }
 
-    /** Path search to a goal set: can open doors, can swim, follow range 128, range multiplier 8, accuracy 0. */
+    /**
+     * Path search to a goal set: can open doors, can swim, follow range 128, range multiplier 4,
+     * accuracy 0. Only the first {@link #MAX_GOALS} goals (in the caller's preference order) are
+     * searched: the multi-target search costs O(nodes * targets). Callers page through larger sets.
+     */
     public static Path find(Mob mob, Set<BlockPos> goals) {
         if (goals.isEmpty()) return null;
+        if (goals.size() > MAX_GOALS) {
+            goals = goals.stream().limit(MAX_GOALS).collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        }
         PathNavigation nav = mob.getNavigation();
         if (nav instanceof GroundPathNavigation ground) {
             ground.setCanOpenDoors(true);
         }
         nav.setCanFloat(true);
-        nav.setMaxVisitedNodesMultiplier(8f);
+        nav.setMaxVisitedNodesMultiplier(4f);
         PathNavigationInvoker access = (PathNavigationInvoker) nav;
         BlockPos targetPos = access.btv$targetPos();
         int reachRange = access.btv$reachRange();
@@ -52,6 +62,23 @@ public final class Paths {
                 out.accept(Terrain.surface(level, x, z));
             }
         }
+    }
+
+    /**
+     * Goal window number {@code page} (MAX_GOALS each, wrapping) of an ordered candidate list;
+     * empty when the list is empty.
+     */
+    public static java.util.LinkedHashSet<BlockPos> window(List<BlockPos> ordered, int page) {
+        java.util.LinkedHashSet<BlockPos> out = new java.util.LinkedHashSet<>();
+        if (ordered.isEmpty()) return out;
+        int pages = (ordered.size() + MAX_GOALS - 1) / MAX_GOALS;
+        int from = Math.floorMod(page, pages) * MAX_GOALS;
+        out.addAll(ordered.subList(from, Math.min(ordered.size(), from + MAX_GOALS)));
+        return out;
+    }
+
+    public static int pages(List<BlockPos> ordered) {
+        return (ordered.size() + MAX_GOALS - 1) / MAX_GOALS;
     }
 
     /** Living entities (alive, not spectator) whose box intersects the block. */

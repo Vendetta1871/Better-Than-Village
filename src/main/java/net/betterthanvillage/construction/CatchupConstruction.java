@@ -11,14 +11,13 @@ import net.betterthanvillage.ai.work.SafeEdit;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 import java.util.List;
-import java.util.Map;
 
 /** Offline catch-up building: places pending catch-up job blocks within a block budget (05 §2.10). */
 public final class CatchupConstruction {
@@ -76,19 +75,29 @@ public final class CatchupConstruction {
                 continue;
             }
             if (s.clear()) {
+                List<ItemStack> drops = Block.getDrops(world, level, pos, level.getBlockEntity(pos));
                 if (!breakable(level, pos) || !SafeEditScope.call(() -> level.destroyBlock(pos, false))) {
                     obstacle = true;
                     break;
                 }
+                for (ItemStack d : drops) ColonyStorage.deposit(level, colony, d);
             } else {
-                boolean free = BuildPlan.free(s.state());
-                if (!free && !hasMaterial(level, colony, s.state())) break;
+                BuildCost.Cost cost = HouseConstructionTask.cost(level, s);
+                BuildCost.Source source = BuildCost.stockThenStorage(level, colony);
+                if (!cost.free() && BuildCost.payable(cost, source) == null) {
+                    if (cost.kind() == BuildCost.Kind.STRUCTURAL) break;
+                    // functional blocks wait as repair entries; decoration is skipped
+                    if (cost.kind() == BuildCost.Kind.DEFERRABLE) Damage.defer(level, colony, pos, s.state());
+                    job.nextBlock++;
+                    progressed = true;
+                    continue;
+                }
                 if (!SafeEdit.place(level, pos, s.state(), 3)) {
                     HouseConstructionTask.pushOut(level, job, pos, now);
                     obstacle = true;
                     break;
                 }
-                if (!free && !takeMaterial(level, colony, s.state())) {
+                if (!BuildCost.pay(cost, source)) {
                     SafeEditScope.run(() -> level.setBlock(pos, world, 3));
                     break;
                 }
@@ -114,39 +123,19 @@ public final class CatchupConstruction {
             }
         }
         if (job.nextBlock >= job.totalBlocks) {
-            HousePlanner.complete(level, job);
+            int rewind = BuildPlan.verify(level, colony, job, plan, !job.verified);
+            job.verified = true;
+            if (rewind >= 0) {
+                job.nextBlock = rewind;
+            } else {
+                HousePlanner.complete(level, job);
+            }
         }
         if (executed > 0) ColonyManager.markDirty(level);
         return executed;
     }
 
-    /** Accepted material in the virtual catch-up stock or in storage. */
-    private static boolean hasMaterial(ServerLevel level, Colony colony, BlockState state) {
-        for (Map.Entry<Item, Integer> e : colony.catchupStock.entrySet()) {
-            if (e.getValue() > 0 && BuildPlan.accepts(state, new ItemStack(e.getKey()))) return true;
-        }
-        return ColonyStorage.has(level, colony, st -> BuildPlan.accepts(state, st));
-    }
-
-    /** Takes one accepted item: the virtual catch-up stock first (exact item preferred), then storage. */
-    private static boolean takeMaterial(ServerLevel level, Colony colony, BlockState state) {
-        Item exact = BuildPlan.materialItem(state);
-        Item pick = null;
-        for (Map.Entry<Item, Integer> e : colony.catchupStock.entrySet()) {
-            if (e.getValue() <= 0 || !BuildPlan.accepts(state, new ItemStack(e.getKey()))) continue;
-            pick = e.getKey();
-            if (pick == exact) break;
-        }
-        if (pick != null) {
-            int n = colony.catchupStock.get(pick);
-            if (n <= 1) colony.catchupStock.remove(pick);
-            else colony.catchupStock.put(pick, n - 1);
-            return true;
-        }
-        return !ColonyStorage.withdrawOne(level, colony, st -> BuildPlan.accepts(state, st)).isEmpty();
-    }
-
-    /** Safe to break without drops: no entity standing on it, no falling block above, terrain editable. */
+    /** Safe to break: no entity standing on it, no falling block above, terrain editable. */
     private static boolean breakable(ServerLevel level, BlockPos pos) {
         if (level.getBlockState(pos.above()).getBlock() instanceof FallingBlock) return false;
         if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(pos.above()).inflate(0.02)).isEmpty()) return false;

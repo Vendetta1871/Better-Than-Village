@@ -59,12 +59,21 @@ public final class Roads {
 
     /**
      * BFS from the new footprint's door points to the road network (05 §3.1). Returns the missing
-     * road nodes listed from the network outward, or null when no path exists.
+     * road nodes listed from the network outward, or null when no path exists. A preferred door
+     * offset (in front of the entrance) is tried alone first.
      */
-    public static List<BlockPos> route(ServerLevel level, Colony colony, int x0, int z0, int w, int d) {
+    public static List<BlockPos> route(ServerLevel level, Colony colony, int x0, int z0, int w, int d, int[] preferred) {
+        if (preferred != null) {
+            List<BlockPos> path = bfs(level, colony, x0, z0, w, d, new int[][]{preferred});
+            if (path != null) return path;
+        }
+        return bfs(level, colony, x0, z0, w, d, doorOffsets(w, d));
+    }
+
+    private static List<BlockPos> bfs(ServerLevel level, Colony colony, int x0, int z0, int w, int d, int[][] doors) {
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
         Map<BlockPos, BlockPos> parent = new HashMap<>();
-        for (int[] o : doorOffsets(w, d)) {
+        for (int[] o : doors) {
             int x = x0 + o[0], z = z0 + o[1];
             if (!Terrain.loaded(level, x, z)) continue;
             BlockPos p = Terrain.roadGround(level, x, z);
