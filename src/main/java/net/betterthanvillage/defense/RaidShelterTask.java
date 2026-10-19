@@ -28,6 +28,13 @@ public final class RaidShelterTask extends ColonyTask {
         super(12000);
     }
 
+    /** Unlike work tasks, babies hide too (the controller forces the shelter activity on them). */
+    @Override
+    protected boolean checkExtraStartConditions(ServerLevel level, Villager v) {
+        Colony colony = colony(level, v);
+        return colony != null && shouldRun(level, v, colony);
+    }
+
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (!RaidShelter.isActive(level, colony) || !RaidShelter.civilian(colony, v)) return false;

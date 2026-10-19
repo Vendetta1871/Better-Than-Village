@@ -12,6 +12,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
@@ -21,6 +22,7 @@ import net.minecraft.world.phys.AABB;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 /** Threat, alarm and hostility manager (02 §4). */
@@ -28,6 +30,8 @@ public final class ThreatManager {
     /** Vertical half-height of the colony cylinder and box. */
     public static final int VERTICAL = 12;
     private static final double ENGAGE_RADIUS_SQ = 144.0;
+    /** Persistent-data flag on golems sent after a player, so they give up once outside the colony. */
+    public static final String MOBILIZED_TAG = "better_than_village_mobilized";
 
     private record CacheEntry(ServerLevel level, long computedAt, LivingEntity threat) {
     }
@@ -110,7 +114,9 @@ public final class ThreatManager {
         }
         for (Villager v : level.getEntitiesOfClass(Villager.class, colonyBox(colony), LivingEntity::isAlive)) {
             LivingEntity attacker = v.getLastHurtByMob();
-            if (attacker != null && v.tickCount - v.getLastHurtByMobTimestamp() <= 100 && memberOf(level, colony, v)
+            // lastHurtByMob is also set by harmless hits (snowballs, blocked blows): players and
+            // non-hostile creatures only become threats through the damage-filtered reportAttack
+            if (attacker instanceof Enemy && v.tickCount - v.getLastHurtByMobTimestamp() <= 100 && memberOf(level, colony, v)
                     && validInside(colony, attacker)) {
                 return attacker;
             }
@@ -163,6 +169,14 @@ public final class ThreatManager {
         return RaidShelter.isActive(level, colony) || findThreat(level, colony) != null;
     }
 
+    /** The player is the colony's current assault attacker or reported thief. */
+    public static boolean isWanted(ServerLevel level, Colony colony, Player player) {
+        long now = level.getGameTime();
+        UUID id = player.getUUID();
+        return (id.equals(colony.assaultAttacker) && now < colony.assaultUntil)
+                || (id.equals(colony.reportedThief) && now < colony.theftUntil);
+    }
+
     public static void clearCaches() {
         CACHE.clear();
         recomputes = 0;
@@ -189,10 +203,16 @@ public final class ThreatManager {
         CACHE.remove(colony);
         colony.reportedThief = player.getUUID();
         colony.theftUntil = Math.max(colony.theftUntil, now + 1200);
-        colony.stolenItems += points;
         colony.lastThreatTick = now;
         mobilize(level, colony, player);
         ColonyManager.markDirty(level);
+    }
+
+    /** Items taken from colony storage: counts them as stolen and raises hostility. */
+    public static void reportTheft(ServerLevel level, Colony colony, Player player, int items) {
+        if (colony == null || player == null || items <= 0 || player.isCreative() || player.isSpectator()) return;
+        colony.stolenItems += items;
+        addPlayerHostility(level, colony, player, items);
     }
 
     /** Sends every colony golem and guard after the attacker. */
@@ -201,6 +221,11 @@ public final class ThreatManager {
         BlockPos target = attacker.blockPosition();
         for (IronGolem golem : level.getEntitiesOfClass(IronGolem.class, box, LivingEntity::isAlive)) {
             if (!memberOf(level, colony, golem)) continue;
+            if (attacker instanceof Player) {
+                // vanilla never lets player-built golems attack players
+                if (golem.isPlayerCreated()) continue;
+                golem.getPersistentData().putBoolean(MOBILIZED_TAG, true);
+            }
             golem.setTarget(attacker);
             WaypointNavigator.travel(level, golem, target, 1.9);
         }

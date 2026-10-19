@@ -41,6 +41,8 @@ import java.util.WeakHashMap;
 /** Raid predicates, enclosure test, shelter search and shelter reservations (02 §6.1, §6.3, §6.4). */
 public final class RaidShelter {
     private static final Map<Villager, BlockPos> RESERVATIONS = new WeakHashMap<>();
+    private static final int SEARCH_RADIUS = 64;
+    private static final int MAX_PATH_TARGETS = 24;
 
     private RaidShelter() {
     }
@@ -126,9 +128,10 @@ public final class RaidShelter {
         long now = level.getGameTime();
         Map<BlockPos, Boolean> cache = new HashMap<>();
         Set<BlockPos> candidates = new LinkedHashSet<>();
+        // POI lookups read unloaded chunk columns from disk: search near the villager, not the whole colony
         List<BlockPos> beds = new ArrayList<>(level.getPoiManager()
-                .getInRange(t -> t.is(PoiTypes.HOME), colony.core(), colony.radius(), PoiManager.Occupancy.ANY)
-                .map(PoiRecord::getPos).filter(level::isLoaded).toList());
+                .getInRange(t -> t.is(PoiTypes.HOME), v.blockPosition(), SEARCH_RADIUS, PoiManager.Occupancy.ANY)
+                .map(PoiRecord::getPos).filter(p -> colony.containsXZ(p) && level.isLoaded(p)).toList());
         beds.sort(Comparator.comparingDouble(p -> p.distSqr(v.blockPosition())));
         for (BlockPos bed : beds.subList(0, Math.min(32, beds.size()))) {
             for (int dx = -2; dx <= 2; dx++) {
@@ -168,6 +171,10 @@ public final class RaidShelter {
             candidates.retainAll(spread);
         }
         if (candidates.isEmpty() || !PathBudget.tryAcquire(level)) return null;
+        // the multi-target pathfinder scores every target per node: keep only the nearest ones
+        BlockPos from = v.blockPosition();
+        Set<BlockPos> targets = new LinkedHashSet<>(candidates.stream()
+                .sorted(Comparator.comparingDouble(c -> c.distSqr(from))).limit(MAX_PATH_TARGETS).toList());
         PathNavigation nav = v.getNavigation();
         if (nav instanceof GroundPathNavigation ground) ground.setCanOpenDoors(true);
         AttributeInstance range = v.getAttribute(Attributes.FOLLOW_RANGE);
@@ -176,7 +183,7 @@ public final class RaidShelter {
         nav.setMaxVisitedNodesMultiplier(8f);
         Path path;
         try {
-            path = nav.createPath(candidates, 0);
+            path = nav.createPath(targets, 0);
         } finally {
             nav.resetMaxVisitedNodesMultiplier();
             if (range != null) range.setBaseValue(oldRange);

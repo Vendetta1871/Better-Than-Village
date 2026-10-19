@@ -73,12 +73,13 @@ public final class GolemManager {
         return serverTicks(level) >= colony.nextGolemTick && golems(level, colony).size() < desired(colony);
     }
 
-    /** Any colony golem is hurt, or a new golem may be built. */
+    /** Any colony golem is hurt, or a new golem may be built and the storage holds its materials. */
     public static boolean workNeeded(ServerLevel level, Colony colony) {
         for (IronGolem g : golems(level, colony)) {
-            if (g.getHealth() < g.getMaxHealth()) return true;
+            if (g.getHealth() < g.getMaxHealth() && ThreatManager.inColony(colony, g)) return true;
         }
-        return canBuild(level, colony);
+        return canBuild(level, colony) && ColonyStorage.has(level, colony, PUMPKIN)
+                && ColonyStorage.count(level, colony, s -> s.is(Items.IRON_INGOT) || s.is(Items.RAW_IRON)) >= IRON_COST;
     }
 
     /** 2x2 footprint on full solid tops without fluid, three air cells high, and no entity in the way. */
@@ -96,7 +97,7 @@ public final class GolemManager {
                 }
             }
         }
-        AABB box = new AABB(pos).inflate(0.6, 0, 0.6).expandTowards(0, 2, 0);
+        AABB box = new AABB(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 2, pos.getY() + 3, pos.getZ() + 2);
         return level.getEntities((net.minecraft.world.entity.Entity) null, box, e -> true).isEmpty();
     }
 
@@ -132,7 +133,7 @@ public final class GolemManager {
     private static IronGolem spawnGolem(ServerLevel level, BlockPos site) {
         IronGolem golem = EntityType.IRON_GOLEM.create(level, null, site, MobSpawnType.MOB_SUMMONED, false, false);
         if (golem == null) return null;
-        golem.moveTo(site.getX() + 0.5, site.getY(), site.getZ() + 0.5, golem.getYRot(), golem.getXRot());
+        golem.moveTo(site.getX() + 1.0, site.getY(), site.getZ() + 1.0, golem.getYRot(), golem.getXRot());
         golem.setPlayerCreated(false);
         golem.setPersistenceRequired();
         return level.addFreshEntity(golem) ? golem : null;
@@ -208,7 +209,8 @@ public final class GolemManager {
             IronGolem hurt = null;
             double best = Double.MAX_VALUE;
             for (IronGolem g : golems(level, colony)) {
-                if (g.getHealth() >= g.getMaxHealth()) continue;
+                // golems outside the colony circle never regenerate and may be out of reach
+                if (g.getHealth() >= g.getMaxHealth() || !ThreatManager.inColony(colony, g)) continue;
                 double d = g.distanceToSqr(guard);
                 if (d < best) {
                     best = d;
@@ -276,7 +278,7 @@ public final class GolemManager {
             if (!validSite(level, site)) return true;
             if (guard.blockPosition().distSqr(stand) > 4) {
                 buildAt = now + 60;
-                if (now % 10 == 0 && PathBudget.tryAcquire(level)) Nav.approach(level, guard, stand, 0.8);
+                if (now % 10 == 0) Nav.approach(level, guard, stand, 0.8);
                 return false;
             }
             guard.getNavigation().stop();
@@ -347,8 +349,13 @@ public final class GolemManager {
         } else if (golem.isSwimming()) {
             golem.setSwimming(false);
         }
-        if (colony == null || Math.floorMod(now + golem.getId(), 4L) != 0) return;
+        if (Math.floorMod(now + golem.getId(), 4L) != 0) return;
         LivingEntity target = golem.getTarget();
+        if (colony == null) {
+            // a golem that chased a player out of the colony gives up instead of hunting them forever
+            if (target instanceof Player && golem.getPersistentData().getBoolean(ThreatManager.MOBILIZED_TAG)) calmDown(golem);
+            return;
+        }
         if (target != null && !ThreatManager.inColony(colony, target)) {
             golem.setTarget(null);
             golem.getNavigation().stop();
@@ -357,12 +364,24 @@ public final class GolemManager {
         if (target instanceof Villager tv && ThreatManager.memberOf(level, colony, tv)) {
             golem.setTarget(null);
         }
+        // player anger never decays while targeting the player (NeutralMob): drop it once the alarm is over
+        if (target instanceof Player p && (golem.isPlayerCreated() || !ThreatManager.isWanted(level, colony, p))) {
+            calmDown(golem);
+        }
         LivingEntity threat = ThreatManager.findThreat(level, colony);
+        if (threat instanceof Player && golem.isPlayerCreated()) threat = null;
         if (threat != null) {
+            if (threat instanceof Player) golem.getPersistentData().putBoolean(ThreatManager.MOBILIZED_TAG, true);
             golem.setTarget(threat);
             WaypointNavigator.travel(level, golem, threat.blockPosition(), 1.8);
         }
         breakPillar(level, golem, colony);
+    }
+
+    private static void calmDown(IronGolem golem) {
+        golem.stopBeingAngry();
+        golem.getNavigation().stop();
+        golem.getPersistentData().remove(ThreatManager.MOBILIZED_TAG);
     }
 
     // ---------------------------------------------------------------- pillar breaker

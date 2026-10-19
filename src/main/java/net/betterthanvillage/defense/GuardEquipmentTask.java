@@ -1,6 +1,7 @@
 package net.betterthanvillage.defense;
 
 import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.colony.Colony;
@@ -57,7 +58,11 @@ public final class GuardEquipmentTask extends ColonyTask {
                 || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) {
             return false;
         }
-        if (!needsEquipment(v, colony) && !GolemManager.workNeeded(level, colony)) return false;
+        if (!needsEquipment(v, colony) && !GolemManager.workNeeded(level, colony)) {
+            // the golem check scans a large box: do not repeat it every tick
+            nextRunAt = level.getGameTime() + 100;
+            return false;
+        }
         this.colony = colony;
         storage = ColonyStorage.nearest(level, colony, v.blockPosition());
         done = false;
@@ -72,8 +77,9 @@ public final class GuardEquipmentTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
+        // running behaviors keep ticking after an activity switch: yield as soon as the guard has to fight
         return !v.isSleeping() && !v.isTrading() && colony != null && colony.roleOf(v.getUUID()) == ColonyRole.GUARD
-                && storage != null && !done;
+                && storage != null && !done && VillagerUtil.currentActivity(v) == ModRegistries.COLONY_WORK.get();
     }
 
     @Override
@@ -100,6 +106,8 @@ public final class GuardEquipmentTask extends ColonyTask {
 
     @Override
     protected void stop(ServerLevel level, Villager v, long now) {
+        // interrupted or timed out (unreachable storage, golem or stand spot): do not retry at once
+        if (!done) nextRunAt = now + 400;
         v.getNavigation().stop();
         colony = null;
         storage = null;

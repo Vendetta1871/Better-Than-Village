@@ -49,9 +49,9 @@ public final class DefenseEvents {
         if (!(victim.level() instanceof ServerLevel level) || !(event.getSource().getEntity() instanceof LivingEntity attacker)) return;
         // hurt() reports failure when a shield absorbed everything
         if (event.getBlockedDamage() > 0 && event.getNewDamage() <= 0) return;
-        if (victim instanceof Villager) {
-            if (event.getOriginalDamage() <= 0) return;
-        } else if (!(victim instanceof IronGolem) || !ThreatManager.isValidHostile(attacker)) {
+        // harmless hits (snowballs, eggs) never raise the alarm
+        if (event.getOriginalDamage() <= 0) return;
+        if (!(victim instanceof Villager) && (!(victim instanceof IronGolem) || !ThreatManager.isValidHostile(attacker))) {
             return;
         }
         Colony colony = ColonyManager.colonyAt(level, victim.blockPosition());

@@ -1,6 +1,7 @@
 package net.betterthanvillage.defense;
 
 import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.nav.WaypointNavigator;
 import net.betterthanvillage.colony.Colony;
@@ -30,6 +31,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.schedule.Activity;
 
 import java.util.function.Predicate;
 
@@ -70,6 +72,8 @@ public final class GuardCombatTask extends ColonyTask {
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
         if (v.isSleeping() || v.isTrading() || colony == null || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) return false;
+        // running behaviors keep ticking after an activity switch: stop once the controller leaves FIGHT
+        if (VillagerUtil.currentActivity(v) != Activity.FIGHT) return false;
         return (target != null && target.isAlive() && ThreatManager.inColony(colony, target))
                 || recentAlarm(level, colony) || v.getHealth() < v.getMaxHealth() * 0.6f;
     }
@@ -78,7 +82,7 @@ public final class GuardCombatTask extends ColonyTask {
     protected void start(ServerLevel level, Villager v, long now) {
         attackReadyAt = retargetAt = moveAt = swapAt = now;
         target = pickTarget(level, v, colony);
-        if (v.getMainHandItem().isEmpty()) {
+        if (v.getMainHandItem().isEmpty() && !swapWeapon(level, v, ANY_WEAPON)) {
             ItemStack weapon = ColonyStorage.withdrawOne(level, colony, ANY_WEAPON);
             if (!weapon.isEmpty()) v.setItemSlot(EquipmentSlot.MAINHAND, weapon);
         }
@@ -97,10 +101,14 @@ public final class GuardCombatTask extends ColonyTask {
         }
         if (target == null) {
             v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
-            BlockPos rally = rallyPoint(level, v);
-            if (now >= attackReadyAt && v.blockPosition().distSqr(rally) > 36 && PathBudget.tryAcquire(level)) {
-                v.getNavigation().moveTo(rally.getX() + 0.5, rally.getY(), rally.getZ() + 0.5, 0.65);
-                attackReadyAt = now + 20;
+            if (now >= attackReadyAt) {
+                BlockPos rally = rallyPoint(level, v);
+                if (v.blockPosition().distSqr(rally) <= 36) {
+                    attackReadyAt = now + 20;
+                } else if (PathBudget.tryAcquire(level)) {
+                    v.getNavigation().moveTo(rally.getX() + 0.5, rally.getY(), rally.getZ() + 0.5, 0.65);
+                    attackReadyAt = now + 20;
+                }
             }
             return;
         }
@@ -108,8 +116,8 @@ public final class GuardCombatTask extends ColonyTask {
     }
 
     private void retreat(ServerLevel level, Villager v, long now) {
-        if (!colony.storages.isEmpty()) {
-            BlockPos storage = colony.storages.get(0);
+        BlockPos storage = ColonyStorage.nearest(level, colony, v.blockPosition());
+        if (storage != null) {
             Nav.approach(level, v, storage, 0.75);
             if (v.distanceToSqr(storage.getX() + 0.5, storage.getY(), storage.getZ() + 0.5) <= 9 && now >= attackReadyAt) {
                 ItemStack food = ColonyStorage.withdrawOne(level, colony, ColonyStorage::isFood);

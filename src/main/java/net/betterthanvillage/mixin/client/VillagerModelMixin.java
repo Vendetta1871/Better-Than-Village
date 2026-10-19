@@ -40,6 +40,11 @@ public abstract class VillagerModelMixin {
         }
         ModelPart body = root.getChild("body");
         if (body.hasChild("jacket")) body.getChild("jacket").visible = !legs;
+        if (entity instanceof Villager && !btv$hideHat) {
+            // the model is shared: undo the hiding left over from the previous helmeted villager
+            hat.visible = true;
+            hatRim.visible = true;
+        }
         btv$applyHat();
     }
 
