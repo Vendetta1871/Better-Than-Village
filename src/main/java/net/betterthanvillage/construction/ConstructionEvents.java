@@ -51,6 +51,7 @@ public final class ConstructionEvents {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("btv")
+                .then(Commands.literal("jobs").requires(s -> s.hasPermission(2)).executes(ConstructionEvents::jobs))
                 .then(Commands.literal("repair").requires(s -> s.hasPermission(2)).executes(ConstructionEvents::repair))
                 .then(Commands.literal("house").requires(s -> s.hasPermission(2))
                         .then(Commands.argument("biome", StringArgumentType.word())
@@ -61,6 +62,36 @@ public final class ConstructionEvents {
                                         .executes(ctx -> house(ctx, null))
                                         .then(Commands.argument("floor", BlockPosArgument.blockPos())
                                                 .executes(ctx -> house(ctx, BlockPosArgument.getLoadedBlockPos(ctx, "floor"))))))));
+    }
+
+    /** /btv jobs: construction plots, road head and wall state of the nearest colony (debug view). */
+    private static int jobs(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        Colony colony = ColonyCommands.colonyNear(source);
+        if (colony == null) {
+            source.sendFailure(Component.translatable("command.better_than_village.repair.none"));
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ConstructionJob job : colony.jobs) {
+            sb.append(job.template.getPath()).append(" @").append(job.origin.toShortString()).append(' ').append(job.status)
+                    .append(' ').append(job.nextBlock).append('/').append(job.totalBlocks).append(" retry ").append(job.retryAfter)
+                    .append(job.owner != null ? " owned" : "").append(job.catchup ? " catchup" : "").append('\n');
+        }
+        sb.append("road head ").append(colony.roadQueue.isEmpty() ? "-" : colony.roadQueue.get(0).toShortString())
+                .append(" skipped ").append(colony.skippedRoadSegments).append(" stall ").append(colony.roadStallTicks).append('\n');
+        var f = colony.fortifications;
+        sb.append("wall radius ").append(f.radius).append(" built ").append(f.managed.size()).append(" pending ").append(f.pending.size())
+                .append(" skipped ").append(f.skipped).append(" abandoned ").append(f.abandoned.size()).append('\n');
+        for (var v : SiteSearch.builders(source.getLevel(), colony)) {
+            sb.append("builder @").append(v.blockPosition().toShortString()).append(" target ")
+                    .append(v.getBrain().getMemory(net.betterthanvillage.registry.ModRegistries.BUILD_TARGET_POS.get()).map(BlockPos::toShortString).orElse("-"))
+                    .append(" hand ").append(v.getMainHandItem()).append('\n');
+        }
+        sb.append("site cursor ").append(colony.houseSiteCursor).append(" next plan ").append(colony.nextHousePlanTick);
+        String text = sb.toString();
+        source.sendSuccess(() -> Component.literal(text), false);
+        return 1;
     }
 
     /** /btv repair: repair audit of the nearest colony. */
