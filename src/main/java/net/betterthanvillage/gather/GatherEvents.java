@@ -27,7 +27,8 @@ public final class GatherEvents {
         boolean suffocation = source.is(DamageTypes.IN_WALL);
         boolean lethalFall = source.is(DamageTypeTags.IS_FALL) && event.getAmount() >= v.getHealth();
         if (!suffocation && !lethalFall) return;
-        Colony colony = ColonyManager.colonyAt(level, v.blockPosition());
+        // Members only, sent to their own colony's core.
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null && AntiStuck.emergencyTeleport(level, colony, v)) {
             event.setCanceled(true);
         }

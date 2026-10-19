@@ -13,10 +13,15 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -27,6 +32,19 @@ public final class GatherUtil {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private GatherUtil() {
+    }
+
+    /** Wears the main-hand tool of the given tag (vanilla durability rules); true when it broke. */
+    public static boolean wearTool(LivingEntity e, TagKey<Item> tag, int amount) {
+        ItemStack held = e.getMainHandItem();
+        if (amount <= 0 || !held.is(tag) || !held.isDamageableItem()) return false;
+        held.hurtAndBreak(amount, e, EquipmentSlot.MAINHAND);
+        return held.isEmpty();
+    }
+
+    /** Y of the first free cell above the surface (leaves ignored). */
+    public static int surfaceY(ServerLevel level, BlockPos pos) {
+        return level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.getX(), pos.getZ());
     }
 
     /** Block tag {@code dirt}, mangrove roots or muddy mangrove roots. */

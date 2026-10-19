@@ -50,8 +50,18 @@ import java.util.Set;
 public final class MinerTask extends ColonyTask {
     /** Walking pace along the mine route (1.05 looked like a sprint next to other villagers). */
     private static final double ROUTE_SPEED = 0.7;
-    /** Ticks a miner may spend walking to the route end before a deep expedition starts where it stands. */
+    /** Ticks a miner may spend walking to the route end; after that the expedition runs where it stands (underground only). */
     private static final long DEEP_WALK_LIMIT = 2400;
+    /** Walk-time estimate per route cell, for the "fits in the work day" check. */
+    private static final long DEEP_TICKS_PER_CELL = 8;
+    /** The colony work activity ends at this time of day. */
+    private static final long WORK_END = 9000;
+    /** How far below the entrance a stranded deep walk may still start its expedition. */
+    private static final int DEEP_MIN_DEPTH = 16;
+    /** Reachability probes allowed per mining tick (shared PathBudget), and how long a probe result is reused. */
+    private static final int PROBES_PER_TICK = 2;
+    private static final long PROBE_TTL = 200;
+    public static final String STATUS_DEEP_ABORT = "глубинная экспедиция отложена: забой недоступен";
     public static final String EMERGENCY_TAG = "btv_emergency_return";
     public static final String STATUS_ROUTE_ACCESS = "восстановление доступа к шахтному маршруту";
     public static final String STATUS_STORAGE_ACCESS = "восстановление доступа к складу шахтёра";
@@ -86,6 +96,17 @@ public final class MinerTask extends ColonyTask {
     private final Map<BlockPos, Long> oreBlacklist = new HashMap<>();
     private boolean deepEligible;
     private boolean teleportEligible;
+    /** The previous run went mining (or deep); only such runs count as stalled trips. */
+    private boolean enteredMining;
+    /** Arrived at the mine head this run; stall time is counted only from then. */
+    private boolean atFace;
+    /** The face cannot advance and no deep expedition is possible: park after delivering. */
+    private boolean faceBlocked;
+    private long deepCheckAt;
+    private int probesLeft;
+    private record Probe(boolean ok, long until) {
+    }
+    private final Map<BlockPos, Probe> reachCache = new HashMap<>();
     private long lastProgress;
     private int seenRouteSize;
     private long lastGrowth;
@@ -166,15 +187,22 @@ public final class MinerTask extends ColonyTask {
             }
         }
         oreBlacklist.values().removeIf(exp -> exp <= now);
+        reachCache.values().removeIf(p -> p.until() <= now);
         int s;
         if (route.size() > colony.lastMineRouteSize) {
             colony.lastMineRouteSize = route.size();
             colony.mineStallTrips = 0;
-        } else {
+            ColonyManager.markDirty(level);
+        } else if (enteredMining) {
+            // Restarts that never reached the mine (cooldowns, missing tools) are not stalled trips.
             colony.mineStallTrips++;
+            ColonyManager.markDirty(level);
         }
+        enteredMining = false;
+        atFace = false;
+        faceBlocked = false;
+        deepCheckAt = now;
         s = colony.mineStallTrips;
-        ColonyManager.markDirty(level);
         deepEligible = (route.size() >= 32 && s >= 2) || s >= 6;
         teleportEligible = route.size() < 32 && s >= 6 && s < 12;
         seenRouteSize = route.size();
@@ -193,6 +221,12 @@ public final class MinerTask extends ColonyTask {
 
     @Override
     protected void stop(ServerLevel level, Villager v, long time) {
+        if (phase == Phase.DEEP && deepArrived) {
+            // Interrupted at the face (night, role change): pay out the part already worked.
+            Colony colony = colony(level, v);
+            if (colony != null) payDeep(level, colony, v, serverNow(level), deepFraction(serverNow(level)));
+            phase = Phase.RETURN;
+        }
         timer.cancel(level);
         v.getNavigation().stop();
         v.getBrain().eraseMemory(ModRegistries.MINE_TARGET_POS.get());
@@ -217,11 +251,12 @@ public final class MinerTask extends ColonyTask {
         if (route.size() > seenRouteSize) {
             seenRouteSize = route.size();
             lastGrowth = now;
-        } else if ((route.size() >= 32 && now - lastGrowth >= 400) || (!route.isEmpty() && now - lastGrowth >= 2400)) {
+        } else if (atFace && ((route.size() >= 32 && now - lastGrowth >= 400) || (!route.isEmpty() && now - lastGrowth >= 2400))) {
             deepEligible = true;
         }
         if (v.getTags().contains(EMERGENCY_TAG)) {
             v.removeTag(EMERGENCY_TAG);
+            if (phase == Phase.DEEP && deepArrived) payDeep(level, colony, v, now, deepFraction(now));
             phase = Phase.RETURN;
             blockTarget = null;
             oreTarget = null;
@@ -241,13 +276,17 @@ public final class MinerTask extends ColonyTask {
             deepEligible = false;
             teleportEligible = false;
             phase = Phase.MINING;
+            enteredMining = true;
             lastProgress = now;
             lastGrowth = now;
             return;
         }
-        if (deepEligible && !route.isEmpty() && now >= nextDeep(colony)[0]) {
-            startDeep(level, v, now);
-            return;
+        if (deepEligible && !route.isEmpty() && now >= nextDeep(colony)[0] && now >= deepCheckAt) {
+            deepCheckAt = now + 100;
+            if (canStartDeep(level, colony, v)) {
+                startDeep(level, v, now);
+                return;
+            }
         }
         long tod = Math.floorMod(level.getDayTime(), 24000L);
         if (phase == Phase.MINING && tod >= 8000 && tod < 12000) {
@@ -266,6 +305,7 @@ public final class MinerTask extends ColonyTask {
     // ---------------------------------------------------------------- mining (3.4)
 
     private void miningTick(ServerLevel level, Colony colony, Villager v, long now) {
+        probesLeft = PROBES_PER_TICK;
         if (oreTarget != null && now - lastProgress > 200) {
             oreBlacklist.put(oreTarget, now + 6000);
             oreTarget = null;
@@ -331,6 +371,11 @@ public final class MinerTask extends ColonyTask {
                 move(level, colony, v, route.get(routeWalkIndex), now);
             }
             return;
+        }
+        if (!atFace) {
+            // Stall time (deep eligibility) counts from arrival at the face, not from the walk down.
+            atFace = true;
+            lastGrowth = now;
         }
         if (!torchCheck(level, v, head)) {
             returnHome(colony, v, now);
@@ -399,6 +444,12 @@ public final class MinerTask extends ColonyTask {
             minedThisTrip++;
             lastProgress = now;
             if (ore) enqueueVein(level, mined);
+            if (GatherUtil.wearTool(v, ItemTags.PICKAXES, 1)) {
+                // Pickaxe broke: go home, the outfitting step supplies a new one.
+                timer.reset();
+                returnHome(colony, v, now);
+                return;
+            }
         }
         timer.reset();
         blockTarget = null;
@@ -441,6 +492,11 @@ public final class MinerTask extends ColonyTask {
             minedThisTrip++;
             lastProgress = now;
             enqueueVein(level, n);
+            if (GatherUtil.wearTool(v, ItemTags.PICKAXES, 1)) {
+                timer.reset();
+                returnHome(colony, v, now);
+                return;
+            }
         }
         timer.reset();
         adjacentTarget = null;
@@ -453,7 +509,7 @@ public final class MinerTask extends ColonyTask {
             branch.add(head);
         }
         if (oreTarget == null && branch.isEmpty() && route.size() >= 512) {
-            startDeep(level, v, now);
+            deepOrPark(level, colony, v, now);
             return;
         }
         BlockPos next = oreTarget == null ? nextStep(level, colony) : stepToward(head, oreTarget, route);
@@ -465,7 +521,7 @@ public final class MinerTask extends ColonyTask {
         if (!GatherUtil.solidFloor(level, next.below()) && tryBridge(level, colony, v, next.below(), now)) {
             return;
         }
-        if (!(diggable(level, colony, next) && !outside(colony, next) && !route.contains(next) && !branch.contains(next))) {
+        if (!(diggable(level, colony, v, next) && !outside(colony, next) && !route.contains(next) && !branch.contains(next))) {
             if (oreTarget != null) {
                 oreBlacklist.put(oreTarget, now + 6000);
                 oreTarget = null;
@@ -476,7 +532,7 @@ public final class MinerTask extends ColonyTask {
             for (int k = 1; k <= 3 && alt == null; k++) {
                 colony.mineDirection = Math.floorMod(dir + k, 4);
                 BlockPos c = nextStep(level, colony);
-                if (c != null && diggable(level, colony, c) && !outside(colony, c) && !route.contains(c)) {
+                if (c != null && diggable(level, colony, v, c) && !outside(colony, c) && !route.contains(c)) {
                     alt = c;
                     ColonyManager.markDirty(level);
                 }
@@ -487,7 +543,7 @@ public final class MinerTask extends ColonyTask {
                 for (int dy : new int[]{0, 1, -1}) {
                     for (Direction d : DIRS) {
                         BlockPos c = head.relative(d).above(dy);
-                        if (!outside(colony, c) && !route.contains(c) && diggable(level, colony, c)) {
+                        if (!outside(colony, c) && !route.contains(c) && diggable(level, colony, v, c)) {
                             alt = c;
                             break outer;
                         }
@@ -495,7 +551,7 @@ public final class MinerTask extends ColonyTask {
                 }
             }
             if (alt == null) {
-                startDeep(level, v, now);
+                deepOrPark(level, colony, v, now);
                 return;
             }
             next = alt;
@@ -597,6 +653,7 @@ public final class MinerTask extends ColonyTask {
 
     private void searchEntrance(ServerLevel level, Colony colony, Villager v) {
         BlockPos core = colony.core();
+        boolean probed = false;
         for (int n = 0; n < 8; n++) {
             int c = entranceCursor;
             entranceCursor = (entranceCursor + 1) % 2401;
@@ -608,6 +665,12 @@ public final class MinerTask extends ColonyTask {
             BlockPos p = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
             if (!GatherUtil.passable(level, p) || !GatherUtil.passable(level, p.above()) || !mineable(level, colony, p.below())) continue;
             if (!entranceBoxOk(level, colony, p)) continue;
+            // One path probe per call (shared PathBudget); the next candidate waits for the next tick.
+            if (probed) {
+                entranceCursor = c;
+                return;
+            }
+            probed = true;
             if (!reachable(level, v, p)) continue;
             colony.mineRoute.add(p);
             colony.mineDirection = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0);
@@ -657,13 +720,30 @@ public final class MinerTask extends ColonyTask {
         return !GatherUtil.underStructure(level, pos, 3, 5);
     }
 
-    private boolean diggable(ServerLevel level, Colony colony, BlockPos next) {
+    /** Next tunnel cell can be dug; an ore the held pickaxe cannot harvest counts as an obstacle (the route goes around). */
+    private boolean diggable(ServerLevel level, Colony colony, Villager v, BlockPos next) {
         if (!GatherUtil.solidFloor(level, next.below())) return false;
         for (int y = 0; y <= 2; y++) {
             BlockPos c = next.above(y);
-            if (!GatherUtil.passable(level, c) && !mineable(level, colony, c)) return false;
+            if (GatherUtil.passable(level, c)) continue;
+            if (!mineable(level, colony, c)) return false;
+            BlockState s = level.getBlockState(c);
+            if (GatherUtil.isOre(s) && toolInsufficient(v, s)) return false;
         }
         return true;
+    }
+
+    /** Reachability of a stand cell for the ore scan: cached, and at most PROBES_PER_TICK path probes per tick. */
+    private boolean probeReachable(ServerLevel level, Villager v, BlockPos n, long now) {
+        Probe p = reachCache.get(n);
+        if (p != null && p.until() > now) return p.ok();
+        if (probesLeft <= 0 || !PathBudget.tryAcquire(level)) return false;
+        probesLeft--;
+        Path path = v.getNavigation().createPath(n, 0);
+        boolean ok = path != null && path.canReach();
+        if (reachCache.size() > 512) reachCache.clear();
+        reachCache.put(n.immutable(), new Probe(ok, now + PROBE_TTL));
+        return ok;
     }
 
     /** Pickaxe gating by block id path (3.7). */
@@ -712,7 +792,7 @@ public final class MinerTask extends ColonyTask {
         for (Direction d : Direction.Plane.HORIZONTAL) {
             BlockPos n = o.relative(d);
             if (GatherUtil.passable(level, n) && GatherUtil.passable(level, n.above()) && GatherUtil.solidFloor(level, n.below())
-                    && (n.distSqr(v.blockPosition()) <= 4 || reachable(level, v, n))) {
+                    && (n.distSqr(v.blockPosition()) <= 4 || probeReachable(level, v, n, now))) {
                 blockTarget = o.immutable();
                 standPos = n.immutable();
                 return true;
@@ -932,6 +1012,7 @@ public final class MinerTask extends ColonyTask {
         if (resume) {
             resume = false;
             phase = Phase.MINING;
+            enteredMining = true;
             blockTarget = null;
             oreTarget = null;
             routeWalkIndex = routeReturnIndex;
@@ -976,11 +1057,14 @@ public final class MinerTask extends ColonyTask {
         }
         inv.setChanged();
         ToolSupply.smeltAll(level, colony);
-        if (deepEligible && !route.isEmpty() && now >= nextDeep(colony)[0]) {
+        boolean deepWanted = deepEligible && !route.isEmpty();
+        if (deepWanted && now >= nextDeep(colony)[0] && canStartDeep(level, colony, v)) {
             startDeep(level, v, now);
-        } else if (deepEligible && !route.isEmpty()) {
+        } else if (deepWanted && now < nextDeep(colony)[0]) {
             // Wait for the deep-expedition cooldown instead of restarting every tick.
             finish(nextDeep(colony)[0]);
+        } else if (faceBlocked) {
+            finish(now + 1200);
         } else if (phase == Phase.RETURN) {
             finish(now + 40);
         } else {
@@ -1032,8 +1116,11 @@ public final class MinerTask extends ColonyTask {
                 ToolSupply.stash(level, colony, v, inv.addItem(got));
             }
         }
-        if (v.getMainHandItem().is(ItemTags.PICKAXES) && count(inv, Items.TORCH) >= 1 && ColonyStorage.hasRoomFor(level, colony, MinerTask::isLoot)) {
+        boolean room = lootRoom(level, colony);
+        if (!room) WorkTracker.status(v, WorkTracker.STATUS_STORAGE_FULL);
+        if (v.getMainHandItem().is(ItemTags.PICKAXES) && count(inv, Items.TORCH) >= 1 && room) {
             phase = Phase.MINING;
+            enteredMining = true;
             lastProgress = now;
             routeWalkIndex = 0;
             deepestIndex = 0;
@@ -1045,13 +1132,47 @@ public final class MinerTask extends ColonyTask {
 
     // ---------------------------------------------------------------- deep expedition (3.9)
 
+    private static int deepTicks() {
+        return Math.max(400, Math.min(12000, ColonyConfig.get().work.deep_mining_ticks));
+    }
+
+    /** Storage can take mining loot: an empty slot, or room for more than a stack of cobblestone. */
+    private static boolean lootRoom(ServerLevel level, Colony colony) {
+        return ColonyStorage.emptySlots(level, colony) > 0 || ColonyStorage.freeCapacity(level, colony, new ItemStack(Items.COBBLESTONE)) > 64;
+    }
+
+    /** Pickaxe in hand, a torch (or logs to make one), room for the yield, and the walk plus the expedition fit in the work day. */
+    private boolean canStartDeep(ServerLevel level, Colony colony, Villager v) {
+        List<BlockPos> route = colony.mineRoute;
+        if (route.isEmpty() || !v.getMainHandItem().is(ItemTags.PICKAXES)) return false;
+        if (findSlot(v.getInventory(), Items.TORCH) < 0
+                && !ColonyStorage.has(level, colony, s -> s.is(Items.TORCH) || s.is(ItemTags.LOGS))) return false;
+        if (!lootRoom(level, colony)) return false;
+        int from = nearestIndex(route, v.blockPosition());
+        long walk = Math.min(DEEP_WALK_LIMIT, (long) (route.size() - 1 - from) * DEEP_TICKS_PER_CELL);
+        long tod = Math.floorMod(level.getDayTime(), 24000L);
+        return tod + walk + deepTicks() <= WORK_END;
+    }
+
+    /** The face cannot advance: start a deep expedition if allowed, else go home and park for a while. */
+    private void deepOrPark(ServerLevel level, Colony colony, Villager v, long now) {
+        deepEligible = true;
+        if (now >= nextDeep(colony)[0] && canStartDeep(level, colony, v)) {
+            startDeep(level, v, now);
+        } else {
+            faceBlocked = true;
+            returnHome(colony, v, now);
+        }
+    }
+
     private void startDeep(ServerLevel level, Villager v, long now) {
         timer.cancel(level);
         phase = Phase.DEEP;
+        enteredMining = true;
         blockTarget = null;
         oreTarget = null;
         adjacentTarget = null;
-        deepTicks = Math.max(400, Math.min(12000, ColonyConfig.get().work.deep_mining_ticks));
+        deepTicks = deepTicks();
         deepEnd = Long.MAX_VALUE;
         deepArrived = false;
         deepWalkStart = now;
@@ -1072,32 +1193,67 @@ public final class MinerTask extends ColonyTask {
                 move(level, colony, v, route.get(Math.min(idx, route.size() - 1)), now);
                 return;
             }
+            if (!atEnd && !underground(colony, v)) {
+                // Walk limit ran out near the surface: never mine "deep" from there, postpone instead.
+                nextDeep(colony)[0] = now + 1200;
+                WorkTracker.status(v, STATUS_DEEP_ABORT);
+                returnHome(colony, v, now);
+                return;
+            }
             deepArrived = true;
             deepEnd = now + deepTicks;
+            Nav.reset(v);
             v.getBrain().setMemory(ModRegistries.MINE_TARGET_POS.get(), v.blockPosition());
         }
-        Nav.reset(v);
+        v.getNavigation().stop();
         if (worldTime % 40 == 0) v.swing(InteractionHand.MAIN_HAND);
         if (now < deepEnd) return;
+        payDeep(level, colony, v, now, 1.0);
+        returnHome(colony, v, now);
+        if (!colony.mineRoute.isEmpty()) routeReturnIndex = nearestIndex(colony.mineRoute, v.blockPosition());
+    }
+
+    /** Next to a route cell and at least DEEP_MIN_DEPTH below the entrance. */
+    private static boolean underground(Colony colony, Villager v) {
+        List<BlockPos> route = colony.mineRoute;
+        if (route.isEmpty()) return false;
+        BlockPos pos = v.blockPosition();
+        return route.get(nearestIndex(route, pos)).distSqr(pos) <= 9 && pos.getY() <= route.get(0).getY() - DEEP_MIN_DEPTH;
+    }
+
+    /** Share of the expedition already worked (0..1). */
+    private double deepFraction(long now) {
+        if (deepTicks <= 0 || deepEnd == Long.MAX_VALUE) return 0;
+        return Math.max(0, Math.min(1, (now - (deepEnd - deepTicks)) / (double) deepTicks));
+    }
+
+    /** Deep-expedition yield scaled by the worked fraction; the pickaxe wears by the blocks this yield stands for. */
+    private void payDeep(ServerLevel level, Colony colony, Villager v, long now, double fraction) {
         RandomSource r = v.getRandom();
-        int sum = 0;
-        sum += depositDeep(level, colony, Items.COBBLESTONE, 48 + r.nextInt(49));
-        sum += depositDeep(level, colony, Items.COAL, 8 + r.nextInt(13));
-        sum += depositDeep(level, colony, Items.RAW_IRON, 4 + r.nextInt(9));
-        sum += depositDeep(level, colony, Items.RAW_COPPER, 4 + r.nextInt(13));
         ItemStack held = v.getMainHandItem();
-        if (held.is(Items.IRON_PICKAXE) || held.is(Items.DIAMOND_PICKAXE) || held.is(Items.NETHERITE_PICKAXE)) {
-            if (r.nextInt(3) == 0) sum += depositDeep(level, colony, Items.DIAMOND, 1 + r.nextInt(2));
-            sum += depositDeep(level, colony, Items.REDSTONE, 4 + r.nextInt(9));
-        }
+        boolean ironPlus = held.is(Items.IRON_PICKAXE) || held.is(Items.DIAMOND_PICKAXE) || held.is(Items.NETHERITE_PICKAXE);
+        int cobble = share(48 + r.nextInt(49), fraction);
+        int coal = share(8 + r.nextInt(13), fraction);
+        int iron = share(4 + r.nextInt(9), fraction);
+        int copper = share(4 + r.nextInt(13), fraction);
+        int diamonds = ironPlus && r.nextInt(3) == 0 ? share(1 + r.nextInt(2), fraction) : 0;
+        int redstone = ironPlus ? share(4 + r.nextInt(9), fraction) : 0;
+        int sum = depositDeep(level, colony, Items.COBBLESTONE, cobble) + depositDeep(level, colony, Items.COAL, coal)
+                + depositDeep(level, colony, Items.RAW_IRON, iron) + depositDeep(level, colony, Items.RAW_COPPER, copper)
+                + depositDeep(level, colony, Items.DIAMOND, diamonds) + depositDeep(level, colony, Items.REDSTONE, redstone);
+        // Ore blocks drop several copper/redstone items each.
+        int blocks = cobble + coal + iron + (copper + 2) / 3 + diamonds + (redstone + 3) / 4;
+        GatherUtil.wearTool(v, ItemTags.PICKAXES, blocks);
         colony.deepMiningTrips++;
         colony.deepMiningYield += sum;
         nextDeep(colony)[0] = now + 600;
         ColonyManager.markDirty(level);
         WorkTracker.credit(v, STATUS_DEEP_YIELD, sum);
         minedThisTrip += sum;
-        returnHome(colony, v, now);
-        if (!colony.mineRoute.isEmpty()) routeReturnIndex = nearestIndex(colony.mineRoute, v.blockPosition());
+    }
+
+    private static int share(int n, double fraction) {
+        return (int) Math.round(n * fraction);
     }
 
     /** Deposits up to n items; returns how many actually fit (the rest is not produced). */

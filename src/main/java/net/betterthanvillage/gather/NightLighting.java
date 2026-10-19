@@ -3,9 +3,12 @@ package net.betterthanvillage.gather;
 import net.betterthanvillage.ai.work.SafeEdit;
 import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.colony.Colony;
+import net.betterthanvillage.colony.ColonyManager;
+import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.Protection;
+import net.betterthanvillage.construction.Damage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
@@ -23,10 +26,16 @@ public final class NightLighting {
     private NightLighting() {
     }
 
-    public static void tick(ServerLevel level, Colony colony, Villager v) {
-        if ((level.getGameTime() + (long) v.getId() * 17) % 80 != 0 || !v.isAlive() || v.isSleeping()) return;
+    /** Cells deeper than this below the surface are tunnels or caves and are not lit. */
+    private static final int MAX_DEPTH = 6;
+
+    public static void tick(ServerLevel level, Colony positional, Villager v) {
+        if ((level.getGameTime() + (long) v.getId() * 17) % 80 != 0 || !v.isAlive() || v.isSleeping() || v.isBaby()) return;
+        // Only adult members light their own colony.
+        Colony colony = ColonyManager.colonyOf(level, v);
+        if (colony == null) return;
         BlockPos here = v.blockPosition();
-        if (level.getMaxLocalRawBrightness(here) > 6 || torchNear(level, here)) return;
+        if (level.getMaxLocalRawBrightness(here) > 6 || here.getY() < GatherUtil.surfaceY(level, here) - MAX_DEPTH || torchNear(level, here)) return;
         BlockPos spot = findSpot(level, colony, here);
         if (spot == null) return;
         SimpleContainer inv = v.getInventory();
@@ -79,6 +88,14 @@ public final class NightLighting {
         return false;
     }
 
+    private static boolean nearPlayerBlock(ServerLevel level, BlockPos c) {
+        ColonySavedData data = ColonyManager.data(level);
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-2, -2, -2), c.offset(2, 2, 2))) {
+            if (data.isPlayerBlock(p)) return true;
+        }
+        return false;
+    }
+
     /** A torch on a plot that is still to be built would block the builder (and the site search). */
     private static boolean onPendingPlot(Colony colony, BlockPos c) {
         for (ConstructionJob j : colony.jobs) {
@@ -99,6 +116,9 @@ public final class NightLighting {
                         if (level.getMaxLocalRawBrightness(c) > 6 || !level.getBlockState(c).isAir() || !torch.canSurvive(level, c)) continue;
                         // A protected spot would only churn torches every attempt and hide valid spots further out.
                         if (!Protection.terrainModifiable(level, c) || onPendingPlot(colony, c)) continue;
+                        // No tunnels/caves, no roofed cells by day (house interiors), no structures or player builds.
+                        if (c.getY() < GatherUtil.surfaceY(level, c) - MAX_DEPTH || (level.isDay() && !level.canSeeSky(c))) continue;
+                        if (GatherUtil.inStructure(level, c, 0, 0, 0) || Damage.isProtectedHousePiece(level, c) || nearPlayerBlock(level, c)) continue;
                         return c;
                     }
                 }

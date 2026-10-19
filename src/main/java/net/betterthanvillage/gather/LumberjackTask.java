@@ -70,6 +70,8 @@ public final class LumberjackTask extends ColonyTask {
     private long nextAction;
     private boolean needsAxe;
     private BlockPos chestSite;
+    /** After a delivery that could not happen, keep felling (logs stay carried) until this game time. */
+    private long noDeliveryUntil;
     private final BlockWorkTimer timer = new BlockWorkTimer();
 
     public LumberjackTask() {
@@ -93,12 +95,12 @@ public final class LumberjackTask extends ColonyTask {
         base = null;
         cut = 0;
         chestSite = null;
-        if (countLogs(v.getInventory()) >= 4) {
+        long now = level.getGameTime();
+        if (countLogs(v.getInventory()) >= 4 && now >= noDeliveryUntil) {
             delivering = true;
             return true;
         }
         delivering = false;
-        long now = level.getGameTime();
         if (now < nextSearch) return false;
         BlockPos found = findTree(level, colony, v);
         if (found == null) {
@@ -169,30 +171,48 @@ public final class LumberjackTask extends ColonyTask {
             return;
         }
         BlockPos log = queue.peekFirst();
-        if (!Protection.terrainModifiable(level, log)) {
+        if (!Protection.terrainModifiable(level, log) || Damage.isProtectedHousePiece(level, log) || GatherUtil.inStructure(level, log, 0, 0, 0)) {
             queue.pollFirst();
             nextAction = now + 2;
             return;
         }
-        double dx = v.getX() - (base.getX() + 0.5);
-        double dz = v.getZ() - (base.getZ() + 0.5);
-        if (dx * dx + dz * dz > 25) {
-            Nav.approach(level, v, base, 0.6);
-            if (Nav.isBlacklisted(v, base, now)) {
+        // Work from beside the log's column (reach 3); if that spot is unreachable, fall back to the base stance (reach 5).
+        BlockPos stand = new BlockPos(log.getX(), base.getY(), log.getZ());
+        double reach2 = 9;
+        if (!stand.equals(base) && Nav.isBlacklisted(v, stand, now)) {
+            stand = base;
+            reach2 = 25;
+        }
+        double dx = v.getX() - (stand.getX() + 0.5);
+        double dz = v.getZ() - (stand.getZ() + 0.5);
+        if (dx * dx + dz * dz > reach2) {
+            Nav.approach(level, v, stand, 0.6);
+            if (stand.equals(base) && Nav.isBlacklisted(v, base, now)) {
                 // Unreachable: give the tree up for a while instead of retrying until the watchdog fires.
                 badTrees.put(base, now + BAD_TREE_TICKS);
                 queue.clear();
             }
             return;
         }
+        BlockState state = level.getBlockState(log);
+        ItemStack drop = new ItemStack(state.getBlock().asItem());
+        if (now >= noDeliveryUntil && !v.getInventory().canAddItem(drop) && carriesWood(v.getInventory())) {
+            // No room for the next log: deliver first, then come back to this tree.
+            timer.cancel(level);
+            delivering = true;
+            return;
+        }
         v.getNavigation().stop();
         v.getLookControl().setLookAt(log.getX() + 0.5, log.getY() + 0.5, log.getZ() + 0.5);
         if (timer.tick(level, v, log, true)) {
-            BlockState state = level.getBlockState(log);
             if (SafeEdit.breakBlock(level, v, log)) {
-                give(level, v, new ItemStack(state.getBlock().asItem()));
+                give(level, v, drop);
                 cut++;
                 v.swing(InteractionHand.MAIN_HAND);
+                if (GatherUtil.wearTool(v, ItemTags.AXES, 1)) {
+                    // Axe broke: fetch a new one from storage before the next log.
+                    needsAxe = !colony.storages.isEmpty();
+                }
             }
             // A refused break (entity on top, falling block above) skips the log instead of retrying every tick.
             queue.pollFirst();
@@ -215,18 +235,25 @@ public final class LumberjackTask extends ColonyTask {
     // ---------------------------------------------------------------- delivery
 
     private void deliver(ServerLevel level, Colony colony, Villager v, long now) {
-        boolean needsNewStorage = colony.storages.isEmpty() || ColonyStorage.emptySlots(level, colony) <= 4;
-        BlockPos target = null;
-        if (!needsNewStorage && ColonyStorage.hasRoomFor(level, colony, LumberjackTask::isWoodLoot)) {
-            target = ColonyStorage.nearestFor(level, colony, v, StorageKind.WOOD);
-        }
-        if (target == null) {
+        // A new WOOD chest only when the usable storages are really full, never because the nearest one is blacklisted.
+        boolean full = colony.storages.isEmpty()
+                || (!ColonyStorage.usable(level, colony).isEmpty() && ColonyStorage.emptySlots(level, colony) <= 4);
+        BlockPos target;
+        if (full) {
             if (countLogs(v.getInventory()) < 4) {
-                delivering = false;
+                giveUpDelivery(now);
                 return;
             }
-            target = buildWoodStorage(level, colony, v);
+            target = buildWoodStorage(level, colony, v, now);
             if (target == null) return;
+        } else {
+            target = ColonyStorage.nearestFor(level, colony, v, StorageKind.WOOD);
+            if (target == null) {
+                // Storages exist but are blacklisted or unloaded right now: wait instead of building another chest.
+                if (countLogs(v.getInventory()) < 4) giveUpDelivery(now);
+                nextAction = now + 40;
+                return;
+            }
         }
         if (v.position().distanceToSqr(Vec3.atCenterOf(target)) > 9) {
             Nav.approach(level, v, target, 0.6);
@@ -245,12 +272,25 @@ public final class LumberjackTask extends ColonyTask {
         nextAction = now + 20;
     }
 
+    /** Ends the delivery attempt; carried wood stays in the inventory and felling goes on for a while. */
+    private void giveUpDelivery(long now) {
+        delivering = false;
+        noDeliveryUntil = now + 600;
+    }
+
+    private static boolean carriesWood(SimpleContainer inv) {
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (isWoodLoot(inv.getItem(i))) return true;
+        }
+        return false;
+    }
+
     /** Walks to a cached wood-chest site and places a WOOD double chest there; returns it once placed. */
-    private BlockPos buildWoodStorage(ServerLevel level, Colony colony, Villager v) {
+    private BlockPos buildWoodStorage(ServerLevel level, Colony colony, Villager v, long now) {
         if (chestSite == null) {
             chestSite = StoragePlacer.findSite(level, colony);
             if (chestSite == null) {
-                delivering = false;
+                giveUpDelivery(now);
                 return null;
             }
         }
@@ -418,8 +458,9 @@ public final class LumberjackTask extends ColonyTask {
                     for (int dz = -1; dz <= 1; dz++) {
                         if (dx == 0 && dy == 0 && dz == 0) continue;
                         BlockState s = level.getBlockState(log.offset(dx, dy, dz));
+                        // A natural bee nest does not make the tree a build (only logs are cut, the nest stays).
                         if (s.is(BlockTags.PLANKS) || s.is(BlockTags.BEDS) || s.is(BlockTags.DOORS) || s.is(Blocks.COBBLESTONE)
-                                || s.is(Blocks.STONE_BRICKS) || s.hasBlockEntity()) {
+                                || s.is(Blocks.STONE_BRICKS) || (s.hasBlockEntity() && !s.is(Blocks.BEE_NEST))) {
                             return false;
                         }
                     }
