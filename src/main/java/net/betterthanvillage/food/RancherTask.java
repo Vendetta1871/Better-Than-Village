@@ -25,6 +25,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.animal.Cow;
@@ -47,9 +48,11 @@ import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Animal herder (04 §4): pen construction, luring animals into it, shearing, eggs, milking and breeding. */
@@ -141,7 +144,7 @@ public final class RancherTask extends ColonyTask {
         if (colony.livestockPen == null) return;
         BlockPos g = gate(colony);
         if (!level.isLoaded(g)) return;
-        if (!level.getEntities((Entity) null, new AABB(g).inflate(0.15, 0.2, 0.15), e -> e.isAlive() && !e.isSpectator()).isEmpty()) return;
+        if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(g).inflate(0.15, 0.2, 0.15), e -> e.isAlive() && !e.isSpectator()).isEmpty()) return;
         BlockState s = level.getBlockState(g);
         if (s.is(Blocks.OAK_FENCE_GATE) && s.getValue(FenceGateBlock.OPEN)) {
             SafeEdit.place(level, g, s.setValue(FenceGateBlock.OPEN, false), 3);
@@ -245,6 +248,7 @@ public final class RancherTask extends ColonyTask {
         nextRun = now;
         stateStart = now;
         lureCooldowns.values().removeIf(t -> t <= now);
+        productCooldowns.values().removeIf(t -> t <= now);
     }
 
     @Override
@@ -361,7 +365,7 @@ public final class RancherTask extends ColonyTask {
         // 7: food
         if (!FoodUtil.carries(inv, ColonyStorage::isFood)) FoodUtil.takeOne(level, colony, v, ColonyStorage::isFood);
         // 8: shears
-        if (!FoodUtil.carries(inv, s -> s.is(Items.SHEARS))) {
+        if (!FoodUtil.carries(inv, s -> s.is(Items.SHEARS)) && FoodUtil.hasRoom(inv, new ItemStack(Items.SHEARS))) {
             if (!FoodUtil.takeOne(level, colony, v, s -> s.is(Items.SHEARS))
                     && ColonyStorage.count(level, colony, s -> s.is(Items.IRON_INGOT)) >= 2
                     && ColonyStorage.consume(level, colony, s -> s.is(Items.IRON_INGOT), 2)) {
@@ -371,6 +375,7 @@ public final class RancherTask extends ColonyTask {
         // 9: buckets for milking
         int want = Math.max(0, MilkLedger.CAP - MilkLedger.colonyMilk(level, colony));
         while (want > 0 && FoodUtil.count(inv, s -> s.is(Items.BUCKET)) < Math.min(2, want)) {
+            if (!FoodUtil.hasRoom(inv, new ItemStack(Items.BUCKET))) break;
             if (FoodUtil.takeOne(level, colony, v, s -> s.is(Items.BUCKET))) continue;
             if (!ColonyStorage.consume(level, colony, s -> s.is(Items.IRON_INGOT), 3)) break;
             FoodUtil.give(level, v, new ItemStack(Items.BUCKET));
@@ -378,7 +383,7 @@ public final class RancherTask extends ColonyTask {
         // 10: lures
         for (Item item : new Item[]{Items.WHEAT, Items.WHEAT_SEEDS, Items.CARROT}) {
             while (FoodUtil.count(inv, s -> s.is(item)) + (v.getMainHandItem().is(item) ? v.getMainHandItem().getCount() : 0) < 8) {
-                if (!FoodUtil.takeOne(level, colony, v, s -> s.is(item))) break;
+                if (!FoodUtil.hasRoom(inv, new ItemStack(item)) || !FoodUtil.takeOne(level, colony, v, s -> s.is(item))) break;
             }
         }
         if (state == State.DELIVER) {
@@ -551,11 +556,12 @@ public final class RancherTask extends ColonyTask {
 
     // ---------------------------------------------------------------- choosing work (04 §4.8)
 
-    private boolean productReady(ServerLevel level, Colony colony, Villager v, Animal a, long now) {
+    /** The colony-wide conditions (shears, egg room, milk room) are computed once per choice by the caller. */
+    private boolean productReady(Animal a, long now, boolean shears, boolean eggRoom, boolean milkRoom) {
         if (a.isBaby() || productCooldowns.getOrDefault(a.getUUID(), Long.MIN_VALUE) > now) return false;
-        if (a instanceof Sheep sheep) return sheep.readyForShearing() && FoodUtil.carries(v.getInventory(), s -> s.is(Items.SHEARS));
-        if (a instanceof Chicken) return eggs(level, colony, v) < EGG_CAP;
-        if (milkable(a)) return FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET)) && MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
+        if (a instanceof Sheep sheep) return sheep.readyForShearing() && shears;
+        if (a instanceof Chicken) return eggRoom;
+        if (milkable(a)) return milkRoom;
         return false;
     }
 
@@ -596,9 +602,12 @@ public final class RancherTask extends ColonyTask {
             bestDist = leadPick.blockPosition().distSqr(colony.livestockPen);
             return;
         }
+        boolean shears = FoodUtil.carries(v.getInventory(), s -> s.is(Items.SHEARS));
+        boolean eggRoom = eggs(level, colony, v) < EGG_CAP;
+        boolean milkRoom = FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET)) && MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
         Animal harvestPick = null;
         for (Animal a : list) {
-            if (!inPen(colony, a) || !productReady(level, colony, v, a, now)) continue;
+            if (!inPen(colony, a) || !productReady(a, now, shears, eggRoom, milkRoom)) continue;
             if (harvestPick == null || v.distanceToSqr(a) < v.distanceToSqr(harvestPick)) harvestPick = a;
         }
         if (harvestPick != null) {
@@ -611,14 +620,23 @@ public final class RancherTask extends ColonyTask {
     }
 
     private boolean breed(ServerLevel level, Villager v, Colony colony, List<Animal> list, long now) {
-        for (int i = 0; i < list.size(); i++) {
-            Animal a = list.get(i);
-            for (int j = i + 1; j < list.size(); j++) {
-                Animal b = list.get(j);
-                if (!inPen(colony, a) || !inPen(colony, b) || a.isBaby() || b.isBaby() || a.getAge() != 0 || b.getAge() != 0) continue;
+        List<Animal> adults = new ArrayList<>();
+        for (Animal a : list) {
+            if (inPen(colony, a) && !a.isBaby() && a.getAge() == 0) adults.add(a);
+        }
+        // Species whose breeding item is missing: checked once instead of once per pair.
+        Set<Object> noItems = new HashSet<>();
+        for (int i = 0; i < adults.size(); i++) {
+            Animal a = adults.get(i);
+            if (noItems.contains(a.getType())) continue;
+            for (int j = i + 1; j < adults.size(); j++) {
+                Animal b = adults.get(j);
                 if (a.getType() != b.getType()) continue;
                 Item item = lureItem(a);
-                if (item == null || !consumeBreedingItems(level, colony, v, item)) continue;
+                if (item == null || !consumeBreedingItems(level, colony, v, item)) {
+                    noItems.add(a.getType());
+                    break;
+                }
                 a.setInLoveTime(600);
                 b.setInLoveTime(600);
                 a.spawnChildFromBreeding(level, b);
@@ -792,8 +810,11 @@ public final class RancherTask extends ColonyTask {
     private static void penSweep(ServerLevel level, Colony colony, Villager v) {
         BlockPos p = colony.livestockPen;
         if (p == null) return;
+        // Only from inside the pen or within reach: eligible() alone allows collecting across the whole line of sight.
+        boolean inside = inPen(colony, v);
         for (var item : level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new AABB(p).inflate(6, 2, 6))) {
-            if (!item.isAlive() || !isProduct(item.getItem()) || !ItemPickup.eligible(level, colony, v, item, ColonyRole.RANCHER)) continue;
+            if (!item.isAlive() || (!inside && v.distanceToSqr(item) > 9) || !isProduct(item.getItem())
+                    || !ItemPickup.eligible(level, colony, v, item, ColonyRole.RANCHER)) continue;
             int limit = item.getItem().is(Items.EGG) ? Math.max(0, EGG_CAP - eggs(level, colony, v)) : Integer.MAX_VALUE;
             ItemPickup.pickup(level, colony, v, item, limit);
         }

@@ -98,12 +98,18 @@ public final class FoodUtil {
         return ItemStack.EMPTY;
     }
 
-    /** Takes one matching item from storage into the inventory (overflow dropped). */
+    /**
+     * Takes one matching item from storage into the inventory. Returns false if nothing was taken;
+     * an item without room goes back to storage (dropped only if that fails too).
+     */
     public static boolean takeOne(ServerLevel level, Colony colony, Villager v, Predicate<ItemStack> pred) {
         ItemStack one = ColonyStorage.withdrawOne(level, colony, pred);
         if (one.isEmpty()) return false;
-        give(level, v, one);
-        return true;
+        ItemStack rest = v.getInventory().addItem(one);
+        if (rest.isEmpty()) return true;
+        ColonyStorage.deposit(level, colony, rest);
+        drop(level, v, rest);
+        return false;
     }
 
     /** Road materials: dirt path and smooth sandstone. */

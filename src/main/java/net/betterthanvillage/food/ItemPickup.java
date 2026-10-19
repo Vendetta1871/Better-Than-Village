@@ -18,6 +18,7 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.item.Equipable;
 import net.minecraft.world.item.ItemStack;
@@ -83,7 +84,11 @@ public final class ItemPickup {
     }
 
     public static boolean eligible(ServerLevel level, Colony colony, Villager v, ItemEntity item, ColonyRole role) {
-        if (item.isRemoved() || item.hasPickUpDelay() || ((ItemEntityAccessor) item).btv$owner() != null) return false;
+        ItemEntityAccessor access = (ItemEntityAccessor) item;
+        if (item.isRemoved() || item.hasPickUpDelay() || access.btv$owner() != null) return false;
+        // Player Q-drops: anything thrown by a player (or by a thrower no longer loaded) is not up for grabs;
+        // items thrown by mobs (villager food sharing) stay eligible.
+        if (access.btv$thrower() != null && (item.getOwner() == null || item.getOwner() instanceof Player)) return false;
         BlockPos pos = item.blockPosition();
         if (ColonyManager.data(level).inLand(pos) || Protection.inPlayerOwnedJob(level, pos)) return false;
         if (!v.hasLineOfSight(item)) return false;

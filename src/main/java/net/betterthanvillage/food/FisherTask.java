@@ -76,6 +76,7 @@ public final class FisherTask extends ColonyTask {
     private boolean done;
     private FishingHook bobber;
     private long nextCatch;
+    private long standSince;
 
     public FisherTask() {
         super(12000);
@@ -161,6 +162,15 @@ public final class FisherTask extends ColonyTask {
         }
         v.getBrain().setMemory(ModRegistries.FISH_TARGET_POS.get(), water);
         if (v.blockPosition().distSqr(stand) > 6) {
+            if (Nav.isBlacklisted(v, stand, now) || now - standSince > 600) {
+                // Unreachable stand: give it up and continue the search past it.
+                Nav.blacklist(v, stand, now, 1200);
+                discardBobber();
+                state = State.SEARCH;
+                water = null;
+                stand = null;
+                return;
+            }
             Nav.approach(level, v, stand, 0.75);
             return;
         }
@@ -221,13 +231,14 @@ public final class FisherTask extends ColonyTask {
             for (Direction dir : Direction.Plane.HORIZONTAL) {
                 for (int k = 1; k <= 4; k++) {
                     BlockPos s = w.relative(dir, k).above();
-                    if (Nav.isBlacklisted(v, s, now) || !level.getBlockState(s).isAir() || !level.getBlockState(s.above()).isAir()) continue;
+                    if (!level.isLoaded(s) || Nav.isBlacklisted(v, s, now) || !level.getBlockState(s).isAir() || !level.getBlockState(s.above()).isAir()) continue;
                     if (!level.getBlockState(s.below()).isFaceSturdy(level, s.below(), Direction.UP)) continue;
                     if (!PathBudget.tryAcquire(level)) return true;
                     Path path = v.getNavigation().createPath(s, 1);
                     if (path != null && path.canReach()) {
                         water = w;
                         stand = s;
+                        standSince = now;
                         state = State.FISHING;
                         nextAction = now + 40;
                         return true;

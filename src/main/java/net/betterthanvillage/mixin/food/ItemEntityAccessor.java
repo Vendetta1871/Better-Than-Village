@@ -11,4 +11,8 @@ import java.util.UUID;
 public interface ItemEntityAccessor {
     @Accessor("target")
     UUID btv$owner();
+
+    /** UUID of the entity that threw the item (set by a player's Q-drop), or null. */
+    @Accessor("thrower")
+    UUID btv$thrower();
 }

@@ -1,18 +1,18 @@
 package net.betterthanvillage.food;
 
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Item;
 
 import java.util.EnumSet;
-import java.util.Map;
-import java.util.WeakHashMap;
 
-/** Animal follows a villager that holds its lure item (04 §4.9). One goal per animal, added on first use. */
+/**
+ * Animal follows a villager that holds its lure item (04 §4.9). One goal per animal, added on first use.
+ * The goal is found through the animal's own goal selector, so no static map keeps animals alive.
+ */
 public final class AnimalFollowGoal extends Goal {
-    private static final Map<Animal, AnimalFollowGoal> GOALS = new WeakHashMap<>();
-
     private final Animal animal;
     private Villager leader;
     private Item item;
@@ -23,18 +23,25 @@ public final class AnimalFollowGoal extends Goal {
         setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
+    private static AnimalFollowGoal find(Animal animal) {
+        for (WrappedGoal wrapped : animal.goalSelector.getAvailableGoals()) {
+            if (wrapped.getGoal() instanceof AnimalFollowGoal goal) return goal;
+        }
+        return null;
+    }
+
     public static void follow(Animal animal, Villager leader, Item item) {
-        AnimalFollowGoal goal = GOALS.computeIfAbsent(animal, a -> {
-            AnimalFollowGoal g = new AnimalFollowGoal(a);
-            a.goalSelector.addGoal(1, g);
-            return g;
-        });
+        AnimalFollowGoal goal = find(animal);
+        if (goal == null) {
+            goal = new AnimalFollowGoal(animal);
+            animal.goalSelector.addGoal(1, goal);
+        }
         goal.leader = leader;
         goal.item = item;
     }
 
     public static void release(Animal animal) {
-        AnimalFollowGoal goal = GOALS.get(animal);
+        AnimalFollowGoal goal = find(animal);
         if (goal != null) {
             goal.leader = null;
             goal.item = null;

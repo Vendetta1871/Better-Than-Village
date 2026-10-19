@@ -24,9 +24,10 @@ public abstract class HarvestFarmlandMixin {
     @Shadow
     private BlockPos aboveFarmlandPos;
 
-    @Inject(method = "validPos", at = @At("HEAD"), cancellable = true)
+    /** Veto at RETURN: the expensive suitability test only runs for positions vanilla accepts. */
+    @Inject(method = "validPos", at = @At("RETURN"), cancellable = true)
     private void btv$validPos(BlockPos pos, ServerLevel level, CallbackInfoReturnable<Boolean> cir) {
-        if (!FarmTerritory.vanillaFarmSuitable(level, pos)) {
+        if (cir.getReturnValueZ() && !FarmTerritory.vanillaFarmSuitable(level, pos)) {
             cir.setReturnValue(false);
         }
     }
