@@ -32,3 +32,7 @@ Configuration: `config/better_than_village.json` (created on first start).
 - Houses use vanilla village templates; the original mod's custom house NBTs and worldgen
   overrides are not included.
 - Mod id `better_than_village`, command `/btv`.
+
+## License
+
+Released under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
