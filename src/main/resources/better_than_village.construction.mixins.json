@@ -6,8 +6,7 @@
   "mixins": [
     "LevelChunkMixin",
     "PathNavigationInvoker",
-    "SinglePoolElementAccessor",
-    "WalkNodeEvaluatorMixin"
+    "SinglePoolElementAccessor"
   ],
   "client": [],
   "injectors": {
