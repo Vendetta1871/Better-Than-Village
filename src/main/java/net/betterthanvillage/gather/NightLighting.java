@@ -1,8 +1,11 @@
 package net.betterthanvillage.gather;
 
 import net.betterthanvillage.ai.work.SafeEdit;
+import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyStorage;
+import net.betterthanvillage.colony.ConstructionJob;
+import net.betterthanvillage.colony.Protection;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
@@ -64,7 +67,7 @@ public final class NightLighting {
             }
             v.swing(InteractionHand.MAIN_HAND);
         } else if (!external.isEmpty()) {
-            ColonyStorage.deposit(level, colony, external);
+            ToolSupply.stash(level, colony, v, external);
         }
     }
 
@@ -72,6 +75,14 @@ public final class NightLighting {
         for (BlockPos p : BlockPos.betweenClosed(pos.offset(-5, -3, -5), pos.offset(5, 3, 5))) {
             BlockState s = level.getBlockState(p);
             if (s.is(Blocks.TORCH) || s.is(Blocks.WALL_TORCH)) return true;
+        }
+        return false;
+    }
+
+    /** A torch on a plot that is still to be built would block the builder (and the site search). */
+    private static boolean onPendingPlot(Colony colony, BlockPos c) {
+        for (ConstructionJob j : colony.jobs) {
+            if (j.isActive() && j.contains(c)) return true;
         }
         return false;
     }
@@ -86,6 +97,8 @@ public final class NightLighting {
                         BlockPos c = here.offset(dx, dy, dz);
                         if (!level.isLoaded(c) || !colony.containsXZ(c)) continue;
                         if (level.getMaxLocalRawBrightness(c) > 6 || !level.getBlockState(c).isAir() || !torch.canSurvive(level, c)) continue;
+                        // A protected spot would only churn torches every attempt and hide valid spots further out.
+                        if (!Protection.terrainModifiable(level, c) || onPendingPlot(colony, c)) continue;
                         return c;
                     }
                 }

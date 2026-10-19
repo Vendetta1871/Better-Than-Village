@@ -374,26 +374,33 @@ public final class MinerTask extends ColonyTask {
             returnHome(colony, v, now);
             return;
         }
-        if (v.position().distanceToSqr(Vec3.atCenterOf(blockTarget)) <= 12 && !blockTarget.equals(v.blockPosition().below())) {
-            v.getNavigation().stop();
-            v.getLookControl().setLookAt(Vec3.atCenterOf(blockTarget));
-            List<ItemStack> drops = Block.getDrops(state, level, blockTarget, null, v, v.getMainHandItem());
-            if (!fits(v, drops)) {
-                returnHome(colony, v, now);
-                return;
-            }
-            if (!timer.tick(level, v, blockTarget, true)) return;
-            boolean ore = GatherUtil.isOre(state);
-            BlockPos mined = blockTarget;
-            if (SafeEdit.breakBlock(level, v, mined)) {
-                giveAll(level, v, drops);
-                v.swing(InteractionHand.MAIN_HAND);
-                minedThisTrip++;
-                lastProgress = now;
-                if (ore) enqueueVein(level, mined);
-            }
-            timer.reset();
+        if (blockTarget.equals(v.blockPosition().below())) {
+            blockTarget = null;
+            return;
         }
+        // Eye-based reach: the top cell of an ascending step is 3.5 blocks above the feet.
+        if (v.getEyePosition().distanceToSqr(Vec3.atCenterOf(blockTarget)) > 20.25) {
+            move(level, colony, v, standPos, now);
+            return;
+        }
+        v.getNavigation().stop();
+        v.getLookControl().setLookAt(Vec3.atCenterOf(blockTarget));
+        List<ItemStack> drops = Block.getDrops(state, level, blockTarget, null, v, v.getMainHandItem());
+        if (!fits(v, drops)) {
+            returnHome(colony, v, now);
+            return;
+        }
+        if (!timer.tick(level, v, blockTarget, true)) return;
+        boolean ore = GatherUtil.isOre(state);
+        BlockPos mined = blockTarget;
+        if (SafeEdit.breakBlock(level, v, mined)) {
+            giveAll(level, v, drops);
+            v.swing(InteractionHand.MAIN_HAND);
+            minedThisTrip++;
+            lastProgress = now;
+            if (ore) enqueueVein(level, mined);
+        }
+        timer.reset();
         blockTarget = null;
     }
 
@@ -688,12 +695,14 @@ public final class MinerTask extends ColonyTask {
 
     /** Candidate check; returns true when o became a directly reachable block target. */
     private boolean oreCandidate(ServerLevel level, Colony colony, Villager v, BlockPos o, long now) {
-        Long exp = oreBlacklist.get(o);
-        if (exp != null && exp > now) return false;
-        if (inRouteOrBranch(colony, o.above()) || outside(colony, o)) return false;
+        // Cheap checks first: most scanned cells are not ores, and the route lookup is linear.
         if (!level.isLoaded(o)) return false;
         BlockState s = level.getBlockState(o);
-        if (!GatherUtil.isOre(s) || !mineable(level, colony, o) || toolInsufficient(v, s)) return false;
+        if (!GatherUtil.isOre(s)) return false;
+        Long exp = oreBlacklist.get(o);
+        if (exp != null && exp > now) return false;
+        if (outside(colony, o) || inRouteOrBranch(colony, o.above())) return false;
+        if (!mineable(level, colony, o) || toolInsufficient(v, s)) return false;
         List<BlockPos> route = colony.mineRoute;
         if (!route.isEmpty() && route.size() < 20) return false;
         if (route.size() >= 1 && route.size() <= 31) {
@@ -892,10 +901,11 @@ public final class MinerTask extends ColonyTask {
             retLast = now;
         }
         if (now - retLast > 360) {
-            net.betterthanvillage.ai.nav.AntiStuck.emergencyTeleport(level, colony, v);
             resetReturnTracking(now);
-            teleported = true;
-            return true;
+            if (net.betterthanvillage.ai.nav.AntiStuck.emergencyTeleport(level, colony, v)) {
+                teleported = true;
+                return true;
+            }
         }
         move(level, colony, v, target, now);
         return false;
@@ -939,7 +949,7 @@ public final class MinerTask extends ColonyTask {
         }
         BlockPos storage = ColonyStorage.nearestFor(level, colony, v, StorageKind.MINING);
         if (storage == null) {
-            finish(0);
+            finish(now + 100);
             return;
         }
         v.getBrain().setMemory(ModRegistries.MINE_TARGET_POS.get(), storage);
@@ -969,7 +979,8 @@ public final class MinerTask extends ColonyTask {
         if (deepEligible && !route.isEmpty() && now >= nextDeep(colony)[0]) {
             startDeep(level, v, now);
         } else if (deepEligible && !route.isEmpty()) {
-            finish(0);
+            // Wait for the deep-expedition cooldown instead of restarting every tick.
+            finish(nextDeep(colony)[0]);
         } else if (phase == Phase.RETURN) {
             finish(now + 40);
         } else {
@@ -979,14 +990,16 @@ public final class MinerTask extends ColonyTask {
 
     private static void teleportNearStorage(ServerLevel level, Villager v, BlockPos chest) {
         for (int r = 1; r <= 2; r++) {
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
-                    BlockPos c = chest.offset(dx, 0, dz);
-                    if (Nav.standable(level, c) && GatherUtil.freeOfLiving(level, c, v)) {
-                        GatherUtil.teleport(v, c);
-                        WorkTracker.status(v, STATUS_STORAGE_ACCESS);
-                        return;
+            for (int dy : new int[]{0, 1, -1}) {
+                for (int dx = -r; dx <= r; dx++) {
+                    for (int dz = -r; dz <= r; dz++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                        BlockPos c = chest.offset(dx, dy, dz);
+                        if (Nav.standable(level, c) && GatherUtil.freeOfLiving(level, c, v)) {
+                            GatherUtil.teleport(v, c);
+                            WorkTracker.status(v, STATUS_STORAGE_ACCESS);
+                            return;
+                        }
                     }
                 }
             }
@@ -1087,14 +1100,19 @@ public final class MinerTask extends ColonyTask {
         if (!colony.mineRoute.isEmpty()) routeReturnIndex = nearestIndex(colony.mineRoute, v.blockPosition());
     }
 
+    /** Deposits up to n items; returns how many actually fit (the rest is not produced). */
     private static int depositDeep(ServerLevel level, Colony colony, Item item, int n) {
         int left = n;
+        int done = 0;
         while (left > 0) {
             int k = Math.min(left, item.getDefaultMaxStackSize());
-            ColonyStorage.deposit(level, colony, new ItemStack(item, k));
+            ItemStack stack = new ItemStack(item, k);
+            ColonyStorage.deposit(level, colony, stack);
+            done += k - stack.getCount();
+            if (!stack.isEmpty()) break;
             left -= k;
         }
-        return n;
+        return done;
     }
 
     // ---------------------------------------------------------------- inventory helpers

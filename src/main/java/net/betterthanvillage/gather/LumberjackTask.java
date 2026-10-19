@@ -13,6 +13,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
+import net.betterthanvillage.construction.Damage;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -21,6 +22,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
@@ -30,14 +32,17 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Lumberjack (03 §2): tree search, felling, wood delivery, wood-chest creation, sticks and replanting. */
@@ -45,8 +50,17 @@ public final class LumberjackTask extends ColonyTask {
     /** Every (dx, dz) with dx² + dz² <= 96², sorted by distance from the origin. */
     private static final int[][] SPIRAL = buildSpiral(96);
 
+    /** Ticks to wait after a full fruitless sweep of the spiral, and after a partial one. */
+    private static final long SEARCH_COOLDOWN = 100;
+    private static final long SEARCH_STEP = 5;
+    /** How long a tree that could not be reached or cut is skipped. */
+    private static final long BAD_TREE_TICKS = 6000;
+
     private BlockPos anchor;
     private int cursor;
+    private long nextSearch;
+    /** Tree bases that turned out unreachable or uncuttable, with expiry (game time). */
+    private final Map<BlockPos, Long> badTrees = new HashMap<>();
 
     private boolean delivering;
     private BlockPos base;
@@ -84,11 +98,17 @@ public final class LumberjackTask extends ColonyTask {
             return true;
         }
         delivering = false;
+        long now = level.getGameTime();
+        if (now < nextSearch) return false;
         BlockPos found = findTree(level, colony, v);
-        if (found == null) return false;
+        if (found == null) {
+            nextSearch = now + (cursor >= SPIRAL.length ? SEARCH_COOLDOWN : SEARCH_STEP);
+            return false;
+        }
         base = found;
         List<BlockPos> logs = connectedLogs(level, found, false);
-        logs.sort(Comparator.<BlockPos>comparingInt(BlockPos::getY).thenComparingDouble(p -> p.distSqr(found)));
+        // Top-down, so an interrupted felling leaves a stump on soil (findable again) instead of a floating trunk.
+        logs.sort(Comparator.comparingInt((BlockPos p) -> -p.getY()).thenComparingDouble(p -> p.distSqr(found)));
         queue.addAll(logs);
         sapling = saplingFor(level.getBlockState(found));
         v.getBrain().setMemory(ModRegistries.TREE_TARGET_POS.get(), found);
@@ -158,6 +178,11 @@ public final class LumberjackTask extends ColonyTask {
         double dz = v.getZ() - (base.getZ() + 0.5);
         if (dx * dx + dz * dz > 25) {
             Nav.approach(level, v, base, 0.6);
+            if (Nav.isBlacklisted(v, base, now)) {
+                // Unreachable: give the tree up for a while instead of retrying until the watchdog fires.
+                badTrees.put(base, now + BAD_TREE_TICKS);
+                queue.clear();
+            }
             return;
         }
         v.getNavigation().stop();
@@ -168,12 +193,13 @@ public final class LumberjackTask extends ColonyTask {
                 give(level, v, new ItemStack(state.getBlock().asItem()));
                 cut++;
                 v.swing(InteractionHand.MAIN_HAND);
-                queue.pollFirst();
-                timer.reset();
-                if (queue.isEmpty()) {
-                    finishTree(level, colony, v);
-                    delivering = true;
-                }
+            }
+            // A refused break (entity on top, falling block above) skips the log instead of retrying every tick.
+            queue.pollFirst();
+            timer.reset();
+            if (queue.isEmpty()) {
+                finishTree(level, colony, v);
+                delivering = true;
             }
         }
         nextAction = now + 1;
@@ -229,8 +255,15 @@ public final class LumberjackTask extends ColonyTask {
             }
         }
         v.getBrain().setMemory(ModRegistries.STORAGE_CHEST_POS.get(), chestSite);
-        if (v.position().distanceToSqr(Vec3.atCenterOf(chestSite)) > 9) {
-            Nav.approach(level, v, chestSite, 0.6);
+        // Walk to a cell beside the site, never onto it (the chest would be placed into the villager).
+        BlockPos side = Nav.standable(level, chestSite.north()) ? chestSite.north() : chestSite.south();
+        List<LivingEntity> occupants = level.getEntitiesOfClass(LivingEntity.class, new AABB(chestSite).expandTowards(1, 0, 0));
+        if (occupants.stream().anyMatch(e -> e != v)) {
+            chestSite = null;
+            return null;
+        }
+        if (!occupants.isEmpty() || v.position().distanceToSqr(Vec3.atCenterOf(chestSite)) > 9) {
+            Nav.approach(level, v, side, 0.6, Nav.R2_EXACT);
             return null;
         }
         if (!level.getBlockState(chestSite).isAir() || !level.getBlockState(chestSite.east()).isAir() || countLogs(v.getInventory()) < 4) {
@@ -283,7 +316,10 @@ public final class LumberjackTask extends ColonyTask {
         int r = Math.min(colony.radius() - 4, 96);
         long r2 = (long) r * r;
         long now = level.getGameTime();
+        badTrees.values().removeIf(exp -> exp <= now);
         Set<BlockPos> rejected = new HashSet<>();
+        // Every log of an already rejected tree: skips repeating the BFS for each of its logs.
+        Set<BlockPos> rejectedLogs = new HashSet<>();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int n = 0; n < 1024 && cursor < SPIRAL.length; n++, cursor++) {
             int x = anchor.getX() + SPIRAL[cursor][0];
@@ -296,21 +332,25 @@ public final class LumberjackTask extends ColonyTask {
             for (int y = top; y >= top - 40; y--) {
                 if (!level.getBlockState(m.set(x, y, z)).is(BlockTags.LOGS)) continue;
                 BlockPos found = m.immutable();
-                BlockPos b = findBase(level, found);
-                if (b == null || rejected.contains(b)) continue;
-                if (!Nav.isBlacklisted(v, b, now) && !ColonyManager.data(level).isPlayerBlock(b) && isNaturalTree(level, b)) {
+                if (rejectedLogs.contains(found)) continue;
+                List<BlockPos> tree = connectedLogs(level, found, true);
+                BlockPos b = findBase(level, tree, found);
+                if (b != null && !rejected.contains(b) && !badTrees.containsKey(b) && !Nav.isBlacklisted(v, b, now)
+                        && !ColonyManager.data(level).isPlayerBlock(b) && Protection.terrainModifiable(level, b)
+                        && !Damage.isProtectedHousePiece(level, b) && isNaturalTree(level, b)) {
                     return b;
                 }
-                rejected.add(b);
+                if (b != null) rejected.add(b);
+                rejectedLogs.addAll(tree);
             }
         }
         return null;
     }
 
-    /** Lowest connected log standing on tree soil (ties: nearest to the found log). */
-    private static BlockPos findBase(ServerLevel level, BlockPos found) {
+    /** Lowest log of the given connected set standing on tree soil (ties: nearest to the found log). */
+    private static BlockPos findBase(ServerLevel level, List<BlockPos> tree, BlockPos found) {
         BlockPos best = null;
-        for (BlockPos p : connectedLogs(level, found, true)) {
+        for (BlockPos p : tree) {
             if (!GatherUtil.isTreeSoil(level.getBlockState(p.below()))) continue;
             if (best == null || p.getY() < best.getY() || (p.getY() == best.getY() && p.distSqr(found) < best.distSqr(found))) {
                 best = p;
@@ -405,7 +445,12 @@ public final class LumberjackTask extends ColonyTask {
     }
 
     private void finishTree(ServerLevel level, Colony colony, Villager v) {
-        if (cut <= 0 || base == null) return;
+        if (base == null) return;
+        if (cut <= 0) {
+            // Nothing could be cut (protected logs): do not pick this tree again right away.
+            badTrees.put(base, level.getGameTime() + BAD_TREE_TICKS);
+            return;
+        }
         v.getInventory().addItem(new ItemStack(Items.STICK, Math.max(1, cut / 2)));
         replant(level, colony, v);
     }
