@@ -19,8 +19,6 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.MobSpawnType;
-import net.minecraft.world.entity.ai.village.poi.PoiManager;
-import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.Item;
@@ -42,6 +40,8 @@ public final class OfflineSim {
     public static final long MIN_GAP = 1200;
     public static final long MAX_DEFERRED = 720000;
     private static final int STOCK_CAP = 4096;
+    private static final String CHEST_RETRY = "society.catchupChestRetry";
+    private static final String BIRTH_RETRY = "society.catchupBirthRetry";
 
     private OfflineSim() {
     }
@@ -61,7 +61,11 @@ public final class OfflineSim {
         long now = level.getGameTime();
         if (colony.simulatedUntil == now) return;
         boolean initial = colony.initialDevelopment;
-        if (colony.population() < 2 && !initial) return;
+        if (colony.population() < 2 && !initial) {
+            // Time with too few villagers produces nothing; keep the watermark so it is not credited later.
+            colony.simulatedUntil = now;
+            return;
+        }
         boolean ticking = coreTicking(level, colony) || (colony.lastMemberTick != Colony.NEVER && now - colony.lastMemberTick <= 1);
         long old = colony.simulatedUntil;
         boolean set = old != Colony.NEVER;
@@ -233,7 +237,11 @@ public final class OfflineSim {
         if (!enabled(level)) return 0;
         long now = level.getGameTime();
         int used = 0;
-        if (!colony.catchupStock.isEmpty() && ColonyStorage.usable(level, colony).isEmpty()) {
+        // Only a colony without any storage gets a chest (not one whose storages are merely unloaded); the site
+        // search is expensive, so it is retried at most every 200 ticks.
+        if (!colony.catchupStock.isEmpty() && colony.storages.isEmpty() && colony.managedStorages.isEmpty()
+                && now >= (Long) colony.runtime.getOrDefault(CHEST_RETRY, 0L)) {
+            colony.runtime.put(CHEST_RETRY, now + 200);
             BlockPos site = StoragePlacer.findSite(level, colony);
             if (site != null && StoragePlacer.placeDoubleChest(level, colony, site, StorageKind.GENERAL)) {
                 colony.starterWarehousePlaced = true;
@@ -246,7 +254,8 @@ public final class OfflineSim {
         if (now % 5 == 0) {
             depositStock(level, colony);
         }
-        if (colony.catchupBirths > 0 && now % 10 == 0 && coreTicking(level, colony)) {
+        if (colony.catchupBirths > 0 && now % 10 == 0 && now >= (Long) colony.runtime.getOrDefault(BIRTH_RETRY, 0L)
+                && coreTicking(level, colony)) {
             birth(level, colony);
         }
         used += roads(level, colony, budget - used);
@@ -290,10 +299,13 @@ public final class OfflineSim {
     }
 
     private static void birth(ServerLevel level, Colony colony) {
+        // Bed count from the census (same POI count), so a full colony does not rescan the whole radius every 10 ticks.
+        int cap = Math.min(ColonyConfig.get().village.max_population_per_bell, colony.beds());
         List<Villager> members = ColonyManager.members(level, colony);
-        int beds = (int) level.getPoiManager().getCountInRange(t -> t.is(PoiTypes.HOME), colony.core(), colony.radius(), PoiManager.Occupancy.ANY);
-        int cap = Math.min(ColonyConfig.get().village.max_population_per_bell, beds);
-        if (members.size() < 2 || members.size() >= cap) return;
+        if (members.size() < 2 || members.size() >= cap) {
+            colony.runtime.put(BIRTH_RETRY, level.getGameTime() + 600);
+            return;
+        }
         BlockPos spot = SpawnSpots.find(level, colony, level.getGameTime() / 10);
         if (spot == null) return;
         Villager baby = SpawnSpots.createVillager(level, spot, MobSpawnType.BREEDING);

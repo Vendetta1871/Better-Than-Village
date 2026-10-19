@@ -2,6 +2,7 @@ package net.betterthanvillage.society;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.npc.Villager;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 
@@ -11,7 +12,8 @@ public final class SocietyEvents {
     }
 
     public static void register(IEventBus bus) {
-        bus.addListener(SocietyEvents::onDeath);
+        // LOWEST: run after any listener that might cancel the death.
+        bus.addListener(EventPriority.LOWEST, SocietyEvents::onDeath);
     }
 
     /** Expedition deaths (06 §6.7); fired at the start of LivingEntity#die like the original onDeath HEAD hook. */

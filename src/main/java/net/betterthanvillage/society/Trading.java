@@ -102,26 +102,30 @@ public final class Trading {
                 ColonyStorage.recount(level, colony);
                 int uses = Prices.deedMaxUses(colony);
                 String dim = level.dimension().location().toString();
-                b.permission(Deeds.propertyDeed(1, colony.id(), dim), Prices.smallHousePrice(colony), uses, 10);
-                b.permission(Deeds.propertyDeed(2, colony.id(), dim), Prices.mediumHousePrice(colony), uses, 20);
+                // House deeds can only be redeemed when terrain changes are allowed (Deeds.placeOrder).
+                if (ColonyManager.terrainChangesAllowed(level)) {
+                    b.permission(Deeds.propertyDeed(1, colony.id(), dim), Prices.smallHousePrice(colony), uses, 10);
+                    b.permission(Deeds.propertyDeed(2, colony.id(), dim), Prices.mediumHousePrice(colony), uses, 20);
+                }
                 b.permission(Deeds.landDeed(colony.id(), dim), Prices.landPrice(colony), uses, 10);
             }
+            // Sell reserves are >= the colony's buy target for the same item family (no buy/sell arbitrage).
             case MINER -> {
-                b.sell(Goods.COBBLE, 16, 64, 1);
+                b.sell(Goods.COBBLE, 16, 96, 1);
                 b.sell(Goods.item(Items.COPPER_INGOT), 8, 8, 1);
                 b.sell(Goods.item(Items.IRON_INGOT), 4, 36, 2);
                 b.sell(Goods.item(Items.DIAMOND), 1, 4, 4);
-                b.buy(Items.OAK_LOG, 8, 16, 1);
+                b.buy(Items.OAK_LOG, Goods.LOGS, 8, 16, 1);
                 b.buy(Items.COAL, 8, 16, 1);
             }
             case LUMBERJACK -> {
                 b.sell(Goods.LOGS, 8, 48, 1);
                 b.sell(Goods.SAPLINGS, 4, 8, 1);
-                b.buy(Items.OAK_SAPLING, 8, 8, 1);
+                b.buy(Items.OAK_SAPLING, Goods.SAPLINGS, 8, 8, 1);
             }
             case FARMER -> {
                 b.sell(Goods.item(Items.WHEAT), 16, 32, 1);
-                b.sell(Goods.item(Items.BREAD), 6, 16, 1);
+                b.sell(Goods.item(Items.BREAD), 6, 64, 1);
                 b.sell(Goods.ROOTS, 12, 24, 1);
                 b.buy(Items.WHEAT_SEEDS, 16, 16, 1);
                 b.buy(Items.PUMPKIN_SEEDS, 4, 8, 1);
@@ -142,8 +146,8 @@ public final class Trading {
             case BUILDER -> {
                 b.sell(Goods.PLANKS, 16, 64, 1);
                 b.sell(Goods.STONE, 16, 128, 1);
-                b.buy(Items.OAK_LOG, 16, 48, 2);
-                b.buy(Items.COBBLESTONE, 32, 96, 2);
+                b.buy(Items.OAK_LOG, Goods.LOGS, 16, 48, 2);
+                b.buy(Items.COBBLESTONE, Goods.COBBLE, 32, 96, 2);
             }
             case GUARD -> {
                 GuardGear.ensureStock(level, colony);
@@ -203,7 +207,8 @@ public final class Trading {
             int stock = ColonyStorage.count(roleSlots, pred);
             int reserve2 = sellReserve(colony, role, reserve);
             int batch = Prices.sellBatch(baseBatch, stock, reserve2);
-            int price = Prices.sellPrice(basePrice, stock, reserve2, batch);
+            int price = Prices.sellPrice(basePrice, baseBatch, stock, reserve2, batch);
+            if (price <= 0) return;
             Item chosen = null;
             int itemTotal = 0;
             search:
@@ -228,10 +233,18 @@ public final class Trading {
         }
 
         void buy(Item item, int baseBatch, int target, int basePrice) {
-            int have = ColonyStorage.count(level, colony, s -> s.is(item));
+            buy(item, s -> s.is(item), baseBatch, target, basePrice);
+        }
+
+        /**
+         * The stock ("have") is counted with the same family predicate the colony's sellers use, so a colony never
+         * buys an item it is selling at the same time. The batch never shrinks: the price is for the full batch.
+         */
+        void buy(Item item, Predicate<ItemStack> family, int baseBatch, int target, int basePrice) {
+            int have = ColonyStorage.count(level, colony, family);
             int target2 = Math.max(target, (role == ColonyRole.FARMER || role == ColonyRole.RANCHER) ? colony.population() * 2 : target);
             int price = Prices.buyPrice(basePrice, have, target2);
-            int batch = Math.max(1, Math.min(baseBatch, Math.max(1, target2 - have)));
+            int batch = Math.max(1, baseBatch);
             int affordable = ColonyStorage.count(level, colony, Goods.EMERALD) / price;
             int wanted = (Math.max(0, target2 - have) + batch - 1) / batch;
             int uses = Math.min(12, Math.min(affordable, wanted));
@@ -322,13 +335,14 @@ public final class Trading {
             }
         } else if (d.villagerSells()) {
             List<ColonyStorage.Slot> slots = roleSlots(level, colony, d.role());
-            if (!ColonyStorage.consume(level, colony, slots, s -> s.is(d.item()) && d.predicate().test(s), d.count())) return;
-            if (!ColonyStorage.transaction(level, colony, () -> true, List.of(new ItemStack(Items.EMERALD, paid)))) return;
+            if (!ColonyStorage.transaction(level, colony,
+                    () -> ColonyStorage.consume(level, colony, slots, s -> s.is(d.item()) && d.predicate().test(s), d.count()),
+                    List.of(new ItemStack(Items.EMERALD, paid)))) return;
             colony.soldTrades++;
             WorkTracker.credit(v, LABEL_SELL, d.count());
         } else {
-            if (!ColonyStorage.consume(level, colony, Goods.EMERALD, d.price())) return;
-            if (!ColonyStorage.transaction(level, colony, () -> true, List.of(new ItemStack(d.item(), paid)))) return;
+            if (!ColonyStorage.transaction(level, colony, () -> ColonyStorage.consume(level, colony, Goods.EMERALD, d.price()),
+                    List.of(new ItemStack(d.item(), paid)))) return;
             colony.boughtTrades++;
             WorkTracker.status(v, LABEL_BUY);
         }

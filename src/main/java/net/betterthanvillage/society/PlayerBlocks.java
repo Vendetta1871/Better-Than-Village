@@ -9,6 +9,7 @@ import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.construction.Damage;
 import net.betterthanvillage.defense.ThreatManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.Container;
@@ -16,11 +17,14 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -62,16 +66,36 @@ public final class PlayerBlocks {
 
     /** Per-break state captured at HEAD. */
     public static final class BreakState {
+        /** Null when the break needs no colony processing (only the companion half is tracked). */
         Colony colony;
         ConstructionJob plot;
         boolean ownedByPlayer;
         Map<BlockPos, BlockState> snapshot = Map.of();
+        /** Other half of a broken door or bed and its block. */
+        BlockPos companion;
+        Block companionBlock;
+    }
+
+    /** The other half of a door or bed, or null. */
+    private static BlockPos companionHalf(BlockPos pos, BlockState state) {
+        if (state.getBlock() instanceof DoorBlock) {
+            return state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
+        }
+        if (state.getBlock() instanceof BedBlock) {
+            Direction facing = state.getValue(BedBlock.FACING);
+            return pos.relative(state.getValue(BedBlock.PART) == BedPart.FOOT ? facing : facing.getOpposite());
+        }
+        return null;
     }
 
     public static BreakState beforeBreak(ServerLevel level, Player player, BlockPos pos) {
-        Colony colony = ColonyManager.colonyAt(level, pos);
-        if (colony == null || !Damage.isColonyOwned(level, colony, pos)) return null;
+        BlockState state = level.getBlockState(pos);
         BreakState s = new BreakState();
+        s.companion = companionHalf(pos, state);
+        s.companionBlock = state.getBlock();
+        BreakState companionOnly = s.companion == null ? null : s;
+        Colony colony = ColonyManager.colonyAt(level, pos);
+        if (colony == null || !Damage.isColonyOwned(level, colony, pos)) return companionOnly;
         for (ConstructionJob job : colony.jobs) {
             if (job.contains(pos)) {
                 s.plot = job;
@@ -79,17 +103,22 @@ public final class PlayerBlocks {
             }
         }
         s.ownedByPlayer = s.plot != null && s.plot.countsAsCompleted() && player.getUUID().equals(s.plot.owner);
-        s.snapshot = Damage.restoreSnapshot(level, pos, level.getBlockState(pos));
-        if (s.snapshot.isEmpty() && !s.ownedByPlayer) return null;
+        s.snapshot = Damage.restoreSnapshot(level, pos, state);
+        if (s.snapshot.isEmpty() && !s.ownedByPlayer) return companionOnly;
         s.colony = colony;
         return s;
     }
 
     public static void afterBreak(ServerLevel level, Player player, BlockPos pos, BreakState s, boolean success) {
         if (!success) return;
-        ColonyManager.data(level).forgetPlacement(pos);
+        ColonySavedData data = ColonyManager.data(level);
+        data.forgetPlacement(pos);
         if (s == null) return;
+        if (s.companion != null && !level.getBlockState(s.companion).is(s.companionBlock)) {
+            data.forgetPlacement(s.companion);
+        }
         Colony colony = s.colony;
+        if (colony == null) return;
         if (s.ownedByPlayer) {
             colony.repairs.remove(pos);
             s.snapshot.keySet().forEach(colony.repairs::remove);
@@ -142,10 +171,11 @@ public final class PlayerBlocks {
         Container container = menu.getContainer();
         for (Colony colony : ColonyManager.data(level).colonies()) {
             for (BlockPos pos : colony.managedStorages.keySet()) {
-                if (!level.isLoaded(pos) || Protection.isProtectedContainer(level, pos)) continue;
+                if (!level.isLoaded(pos)) continue;
                 BlockEntity be = level.getBlockEntity(pos);
                 if (!(be instanceof Container c)) continue;
-                if (c == container || (container instanceof CompoundContainer cc && cc.contains(c))) {
+                // Cheap identity test first; the protection lookup walks plots and jobs.
+                if ((c == container || (container instanceof CompoundContainer cc && cc.contains(c))) && !Protection.isProtectedContainer(level, pos)) {
                     TheftState s = new TheftState();
                     s.colony = colony.id();
                     s.container = container;
@@ -167,7 +197,7 @@ public final class PlayerBlocks {
             taken += Math.max(0, e.getValue() - after.getOrDefault(e.getKey(), 0));
         }
         if (taken > 0 && !player.isCreative() && !player.isSpectator()) {
-            ThreatManager.addPlayerHostility(level, colony, player, taken);
+            ThreatManager.reportTheft(level, colony, player, taken);
         }
     }
 

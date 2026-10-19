@@ -2,6 +2,8 @@ package net.betterthanvillage.mixin.society;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.sugar.Share;
+import com.llamalad7.mixinextras.sugar.ref.LocalRef;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.society.PlayerBlocks;
 import net.minecraft.core.BlockPos;
@@ -12,12 +14,14 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/** Player block breaking: registry cleanup, griefing penalty and repair queue (06 §4.2). */
+/**
+ * Player block breaking: registry cleanup, griefing penalty and repair queue (06 §4.2). The break state is a
+ * shared local (not a field), so nested destroyBlock calls (vein-mining mods) keep their own state.
+ */
 @Mixin(ServerPlayerGameMode.class)
 public abstract class ServerPlayerGameModeMixin {
     @Shadow
@@ -27,12 +31,10 @@ public abstract class ServerPlayerGameModeMixin {
     @Final
     protected ServerPlayer player;
 
-    @Unique
-    private PlayerBlocks.BreakState btv$break;
-
     @Inject(method = "destroyBlock", at = @At("HEAD"))
-    private void btv$head(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        btv$break = PlayerBlocks.beforeBreak(level, player, pos);
+    private void btv$head(BlockPos pos, CallbackInfoReturnable<Boolean> cir,
+                          @Share("btvBreak") LocalRef<PlayerBlocks.BreakState> state) {
+        state.set(PlayerBlocks.beforeBreak(level, player, pos));
     }
 
     @WrapOperation(method = "destroyBlock", at = @At(value = "INVOKE",
@@ -42,9 +44,8 @@ public abstract class ServerPlayerGameModeMixin {
     }
 
     @Inject(method = "destroyBlock", at = @At("RETURN"))
-    private void btv$return(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        PlayerBlocks.BreakState state = btv$break;
-        btv$break = null;
-        PlayerBlocks.afterBreak(level, player, pos, state, cir.getReturnValueZ());
+    private void btv$return(BlockPos pos, CallbackInfoReturnable<Boolean> cir,
+                            @Share("btvBreak") LocalRef<PlayerBlocks.BreakState> state) {
+        PlayerBlocks.afterBreak(level, player, pos, state.get(), cir.getReturnValueZ());
     }
 }

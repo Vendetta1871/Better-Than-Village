@@ -268,6 +268,7 @@ public final class Colonization {
         Entity fe = level.getEntity(colony.founder);
         if (fe == null) return;
         if (!(fe instanceof Villager founder) || !founder.isAlive()) {
+            colony.roles.remove(colony.founder);
             colony.founderLeaderLost = true;
             ColonyManager.markDirty(level);
             return;
@@ -317,7 +318,7 @@ public final class Colonization {
             }
             if (!(e instanceof Villager v) || !v.isAlive()) {
                 colony.founderCompanions.remove(i--);
-                colony.setRole(id, ColonyRole.CITIZEN, now);
+                colony.roles.remove(id);
                 ColonyManager.markDirty(level);
                 continue;
             }
@@ -472,7 +473,11 @@ public final class Colonization {
     static void abort(ServerLevel level, Colony colony, boolean applyVisuals) {
         long now = level.getGameTime();
         List<UUID> members = new ArrayList<>(colony.founderCompanions);
-        if (colony.founder != null) members.add(0, colony.founder);
+        if (colony.founder != null) {
+            // A lost leader is dead: drop its role entry instead of re-adding it.
+            if (colony.founderLeaderLost) colony.roles.remove(colony.founder);
+            else members.add(0, colony.founder);
+        }
         for (UUID id : members) {
             colony.setRole(id, ColonyRole.CITIZEN, now);
         }
@@ -591,7 +596,8 @@ public final class Colonization {
                 || !level.getWorldBorder().isWithinBounds(target) || !level.getBlockState(target).isAir()
                 || !level.getBlockState(target.below()).isFaceSturdy(level, target.below(), Direction.UP)) return;
         Colony fresh = new Colony(UUID.randomUUID(), target);
-        fresh.simulatedUntil = 0;
+        // A new colony has no absence to catch up on.
+        fresh.simulatedUntil = level.getGameTime();
         BlockPos chest = StoragePlacer.findSite(level, fresh);
         if (chest == null || !level.getEntitiesOfClass(LivingEntity.class, new AABB(target)).isEmpty()) return;
         if (!SafeEdit.place(level, target, Blocks.BELL.defaultBlockState(), 3)) return;
@@ -650,7 +656,7 @@ public final class Colonization {
             } else {
                 colony.founderCompanions.remove(id);
             }
-            colony.setRole(id, ColonyRole.CITIZEN, level.getGameTime());
+            colony.roles.remove(id);
             colony.founderReturning = true;
             if (colony.founderLeaderLost && colony.founderCompanions.isEmpty()) {
                 for (Map.Entry<Item, Integer> e : colony.founderCargo.entrySet()) {

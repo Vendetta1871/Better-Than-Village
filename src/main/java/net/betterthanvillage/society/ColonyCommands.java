@@ -16,45 +16,31 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.RoleBalancer;
-import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
 import net.betterthanvillage.colony.TerrainSurvey;
 import net.betterthanvillage.config.ColonyConfig;
-import net.betterthanvillage.mixin.society.StructureTemplateAccess;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Vec3i;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.Rotation;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
-import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.StringJoiner;
 
 /** /btv commands (01 §10, 06 §8). */
 public final class ColonyCommands {
-    private static final List<String> BIOMES = List.of("savanna", "taiga", "plains", "desert", "snowy");
     private static final SuggestionProvider<CommandSourceStack> ROLES = (ctx, b) -> SharedSuggestionProvider.suggest(
             List.of("builder", "guard", "lumberjack", "miner", "farmer", "fisherman", "rancher"), b);
 
@@ -64,8 +50,6 @@ public final class ColonyCommands {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("btv")
                 .then(Commands.literal("status").executes(ColonyCommands::status))
-                .then(Commands.literal("repair").requires(s -> s.hasPermission(2)).executes(ColonyCommands::repair))
-                .then(house())
                 .then(film()));
     }
 
@@ -155,7 +139,7 @@ public final class ColonyCommands {
         int golems = Economy.golemCount(level, c);
         out.add(Msg.command("status.golems", golems, Math.max(4, (c.population() + 5) / 6),
                 ColonyStorage.count(level, c, s -> s.is(Items.IRON_INGOT)),
-                ColonyStorage.count(level, c, s -> s.is(Items.PUMPKIN) || s.is(Items.CARVED_PUMPKIN)), Math.max(0, c.nextGolemTick - now)));
+                ColonyStorage.count(level, c, s -> s.is(Items.PUMPKIN) || s.is(Items.CARVED_PUMPKIN)), Math.max(0, c.nextGolemTick - level.getServer().getTickCount())));
         out.add(Msg.command("status.economy", ColonyStorage.count(level, c, s -> s.is(Items.EMERALD)), c.soldTrades, c.boughtTrades,
                 Math.max(0, c.nextEconomyTick - now)));
         boolean theft = now < c.theftUntil;
@@ -213,132 +197,6 @@ public final class ColonyCommands {
         if (c.houseSiteCursor >= 0 && c.nextHousePlanTick <= now) return "поиск, проверен кандидат " + c.houseSiteCursor;
         if (c.nextHousePlanTick > now) return "повтор поиска через " + (c.nextHousePlanTick - now) / 20 + " с";
         return "город растёт: домов " + c.completedHouseCount() + "/" + max + ", поиск запускается";
-    }
-
-    // ---------------------------------------------------------------- repair
-
-    private static int repair(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack source = ctx.getSource();
-        ServerLevel level = source.getLevel();
-        Colony c = colonyNear(source);
-        if (c == null) {
-            source.sendFailure(Msg.command("repair.none"));
-            return 0;
-        }
-        int added = 0;
-        for (ConstructionJob job : c.jobs) {
-            if (!job.isComplete() || job.owner != null) continue;
-            BoundingBox box = job.box();
-            if (!level.hasChunksAt(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ())) continue;
-            Optional<StructureTemplate> template = level.getStructureManager().get(job.template);
-            if (template.isEmpty()) continue;
-            List<StructureTemplate.Palette> palettes = ((StructureTemplateAccess) template.get()).btv$palettes();
-            if (palettes.isEmpty()) continue;
-            Rotation rotation = Rotation.values()[Math.floorMod(job.rotation, 4)];
-            StructurePlaceSettings settings = new StructurePlaceSettings().setRotation(rotation);
-            for (StructureTemplate.StructureBlockInfo info : palettes.get(0).blocks()) {
-                BlockState want = info.state();
-                if (want.isAir() || want.is(Blocks.STRUCTURE_VOID) || want.is(Blocks.JIGSAW)) continue;
-                BlockPos pos = StructureTemplate.calculateRelativePosition(settings, info.pos()).offset(job.origin);
-                BlockState cur = level.getBlockState(pos);
-                if (cur.getBlock() != want.getBlock() && (cur.isAir() || cur.canBeReplaced()) && !c.repairs.containsKey(pos)) {
-                    c.repairs.put(pos.immutable(), want.rotate(rotation));
-                    added++;
-                }
-            }
-        }
-        ColonyManager.markDirty(level);
-        ok(source, Msg.command("repair.done", added));
-        return 1;
-    }
-
-    // ---------------------------------------------------------------- house test placement
-
-    private static LiteralArgumentBuilder<CommandSourceStack> house() {
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("house").requires(s -> s.hasPermission(2));
-        for (String biome : BIOMES) {
-            root.then(Commands.literal(biome)
-                    .executes(ctx -> house(ctx, biome, biome + "_small_house_1", null))
-                    .then(Commands.argument("template", StringArgumentType.word())
-                            .suggests((ctx, b) -> SharedSuggestionProvider.suggest(houseTemplates(ctx.getSource().getLevel(), biome), b))
-                            .executes(ctx -> house(ctx, biome, StringArgumentType.getString(ctx, "template"), null))
-                            .then(Commands.argument("floor", IntegerArgumentType.integer())
-                                    .executes(ctx -> house(ctx, biome, StringArgumentType.getString(ctx, "template"),
-                                            IntegerArgumentType.getInteger(ctx, "floor"))))));
-        }
-        return root;
-    }
-
-    private static List<String> houseTemplates(ServerLevel level, String biome) {
-        List<String> out = new ArrayList<>();
-        String prefix = "structure/village/" + biome + "/houses/";
-        level.getServer().getResourceManager().listResources(prefix.substring(0, prefix.length() - 1), id -> id.getPath().endsWith(".nbt"))
-                .keySet().forEach(id -> {
-                    String path = id.getPath();
-                    out.add(path.substring(path.lastIndexOf('/') + 1, path.length() - 4));
-                });
-        return out;
-    }
-
-    /** Places a vanilla house template at player position + (-6, -1, +6) (or at the given floor Y); never overwrites builds. */
-    private static int house(CommandContext<CommandSourceStack> ctx, String biome, String name, Integer floor) {
-        CommandSourceStack source = ctx.getSource();
-        ServerLevel level = source.getLevel();
-        ResourceLocation id = ResourceLocation.withDefaultNamespace("village/" + biome + "/houses/" + name);
-        Optional<StructureTemplate> opt = level.getStructureManager().get(id);
-        if (opt.isEmpty()) {
-            source.sendFailure(Msg.command("house.missing"));
-            return 0;
-        }
-        StructureTemplate template = opt.get();
-        BlockPos base = BlockPos.containing(source.getPosition()).offset(-6, -1, 6);
-        BlockPos origin = floor == null ? base : new BlockPos(base.getX(), floor, base.getZ());
-        Vec3i size = template.getSize();
-        BoundingBox box = new BoundingBox(origin.getX(), origin.getY(), origin.getZ(),
-                origin.getX() + size.getX() - 1, origin.getY() + size.getY() - 1, origin.getZ() + size.getZ() - 1);
-        if (box.minY() < level.getMinBuildHeight() || box.maxY() >= level.getMaxBuildHeight()
-                || !level.getWorldBorder().isWithinBounds(new BlockPos(box.minX(), 0, box.minZ()))
-                || !level.getWorldBorder().isWithinBounds(new BlockPos(box.maxX(), 0, box.maxZ()))) {
-            source.sendFailure(Msg.command("house.bounds"));
-            return 0;
-        }
-        if (!level.hasChunksAt(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ())) {
-            source.sendFailure(Msg.command("house.unloaded"));
-            return 0;
-        }
-        if (!level.getEntitiesOfClass(LivingEntity.class, AABB.of(box)).isEmpty()) {
-            source.sendFailure(Msg.command("house.entities"));
-            return 0;
-        }
-        for (Colony c : ColonyManager.data(level).colonies()) {
-            for (ConstructionJob job : c.jobs) {
-                if (job.box().intersects(box)) {
-                    source.sendFailure(Msg.command("house.overlap"));
-                    return 0;
-                }
-            }
-        }
-        if (VillagePieces.pieceAt(level, origin) != null) {
-            source.sendFailure(Msg.command("house.overlap"));
-            return 0;
-        }
-        Map<BlockPos, BlockState> before = new LinkedHashMap<>();
-        for (BlockPos p : BlockPos.betweenClosed(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ())) {
-            BlockState s = level.getBlockState(p);
-            if (p.getY() > box.minY() && !s.isAir() && !s.canBeReplaced()) {
-                source.sendFailure(Msg.command("house.occupied", p.toShortString(), size.getX(), size.getZ()));
-                return 0;
-            }
-            before.put(p.immutable(), s);
-        }
-        boolean placed = SafeEditScope.call(() -> template.placeInWorld(level, origin, origin, new StructurePlaceSettings(), level.random, 2));
-        if (!placed) {
-            SafeEditScope.run(() -> before.forEach((p, s) -> level.setBlock(p, s, 2)));
-            source.sendFailure(Msg.command("house.failed"));
-            return 0;
-        }
-        ok(source, Msg.command("house.done", id.toString(), origin.toShortString(), size.getX(), size.getZ()));
-        return 1;
     }
 
     // ---------------------------------------------------------------- film

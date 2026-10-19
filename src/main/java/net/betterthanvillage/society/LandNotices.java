@@ -95,13 +95,10 @@ public final class LandNotices {
             ServerPlayer player = level.getServer().getPlayerList().getPlayer(w.player);
             if (player == null || player.isSpectator() || player.level() != level) continue;
             Colony colony = data.colony(w.colony);
-            if (colony == null) continue;
+            if (colony == null || player.blockPosition().distSqr(colony.core()) > (long) colony.radius() * colony.radius()) continue;
             Villager elder = findElder(level, colony);
-            if (elder == null) continue;
-            if (elder.distanceToSqr(player) > 16) {
-                elder.getNavigation().moveTo(player, 0.9);
-                continue;
-            }
+            // The elder walks to the player in elderWalk; delivery happens once it is close.
+            if (elder == null || elder.distanceToSqr(player) > 16) continue;
             ItemStack notice = Deeds.landNotice(Prices.landPrice(colony));
             if (!player.getInventory().add(notice)) {
                 player.drop(notice, false);

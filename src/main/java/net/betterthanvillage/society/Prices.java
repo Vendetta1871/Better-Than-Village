@@ -23,9 +23,14 @@ public final class Prices {
         return clamp(Math.min(base, Math.max(1, Math.max(0, stock - reserve) / 4)), 1, 64);
     }
 
-    public static int sellPrice(int base, int stock, int reserve, int batch) {
+    /**
+     * Price of a sell batch. The base price is for the full base batch, so a smaller batch is scaled by
+     * batch / baseBatch; returns 0 (no offer) when that rounds below one emerald.
+     */
+    public static int sellPrice(int base, int baseBatch, int stock, int reserve, int batch) {
         double surplus = clamp(Math.max(0, stock - reserve) / (double) Math.max(1, batch * 8), 0, 1);
-        return clamp(Math.round(base * (1.6 - surplus * 0.8)), 1, 64);
+        long price = Math.round(base * (1.6 - surplus * 0.8) * batch / (double) Math.max(1, baseBatch));
+        return price < 1 ? 0 : clamp(price, 1, 64);
     }
 
     public static int buyPrice(int base, int have, int target) {
