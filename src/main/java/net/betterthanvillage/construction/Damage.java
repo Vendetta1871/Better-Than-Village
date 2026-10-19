@@ -17,6 +17,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.StructureTags;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.Container;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
@@ -24,6 +27,7 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -37,10 +41,12 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /** Colony ownership of blocks, restore snapshots, repair bookkeeping and the repair audit (05 §6, 02 §2.5). */
@@ -131,6 +137,10 @@ public final class Damage {
                 || state.is(Blocks.DIRT_PATH) || state.is(Blocks.FARMLAND)) {
             return out;
         }
+        // natural foliage decays by itself; restoring it would loop forever
+        if (state.getBlock() instanceof LeavesBlock && !state.getValue(LeavesBlock.PERSISTENT)) {
+            return out;
+        }
         if (state.getBlock() instanceof DoorBlock) {
             BlockState closed = state.setValue(DoorBlock.OPEN, false).setValue(DoorBlock.POWERED, false);
             BlockPos lower = state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos : pos.below();
@@ -191,7 +201,7 @@ public final class Damage {
         Colony colony = ColonyManager.colonyAt(level, pos);
         if (colony == null) return;
         for (ConstructionJob job : colony.jobs) {
-            if (!job.countsAsCompleted() && job.contains(pos)) return;
+            if (HousePlanner.activePlot(job) && !job.countsAsCompleted() && job.contains(pos)) return;
         }
         if (!isColonyOwned(level, colony, pos)) return;
         recordRepairs(level, colony, restoreSnapshot(level, pos, old));
@@ -204,21 +214,68 @@ public final class Damage {
         return colony.runtime("btv_repair_cooldowns", HashMap::new);
     }
 
+    /**
+     * Repair materials sampled once per scan: items in usable storage and carried by builders.
+     * Any #logs / #stone_crafting_materials item satisfies every material (see BuildPlan.accepts).
+     */
+    static final class Supply {
+        private final Set<Item> items = new HashSet<>();
+        private boolean substitute;
+        private boolean sand;
+
+        static Supply sample(ServerLevel level, Colony colony) {
+            Supply s = new Supply();
+            for (ColonyStorage.Slot slot : ColonyStorage.usable(level, colony)) {
+                Container c = slot.container();
+                for (int i = 0; i < c.getContainerSize(); i++) s.add(c.getItem(i));
+            }
+            for (Villager v : ColonyManager.adultMembers(level, colony)) {
+                if (colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) continue;
+                s.add(v.getMainHandItem());
+                for (int i = 0; i < v.getInventory().getContainerSize(); i++) s.add(v.getInventory().getItem(i));
+            }
+            return s;
+        }
+
+        private void add(ItemStack stack) {
+            if (stack.isEmpty()) return;
+            items.add(stack.getItem());
+            if (stack.is(ItemTags.LOGS) || stack.is(ItemTags.STONE_CRAFTING_MATERIALS)) substitute = true;
+            if (stack.is(Items.SAND) || stack.is(Items.RED_SAND)) sand = true;
+        }
+
+        /** Same rule as BuildPlan.accepts over the sampled items. */
+        boolean has(BlockState state) {
+            if (substitute) return true;
+            Item needed = BuildPlan.materialItem(state);
+            if (needed != Items.AIR && items.contains(needed)) return true;
+            return sand && BuildPlan.path(state.getBlock()).contains("sandstone");
+        }
+    }
+
     /** Repair entry actionable now (05 §6.3). */
     public static boolean actionable(ServerLevel level, Colony colony, BlockPos pos, BlockState intended) {
-        if (intended == null || ColonyManager.data(level).inLand(pos) || !level.isLoaded(pos)) return false;
+        return actionable(level, colony, pos, intended, null);
+    }
+
+    /** Variant with a lazily sampled supply holder (one element) shared across a scan; cheap checks run first. */
+    static boolean actionable(ServerLevel level, Colony colony, BlockPos pos, BlockState intended, Supply[] supply) {
+        if (intended == null || !level.isLoaded(pos) || ColonyManager.data(level).inLand(pos)) return false;
         BlockState world = level.getBlockState(pos);
         if (world.getBlock() == intended.getBlock()) return true;
         Long until = cooldowns(colony).get(pos);
         if (until != null && level.getGameTime() < until) return false;
         if (!(world.isAir() || world.canBeReplaced())) return false;
-        if (!Protection.terrainModifiable(level, pos)) return false;
         if (BuildPlan.materialItem(intended) == Items.AIR) return false;
-        if (ColonyStorage.has(level, colony, s -> BuildPlan.accepts(intended, s))) return true;
-        for (Villager v : ColonyManager.adultMembers(level, colony)) {
-            if (colony.roleOf(v.getUUID()) == ColonyRole.BUILDER && carried(v, intended)) return true;
+        Supply s;
+        if (supply == null) {
+            s = Supply.sample(level, colony);
+        } else {
+            if (supply[0] == null) supply[0] = Supply.sample(level, colony);
+            s = supply[0];
         }
-        return false;
+        if (!s.has(intended)) return false;
+        return Protection.terrainModifiable(level, pos);
     }
 
     /** Any actionable repair entry (cached per game tick). */
@@ -229,8 +286,9 @@ public final class Damage {
         if (cached != null && cached.time() == now) return cached.any();
         cooldowns(colony).values().removeIf(t -> t <= now);
         boolean any = false;
+        Supply[] supply = new Supply[1];
         for (Map.Entry<BlockPos, BlockState> e : new ArrayList<>(colony.repairs.entrySet())) {
-            if (actionable(level, colony, e.getKey(), e.getValue())) {
+            if (actionable(level, colony, e.getKey(), e.getValue(), supply)) {
                 any = true;
                 break;
             }
@@ -261,8 +319,10 @@ public final class Damage {
                 if (t.isEmpty()) continue;
                 StructurePlaceSettings settings = new StructurePlaceSettings().setRotation(pe.getRotation());
                 for (StructureTemplate.StructureBlockInfo info : HouseCatalog.blocks(t.get())) {
+                    BlockState state = info.state().is(Blocks.JIGSAW) ? BuildPlan.jigsawFinalState(info) : info.state();
+                    if (state == null) continue;
                     BlockPos p = pe.getPosition().offset(StructureTemplate.calculateRelativePosition(settings, info.pos()));
-                    auditBlock(level, colony, p, info.state().rotate(pe.getRotation()), null);
+                    auditBlock(level, colony, p, state.rotate(pe.getRotation()), null);
                 }
             }
         }
@@ -273,7 +333,8 @@ public final class Damage {
             var size = t.get().getSize();
             if (size.getX() != job.sizeX || size.getY() != job.sizeY || size.getZ() != job.sizeZ) continue;
             for (StructureTemplate.StructureBlockInfo info : HouseCatalog.blocks(t.get())) {
-                auditBlock(level, colony, job.origin.offset(info.pos()), info.state(), job.box());
+                BlockState state = info.state().is(Blocks.JIGSAW) ? BuildPlan.jigsawFinalState(info) : info.state();
+                if (state != null) auditBlock(level, colony, job.origin.offset(info.pos()), state, job.box());
             }
         }
         if (colony.repairs.size() != before) ColonyManager.markDirty(level);
@@ -289,7 +350,7 @@ public final class Damage {
         BlockState w = level.getBlockState(p);
         if (w.getBlock() == s.getBlock() || !(w.isAir() || w.canBeReplaced())) return;
         for (ConstructionJob job : colony.jobs) {
-            if (!job.countsAsCompleted() && job.contains(p)) return;
+            if (HousePlanner.activePlot(job) && !job.countsAsCompleted() && job.contains(p)) return;
         }
         recordRepairs(level, colony, restoreSnapshot(level, p, s));
     }

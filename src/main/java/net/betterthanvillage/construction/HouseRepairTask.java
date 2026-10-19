@@ -84,9 +84,10 @@ public final class HouseRepairTask extends ColonyTask {
         if (colony == null) return;
         target = null;
         double best = Double.MAX_VALUE;
+        Damage.Supply[] supply = new Damage.Supply[1];
         for (Map.Entry<BlockPos, BlockState> e : new ArrayList<>(colony.repairs.entrySet())) {
             double d = e.getKey().distSqr(v.blockPosition());
-            if (d < best && Damage.actionable(level, colony, e.getKey(), e.getValue())) {
+            if (d < best && Damage.actionable(level, colony, e.getKey(), e.getValue(), supply)) {
                 best = d;
                 target = e.getKey();
             }
@@ -160,18 +161,14 @@ public final class HouseRepairTask extends ColonyTask {
         v.getNavigation().stop();
         v.getLookControl().setLookAt(Vec3.atCenterOf(pos));
         BlockState before = world;
-        if (!SafeEdit.place(level, pos, intended, 2)) return;
-        if (partner != null && !SafeEdit.place(level, partner, partnerState, 2)) {
-            SafeEditScope.run(() -> level.setBlock(pos, before, 2));
+        // flag 3: neighbours re-shape to the restored block (panes, fences, the other half of a double chest)
+        if (!SafeEdit.place(level, pos, intended, 3)) return;
+        if (partner != null && !SafeEdit.place(level, partner, partnerState, 3)) {
+            SafeEditScope.run(() -> level.setBlock(pos, before, 3));
             return;
         }
         stack.shrink(1);
         if (v.getMainHandItem().isEmpty()) v.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        BlockPos partnerDone = partner;
-        SafeEditScope.run(() -> {
-            level.updateNeighborsAt(pos, intended.getBlock());
-            if (partnerDone != null) level.updateNeighborsAt(partnerDone, level.getBlockState(partnerDone).getBlock());
-        });
         v.swing(InteractionHand.MAIN_HAND);
         WorkTracker.credit(v, "восстановление дома", 1);
         colony.repairs.remove(pos);

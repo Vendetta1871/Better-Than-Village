@@ -30,10 +30,16 @@ public final class Paths {
         }
         nav.setCanFloat(true);
         nav.setMaxVisitedNodesMultiplier(8f);
+        PathNavigationInvoker access = (PathNavigationInvoker) nav;
+        BlockPos targetPos = access.btv$targetPos();
+        int reachRange = access.btv$reachRange();
         try {
-            return ((PathNavigationInvoker) nav).btv$createPath(goals, 8, false, 0, 128f);
+            return access.btv$createPath(goals, 8, false, 0, 128f);
         } finally {
             nav.resetMaxVisitedNodesMultiplier();
+            // a probe must not redirect the mob's current navigation on its next recomputePath()
+            access.btv$setTargetPos(targetPos);
+            access.btv$setReachRange(reachRange);
         }
     }
 

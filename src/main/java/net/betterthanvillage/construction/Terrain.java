@@ -5,9 +5,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.AttachedStemBlock;
+import net.minecraft.world.level.block.BaseTorchBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.BushBlock;
+import net.minecraft.world.level.block.CactusBlock;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.StemBlock;
+import net.minecraft.world.level.block.SugarCaneBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 
@@ -31,7 +35,14 @@ public final class Terrain {
     public static boolean clearable(BlockState s) {
         return s.canBeReplaced() || s.getBlock() instanceof CropBlock || s.getBlock() instanceof StemBlock
                 || s.getBlock() instanceof AttachedStemBlock || s.is(Blocks.PUMPKIN) || s.is(Blocks.MELON) || s.is(Blocks.FARMLAND)
-                || s.is(BlockTags.LEAVES) || s.is(BlockTags.LOGS) || natural(s);
+                || s.is(BlockTags.LEAVES) || s.is(BlockTags.LOGS) || natural(s) || smallPlant(s);
+    }
+
+    /** Small non-structural blocks a site may contain: plants (flowers, saplings, mushrooms, cane, cactus) and torches. */
+    public static boolean smallPlant(BlockState s) {
+        return (s.getBlock() instanceof BushBlock && !(s.getBlock() instanceof CropBlock)
+                && !(s.getBlock() instanceof StemBlock) && !(s.getBlock() instanceof AttachedStemBlock)) || s.getBlock() instanceof BaseTorchBlock
+                || s.getBlock() instanceof SugarCaneBlock || s.getBlock() instanceof CactusBlock;
     }
 
     /** A #logs block that is not player-placed and has leaves within (-3,-1,-3)..(+3,+8,+3). */

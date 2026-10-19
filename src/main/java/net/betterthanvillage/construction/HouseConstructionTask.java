@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 
 /** Builder house construction (05 §2.5 - §2.8). */
 public final class HouseConstructionTask extends ColonyTask {
@@ -67,6 +68,7 @@ public final class HouseConstructionTask extends ColonyTask {
 
     /** Runtime builder cooldowns per plot: builder UUID -> until time. */
     private static final Map<ConstructionJob, Map<UUID, Long>> COOLDOWNS = new WeakHashMap<>();
+    private static final Pattern STARTED_BLOCKS = Pattern.compile(".*(planks|door|bed).*");
 
     private final BlockWorkTimer timer = new BlockWorkTimer();
     private ConstructionJob job;
@@ -79,6 +81,8 @@ public final class HouseConstructionTask extends ColonyTask {
     private BlockPos fetchContainer;
     private double fetchBest;
     private long fetchWatchdog;
+    /** The last fetch found no material anywhere (a no-progress stall is then not the plot's fault). */
+    private boolean starved;
 
     public HouseConstructionTask() {
         super(12000);
@@ -104,8 +108,7 @@ public final class HouseConstructionTask extends ColonyTask {
         if (candidate == null || !HousePlanner.protectPen(level, colony, candidate)) return false;
         List<BuildPlan.Step> steps = BuildPlan.load(level, candidate);
         if (steps == null) {
-            HousePlanner.block(candidate, now + 1200);
-            ColonyManager.markDirty(level);
+            HousePlanner.blockOrAbandon(level, colony, candidate, now + 1200);
             return false;
         }
         job = candidate;
@@ -132,15 +135,22 @@ public final class HouseConstructionTask extends ColonyTask {
         stand = null;
         nextStandTime = now;
         fetchContainer = null;
-        started = job.countsAsCompleted();
+        starved = false;
+        started = started(level, job, plan);
+        ColonyManager.markDirty(level);
+    }
+
+    /** A finished plot, or one where a planks/door/bed block of the plan already stands. */
+    static boolean started(ServerLevel level, ConstructionJob job, List<BuildPlan.Step> plan) {
+        if (job.countsAsCompleted()) return true;
+        if (plan == null) return false;
         for (BuildPlan.Step s : plan) {
-            if (started) break;
-            if (s.placement() && BuildPlan.path(s.state().getBlock()).matches(".*(planks|door|bed).*")
+            if (s.placement() && level.isLoaded(s.pos()) && STARTED_BLOCKS.matcher(BuildPlan.path(s.state().getBlock())).matches()
                     && BuildPlan.matches(level.getBlockState(s.pos()), s.state())) {
-                started = true;
+                return true;
             }
         }
-        ColonyManager.markDirty(level);
+        return false;
     }
 
     @Override
@@ -192,7 +202,11 @@ public final class HouseConstructionTask extends ColonyTask {
         if (job.lastProgressTick != Long.MIN_VALUE && now - job.lastProgressTick > 1200) {
             WorkTracker.status(v, STATUS_NO_PROGRESS);
             setCooldown(job, v.getUUID(), now + 2400);
-            HousePlanner.block(job, now + 600);
+            if (starved) {
+                HousePlanner.block(job, now + 600);
+            } else {
+                HousePlanner.blockOrAbandon(level, colony, job, now + 600);
+            }
             cooldownUntil = now + 2400;
             ColonyManager.markDirty(level);
             return;
@@ -202,6 +216,7 @@ public final class HouseConstructionTask extends ColonyTask {
             job.nextBlock++;
             skipped++;
             job.lastProgressTick = now;
+            job.blockCount = 0;
         }
         if (job.nextBlock >= job.totalBlocks) {
             HousePlanner.complete(level, job);
@@ -212,7 +227,7 @@ public final class HouseConstructionTask extends ColonyTask {
         BlockPos pos = current.pos();
         v.getBrain().setMemory(ModRegistries.BUILD_TARGET_POS.get(), pos);
         BlockState world = level.getBlockState(pos);
-        if (!current.clear() && !BuildPlan.matches(world, current.state()) && !hasMaterial(v, current.state())) {
+        if (!current.clear() && !BuildPlan.free(current.state()) && !BuildPlan.matches(world, current.state()) && !hasMaterial(v, current.state())) {
             fetch(level, colony, v, current, now);
             return;
         }
@@ -230,10 +245,12 @@ public final class HouseConstructionTask extends ColonyTask {
             }
             if (fired) {
                 timer.reset();
-                if (withinReach(v, pos) && execute(level, v, current, now)) {
+                if (withinReach(v, pos) && execute(level, colony, v, current, now)) {
                     job.nextBlock++;
                     job.lastProgressTick = now;
                     job.supplyStallTicks = 0;
+                    job.blockCount = 0;
+                    starved = false;
                     WorkTracker.credit(v, current.clear() ? "подготовка участка" : current.foundation() ? "фундамент" : "строительство", 1);
                 }
                 nextActionTime = now + 1;
@@ -270,13 +287,25 @@ public final class HouseConstructionTask extends ColonyTask {
         return ColonyConfig.get().roles.builder_respects_player_builds && level.getBlockState(pos).is(ModTags.BUILDER_PROTECTED);
     }
 
-    private boolean execute(ServerLevel level, Villager v, BuildPlan.Step s, long now) {
+    /** Placement-step protection (wall, protected position, or a player build when the builder respects them). */
+    static boolean placementProtected(ServerLevel level, BlockPos pos, BlockState world) {
+        if (Fortifications.isWallBlock(level, pos) || Protection.isProtectedBlock(level, pos)) return true;
+        return ColonyConfig.get().roles.builder_respects_player_builds && (world.is(ModTags.BUILDER_PROTECTED) || level.getBlockEntity(pos) != null);
+    }
+
+    /** Area protection (land plot, beacon nearby) stops the whole plot; any other protected position only skips its step. */
+    static boolean areaProtected(ServerLevel level, BlockPos pos) {
+        return ColonyManager.data(level).inLand(pos) || Protection.beaconNear(level, pos);
+    }
+
+    private boolean execute(ServerLevel level, Colony colony, Villager v, BuildPlan.Step s, long now) {
         if (BuildPlan.satisfied(level, s)) return true;
         BlockPos pos = s.pos();
         BlockState world = level.getBlockState(pos);
         if (s.clear()) {
             if (builderProtected(level, pos)) {
-                HousePlanner.block(job, now + 2400);
+                if (!areaProtected(level, pos)) return true;
+                HousePlanner.blockOrAbandon(level, colony, job, now + 2400);
                 WorkTracker.status(v, STATUS_CLEAR_PROTECTED);
                 ColonyManager.markDirty(level);
                 return false;
@@ -291,19 +320,18 @@ public final class HouseConstructionTask extends ColonyTask {
             }
             return true;
         }
-        if (Fortifications.isWallBlock(level, pos) || Protection.isProtectedBlock(level, pos)) {
+        if (placementProtected(level, pos, world)) {
+            if (!areaProtected(level, pos)) {
+                // a single protected block stays as it is; the house is built around it
+                WorkTracker.status(v, STATUS_OBSTACLE);
+                return true;
+            }
             WorkTracker.status(v, STATUS_SITE_PROTECTED + pos.toShortString());
-            HousePlanner.block(job, now + 2400);
+            HousePlanner.blockOrAbandon(level, colony, job, now + 2400);
             ColonyManager.markDirty(level);
             return false;
         }
-        if (ColonyConfig.get().roles.builder_respects_player_builds && (world.is(ModTags.BUILDER_PROTECTED) || level.getBlockEntity(pos) != null)) {
-            HousePlanner.block(job, now + 2400);
-            WorkTracker.status(v, STATUS_OBSTACLE);
-            ColonyManager.markDirty(level);
-            return false;
-        }
-        boolean free = BuildPlan.materialItem(s.state()) == Items.AIR;
+        boolean free = BuildPlan.free(s.state());
         if (!free && !hasMaterial(v, s.state())) return false;
         if (blockedByEntity(level, pos, s.state())) {
             WorkTracker.status(v, STATUS_OCCUPIED + pos.toShortString());
@@ -421,6 +449,7 @@ public final class HouseConstructionTask extends ColonyTask {
             BlockPos any = nearestContaining(level, colony, v, pp, false);
             if (any == null) {
                 WorkTracker.status(v, STATUS_WAIT_MATERIALS);
+                starved = true;
                 nextActionTime = now + 40;
                 return;
             }
@@ -452,6 +481,7 @@ public final class HouseConstructionTask extends ColonyTask {
         }
         v.getNavigation().stop();
         if (withdrawFor(level, colony, v, container, target, p, pp, logs, stone)) {
+            starved = false;
             job.supplyStallTicks = 0;
             fetchWatchdog = now;
             fetchBest = d;
@@ -459,6 +489,7 @@ public final class HouseConstructionTask extends ColonyTask {
             if (remote) WorkTracker.credit(v, "снабжение стройки", 1);
         } else {
             WorkTracker.status(v, STATUS_RESERVE);
+            starved = true;
         }
         nextActionTime = now + 10;
     }

@@ -31,6 +31,10 @@ public final class ConstructionJob {
     public long retryAfter;
     public boolean catchup;
     public int supplyStallTicks;
+    /** Consecutive blocked cycles without progress (plot is abandoned after 3). */
+    public int blockCount;
+    /** Runtime: first tick of the current catch-up obstacle stall (not persisted). */
+    public long catchupStallSince = Long.MIN_VALUE;
     private long lastStallTick = Long.MIN_VALUE;
 
     public BoundingBox box() {
@@ -75,6 +79,7 @@ public final class ConstructionJob {
         tag.putLong("retry_after", retryAfter);
         tag.putBoolean("catchup", catchup);
         tag.putInt("supply_stall_ticks", supplyStallTicks);
+        tag.putInt("block_count", blockCount);
         tag.putString("id", id.toString());
         tag.putString("template", template.toString());
         tag.putInt("architecture_version", 1);
@@ -100,6 +105,7 @@ public final class ConstructionJob {
         job.retryAfter = tag.getLong("retry_after");
         job.catchup = tag.getBoolean("catchup");
         job.supplyStallTicks = NbtHelper.clamp(tag.getInt("supply_stall_ticks"), 0, 1200);
+        job.blockCount = NbtHelper.clamp(tag.getInt("block_count"), 0, 3);
         UUID id = NbtHelper.uuid(tag, "id");
         job.id = id != null ? id : UUID.randomUUID();
         ResourceLocation template = ResourceLocation.tryParse(tag.getString("template"));

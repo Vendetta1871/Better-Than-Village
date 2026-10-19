@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.level.pathfinder.Path;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.gen.Invoker;
 
 import java.util.Set;
@@ -13,4 +14,17 @@ import java.util.Set;
 public interface PathNavigationInvoker {
     @Invoker("createPath")
     Path btv$createPath(Set<BlockPos> targets, int regionOffset, boolean offsetUpward, int accuracy, float followRange);
+
+    /** createPath stores the probe's target for recomputePath(); probes restore the previous values. */
+    @Accessor("targetPos")
+    BlockPos btv$targetPos();
+
+    @Accessor("targetPos")
+    void btv$setTargetPos(BlockPos pos);
+
+    @Accessor("reachRange")
+    int btv$reachRange();
+
+    @Accessor("reachRange")
+    void btv$setReachRange(int range);
 }

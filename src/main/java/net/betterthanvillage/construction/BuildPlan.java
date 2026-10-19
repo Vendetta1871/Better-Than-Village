@@ -1,6 +1,8 @@
 package net.betterthanvillage.construction;
 
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.betterthanvillage.colony.ConstructionJob;
+import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -15,7 +17,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
@@ -23,6 +28,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,7 +36,7 @@ import java.util.Set;
 
 /** Bill of work for a plot (05 §2.4) and the block/material rules shared by builder, repair and catch-up. */
 public final class BuildPlan {
-    public static final int PLAN_VERSION = 8;
+    public static final int PLAN_VERSION = 9;
     private static final Set<String> IGNORED_PROPERTIES = Set.of("shape", "north", "south", "east", "west", "up", "down",
             "open", "occupied", "powered", "lit", "age", "distance", "persistent");
     private static final List<String> LATE = List.of("lantern", "torch", "ladder", "carpet", "sign", "button", "lever", "rail",
@@ -73,9 +79,18 @@ public final class BuildPlan {
         BoundingBox box = job.box();
         BlockPos origin = job.origin;
         Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Set<BlockPos> keep = new HashSet<>();
         for (StructureTemplate.StructureBlockInfo info : HouseCatalog.blocks(template)) {
             BlockState s = info.state();
-            if (s.is(Blocks.JIGSAW) || s.is(Blocks.STRUCTURE_BLOCK)) {
+            if (s.is(Blocks.JIGSAW)) {
+                s = jigsawFinalState(info);
+                if (s == null) {
+                    // structure_void (or unreadable) final state: leave the world as it is
+                    keep.add(origin.offset(info.pos()));
+                    continue;
+                }
+            }
+            if (s.is(Blocks.STRUCTURE_BLOCK)) {
                 continue;
             }
             blocks.put(origin.offset(info.pos()), s);
@@ -85,6 +100,7 @@ public final class BuildPlan {
             for (int z = box.minZ() - 1; z <= box.maxZ() + 1; z++) {
                 for (int y = box.minY() + 1; y <= box.maxY() + 2; y++) {
                     BlockPos p = new BlockPos(x, y, z);
+                    if (keep.contains(p)) continue;
                     BlockState t = blocks.get(p);
                     steps.add(new Step(p, t == null || t.is(Blocks.STRUCTURE_VOID) ? Blocks.AIR.defaultBlockState() : t, true, false));
                 }
@@ -92,7 +108,10 @@ public final class BuildPlan {
         }
         for (int x = box.minX(); x <= box.maxX(); x++) {
             for (int z = box.minZ(); z <= box.maxZ(); z++) {
-                for (int y = box.minY(); y >= box.minY() - 4; y--) {
+                // the template's own floor block replaces the top foundation block
+                BlockState floor = blocks.get(new BlockPos(x, box.minY(), z));
+                int top = floor != null && !floor.isAir() && !floor.is(Blocks.STRUCTURE_VOID) ? box.minY() - 1 : box.minY();
+                for (int y = top; y >= box.minY() - 4; y--) {
                     steps.add(new Step(new BlockPos(x, y, z), Blocks.COBBLESTONE.defaultBlockState(), false, true));
                 }
             }
@@ -107,6 +126,24 @@ public final class BuildPlan {
                 .thenComparingInt(s -> -s.pos().getZ())
                 .thenComparingInt(s -> -s.pos().getX()));
         return List.copyOf(steps);
+    }
+
+    /** Final state of a template jigsaw block (as JigsawReplacementProcessor), or null for structure_void/unreadable. */
+    static BlockState jigsawFinalState(StructureTemplate.StructureBlockInfo info) {
+        if (info.nbt() == null) return null;
+        BlockState s;
+        try {
+            s = BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), info.nbt().getString("final_state"), true).blockState();
+        } catch (CommandSyntaxException e) {
+            return null;
+        }
+        return s.is(Blocks.STRUCTURE_VOID) ? null : s;
+    }
+
+    public static void clearCache() {
+        synchronized (CACHE) {
+            CACHE.clear();
+        }
     }
 
     private static int category(Step s) {
@@ -162,6 +199,19 @@ public final class BuildPlan {
         if (state.is(Blocks.REDSTONE_WIRE)) return Items.REDSTONE;
         if (state.is(Blocks.TRIPWIRE)) return Items.STRING;
         return Items.AIR;
+    }
+
+    /** Second half of a two-block piece (upper door, bed head, upper double plant): paid with the first half. */
+    public static boolean secondaryHalf(BlockState state) {
+        if (state.getBlock() instanceof DoorBlock) return state.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER;
+        if (state.getBlock() instanceof BedBlock) return state.getValue(BedBlock.PART) == BedPart.HEAD;
+        if (state.getBlock() instanceof DoublePlantBlock) return state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER;
+        return false;
+    }
+
+    /** Placement costs no material. */
+    public static boolean free(BlockState state) {
+        return materialItem(state) == Items.AIR || secondaryHalf(state);
     }
 
     public static boolean woodLike(BlockState state) {

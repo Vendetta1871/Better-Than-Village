@@ -141,7 +141,7 @@ public final class SiteSearch {
                     if (!s.getFluidState().isEmpty()) return null;
                     boolean ok = Fortifications.isWallBlock(level, p) || s.isAir() || s.canBeReplaced()
                             || (Terrain.natural(s) && !s.is(Blocks.DIRT_PATH) && !s.is(Blocks.FARMLAND))
-                            || s.is(BlockTags.LEAVES) || Terrain.treeLog(level, p, s);
+                            || s.is(BlockTags.LEAVES) || Terrain.treeLog(level, p, s) || Terrain.smallPlant(s);
                     if (!ok) return null;
                 }
             }

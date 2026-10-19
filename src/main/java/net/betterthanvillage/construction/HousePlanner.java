@@ -23,6 +23,10 @@ public final class HousePlanner {
     /** Called every 4 ticks per active colony. */
     public static void tick(ServerLevel level, Colony colony) {
         long now = level.getGameTime();
+        // abandoned, never completed plots are dropped (their partial blocks are no longer colony-owned)
+        if (colony.jobs.removeIf(j -> j.status == JobStatus.BLOCKED && j.retryAfter == 0 && !j.completedOnce)) {
+            ColonyManager.markDirty(level);
+        }
         if (colony.catchupHouses > 0 && colony.catchupLabor > 0) return;
         if (now < colony.nextHousePlanTick || !colony.roadQueue.isEmpty()) return;
         ColonyConfig cfg = ColonyConfig.get();
@@ -118,12 +122,8 @@ public final class HousePlanner {
         }
         HouseCatalog.Entry entry = HouseCatalog.commission(level, biomeKey(level, colony.core()), tier);
         if (entry == null) return null;
-        if (colony.houseSiteCursor < 0) colony.houseSiteCursor = 0;
         Vec3i size = entry.size();
-        BlockPos site = null;
-        for (int i = 0; i < COMMISSION_SEARCH_CALLS && site == null && colony.houseSiteCursor >= 0; i++) {
-            site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), false);
-        }
+        BlockPos site = commissionSearch(level, colony, size);
         if (site == null) return null;
         ConstructionJob job = newJob(entry, site);
         job.owner = player;
@@ -141,13 +141,21 @@ public final class HousePlanner {
     public static ConstructionJob findCommissionSite(ServerLevel level, Colony colony, net.minecraft.resources.ResourceLocation templateId,
                                                      net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate template) {
         Vec3i size = template.getSize();
-        if (colony.houseSiteCursor < 0) colony.houseSiteCursor = 0;
+        BlockPos site = commissionSearch(level, colony, size);
+        if (site == null) return null;
+        return newJob(new HouseCatalog.Entry("", "", templateId, size, 0), site);
+    }
+
+    /** Commission search from the spiral start; a running automatic search resumes afterwards if nothing was found. */
+    private static BlockPos commissionSearch(ServerLevel level, Colony colony, Vec3i size) {
+        int saved = colony.houseSiteCursor;
+        colony.houseSiteCursor = 0;
         BlockPos site = null;
         for (int i = 0; i < COMMISSION_SEARCH_CALLS && site == null && colony.houseSiteCursor >= 0; i++) {
             site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), false);
         }
-        if (site == null) return null;
-        return newJob(new HouseCatalog.Entry("", "", templateId, size, 0), site);
+        if (site == null) colony.houseSiteCursor = saved;
+        return site;
     }
 
     private static ConstructionJob newJob(HouseCatalog.Entry entry, BlockPos site) {
@@ -210,10 +218,33 @@ public final class HousePlanner {
         job.retryAfter = until;
     }
 
+    /**
+     * Blocks a plot for a failure that may never clear (protection, no progress, missing template).
+     * The third consecutive cycle ends it: a re-run of a finished plot returns to COMPLETE, an
+     * unowned plot is abandoned; paid commissions keep retrying.
+     */
+    public static void blockOrAbandon(ServerLevel level, Colony colony, ConstructionJob job, long until) {
+        job.blockCount++;
+        if (job.blockCount >= 3) {
+            job.blockCount = 0;
+            if (job.completedOnce) {
+                complete(level, job);
+                return;
+            }
+            if (job.owner == null) {
+                abandon(level, colony, job);
+                return;
+            }
+        }
+        block(job, until);
+        ColonyManager.markDirty(level);
+    }
+
     public static void complete(ServerLevel level, ConstructionJob job) {
         job.status = JobStatus.COMPLETE;
         job.completedOnce = true;
         job.builder = null;
+        job.blockCount = 0;
         ColonyManager.markDirty(level);
     }
 
@@ -252,7 +283,7 @@ public final class HousePlanner {
     public static boolean protectPen(ServerLevel level, Colony colony, ConstructionJob job) {
         if (!overlapsPen(colony, job, 1) || job.countsAsCompleted()) return true;
         if (job.owner != null) {
-            block(job, level.getGameTime() + 1200);
+            blockOrAbandon(level, colony, job, level.getGameTime() + 1200);
         } else {
             abandon(level, colony, job);
         }

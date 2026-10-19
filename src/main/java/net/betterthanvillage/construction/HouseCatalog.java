@@ -60,6 +60,12 @@ public final class HouseCatalog {
         return catalog.get(BIOMES.contains(biome) ? biome : "plains");
     }
 
+    /** Drops the catalog (server stop, datapack reload). */
+    public static synchronized void clear() {
+        owner = null;
+        catalog = Map.of();
+    }
+
     /** Round-robin dwelling for the given count of completed plots (05 §2.2). */
     public static Entry home(ServerLevel level, String biome, int completed) {
         List<Entry> homes = get(level, biome).homes();

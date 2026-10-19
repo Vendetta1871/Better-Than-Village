@@ -24,6 +24,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlac
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
@@ -39,11 +40,22 @@ public final class ConstructionEvents {
     public static void register(IEventBus bus) {
         bus.addListener(ConstructionEvents::onRegisterCommands);
         bus.addListener(ConstructionEvents::onServerStopped);
+        bus.addListener(ConstructionEvents::onDatapackSync);
         net.betterthanvillage.society.Deeds.siteFinder = HousePlanner::findCommissionSite;
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {
         Damage.clearCaches();
+        HouseCatalog.clear();
+        BuildPlan.clearCache();
+    }
+
+    /** After /reload (player == null) templates may have changed: rebuild catalog and plans lazily. */
+    private static void onDatapackSync(OnDatapackSyncEvent event) {
+        if (event.getPlayer() == null) {
+            HouseCatalog.clear();
+            BuildPlan.clearCache();
+        }
     }
 
     private static void onRegisterCommands(RegisterCommandsEvent event) {
