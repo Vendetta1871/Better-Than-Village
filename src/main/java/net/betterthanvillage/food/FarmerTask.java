@@ -175,6 +175,7 @@ public final class FarmerTask extends ColonyTask {
 
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
+        if (now % 200 == 0) net.betterthanvillage.BetterThanVillage.LOGGER.info("DBGFOOD " + "farmer "+debugState()+" t="+target+" actions="+actions + " @" + v.blockPosition() + " storage=" + net.betterthanvillage.colony.ColonyStorage.nearest(level, colony(level, v), v.blockPosition()));
         if (now < nextAct) return;
         nextAct = now + 2;
         if (!ColonyManager.terrainChangesAllowed(level)) return;
