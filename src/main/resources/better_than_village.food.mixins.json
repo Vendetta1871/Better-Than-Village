@@ -3,7 +3,12 @@
   "minVersion": "0.8",
   "package": "net.betterthanvillage.mixin.food",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "FishingHookMixin",
+    "HarvestFarmlandMixin",
+    "ItemEntityAccessor",
+    "StemBlockMixin"
+  ],
   "client": [],
   "injectors": {
     "defaultRequire": 1
