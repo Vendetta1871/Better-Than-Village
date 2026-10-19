@@ -16,6 +16,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.state.properties.BlockSetType;
+import net.betterthanvillage.mixin.gather.TrapDoorBlockAccessor;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -79,7 +81,7 @@ public final class DoorHandler {
     private static Kind kindOf(BlockState s) {
         if (s.getBlock() instanceof FenceGateBlock) return Kind.GATE;
         if (s.getBlock() instanceof DoorBlock door && door.type().canOpenByHand()) return Kind.DOOR;
-        if (s.getBlock() instanceof TrapDoorBlock trap && trap.getType().canOpenByHand()) return Kind.TRAPDOOR;
+        if (s.getBlock() instanceof TrapDoorBlock trap && ((TrapDoorBlockAccessor) trap).btv$type().canOpenByHand()) return Kind.TRAPDOOR;
         return null;
     }
 
@@ -122,8 +124,8 @@ public final class DoorHandler {
             case DOOR -> ((DoorBlock) s.getBlock()).setOpen(actor, level, s, pos, open);
             case TRAPDOOR -> {
                 level.setBlock(pos, s.setValue(TrapDoorBlock.OPEN, open), 3);
-                TrapDoorBlock trap = (TrapDoorBlock) s.getBlock();
-                level.playSound(null, pos, open ? trap.getType().trapdoorOpen() : trap.getType().trapdoorClose(), SoundSource.BLOCKS, 1.0f, 1.0f);
+                BlockSetType type = ((TrapDoorBlockAccessor) s.getBlock()).btv$type();
+                level.playSound(null, pos, open ? type.trapdoorOpen() : type.trapdoorClose(), SoundSource.BLOCKS, 1.0f, 1.0f);
                 level.gameEvent(actor, open ? GameEvent.BLOCK_OPEN : GameEvent.BLOCK_CLOSE, pos);
             }
         }
