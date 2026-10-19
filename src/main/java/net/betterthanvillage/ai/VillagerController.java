@@ -28,6 +28,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
@@ -37,6 +38,7 @@ import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -137,6 +139,7 @@ public final class VillagerController {
             return;
         }
         NightLighting.tick(level, colony, v);
+        if (role != ColonyRole.GUARD && (now + v.getId()) % 100 == 0) returnGuardGear(level, colony, v);
         WorkTracker.watchdog(level, colony, v);
         AntiStuck.monitor(level, colony, v);
         boolean forcedIdle = AntiStuck.isForcedIdle(v, now);
@@ -296,5 +299,21 @@ public final class VillagerController {
             if (ColonyStorage.isFood(inv.getItem(i))) return true;
         }
         return false;
+    }
+
+    private static final EquipmentSlot[] GUARD_GEAR_SLOTS = {
+            EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET, EquipmentSlot.OFFHAND};
+
+    /** A villager that left the militia hands its armor and shield back to the colony storage. */
+    private static void returnGuardGear(ServerLevel level, Colony colony, Villager v) {
+        for (EquipmentSlot slot : GUARD_GEAR_SLOTS) {
+            ItemStack gear = v.getItemBySlot(slot);
+            if (gear.isEmpty()) continue;
+            if (slot == EquipmentSlot.OFFHAND && !gear.is(Items.SHIELD)) continue;
+            ItemStack rest = gear.copy();
+            ColonyStorage.deposit(level, colony, rest);
+            // Whatever did not fit stays equipped until there is room.
+            v.setItemSlot(slot, rest);
+        }
     }
 }
