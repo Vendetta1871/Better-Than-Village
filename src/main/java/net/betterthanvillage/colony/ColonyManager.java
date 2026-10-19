@@ -67,10 +67,24 @@ public final class ColonyManager {
         return null;
     }
 
-    /** Founder party colony first, else positional colony. */
+    /** Role holders stay members this far outside their colony's circle. */
+    public static final int MEMBER_MARGIN = 16;
+
+    /**
+     * Membership-aware colony of a villager: founder party colony first, else the colony holding its
+     * role entry while it stays within radius + 16 (XZ), else the positional colony.
+     */
     public static Colony colonyOf(ServerLevel level, Villager villager) {
-        Colony party = foundingPartyColony(level, villager.getUUID());
-        return party != null ? party : colonyAt(level, villager.blockPosition());
+        UUID id = villager.getUUID();
+        Colony party = foundingPartyColony(level, id);
+        if (party != null) {
+            return party;
+        }
+        Colony member = data(level).roleColony(id);
+        if (member != null && member.withinXZ(villager.blockPosition(), MEMBER_MARGIN)) {
+            return member;
+        }
+        return colonyAt(level, villager.blockPosition());
     }
 
     public static ColonyRole roleOf(ServerLevel level, Villager villager) {
@@ -78,25 +92,24 @@ public final class ColonyManager {
         return colony == null ? ColonyRole.CITIZEN : colony.roleOf(villager.getUUID());
     }
 
-    /** Alive villagers in the colony box whose positional colony is this one (babies included). */
+    /** Alive villagers whose colony ({@link #colonyOf}) is this one (babies included). */
     public static List<Villager> members(ServerLevel level, Colony colony) {
         BlockPos c = colony.core();
-        int r = colony.radius();
+        int r = colony.radius() + MEMBER_MARGIN;
         net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(c.getX() - r, level.getMinBuildHeight(), c.getZ() - r,
                 c.getX() + r + 1, level.getMaxBuildHeight(), c.getZ() + r + 1);
         List<Villager> out = new ArrayList<>();
         for (Villager v : level.getEntitiesOfClass(Villager.class, box, Villager::isAlive)) {
-            Colony at = colonyAt(level, v.blockPosition());
-            if (at == colony) {
+            if (colonyOf(level, v) == colony) {
                 out.add(v);
             }
         }
         return out;
     }
 
-    public static List<Villager> adultMembers(ServerLevel level, Colony colony) {
+    public static List<Villager> adults(List<Villager> members) {
         List<Villager> out = new ArrayList<>();
-        for (Villager v : members(level, colony)) {
+        for (Villager v : members) {
             if (!v.isBaby()) {
                 out.add(v);
             }
@@ -104,29 +117,44 @@ public final class ColonyManager {
         return out;
     }
 
+    public static List<Villager> adultMembers(ServerLevel level, Colony colony) {
+        return adults(members(level, colony));
+    }
+
     // ---------------------------------------------------------------- registration
 
-    /** Registers a generated village bell or merges it into an existing nearby colony. */
-    public static void registerOrMerge(ServerLevel level, BlockPos bell, BoundingBox structureBox) {
+    /** Registers a generated village bell or merges it into the nearest existing colony in range. */
+    public static void registerOrMerge(ServerLevel level, BlockPos bell, BoundingBox structureBox, boolean abandoned) {
         ColonySavedData data = data(level);
         for (Colony colony : data.colonies()) {
             if (colony.core().equals(bell)) {
                 expandFromStructure(colony, structureBox);
+                if (abandoned && !colony.abandonedVillage) {
+                    colony.abandonedVillage = true;
+                }
                 data.setDirty();
                 return;
             }
         }
+        Colony nearest = null;
+        double best = Double.MAX_VALUE;
         for (Colony colony : data.colonies()) {
-            if (structureBox.isInside(colony.core()) || colony.core().distSqr(bell) < MERGE_DISTANCE_SQ) {
-                expandFromStructure(colony, structureBox);
-                data.setDirty();
-                return;
+            double d = colony.core().distSqr(bell);
+            if ((structureBox.isInside(colony.core()) || d < MERGE_DISTANCE_SQ) && d < best) {
+                best = d;
+                nearest = colony;
             }
+        }
+        if (nearest != null) {
+            expandFromStructure(nearest, structureBox);
+            data.setDirty();
+            return;
         }
         Colony colony = new Colony(UUID.randomUUID(), bell);
         colony.lastThreatTick = Colony.NEVER;
         colony.simulatedUntil = 0;
         colony.initialDevelopment = true;
+        colony.abandonedVillage = abandoned;
         expandFromStructure(colony, structureBox);
         data.addColony(colony);
         BetterThanVillage.LOGGER.info("Registered generated vanilla village at {}", bell);
@@ -148,13 +176,45 @@ public final class ColonyManager {
         return colony;
     }
 
-    /** Bell right-click: alarm the colony whose territory contains the bell and whose core is within 32 blocks. */
-    public static void bellAlarm(ServerLevel level, BlockPos bell) {
+    public static final long BELL_ALARM_COOLDOWN = 200;
+
+    /**
+     * A player actually rang a bell: alarm the colony whose territory contains the bell and whose core is
+     * within 32 blocks, unless the player is a friendly owner of that colony; at most once per 200 ticks.
+     */
+    public static void bellAlarm(ServerLevel level, BlockPos bell, UUID player) {
         Colony colony = colonyAt(level, bell);
-        if (colony != null && colony.core().distSqr(bell) <= 1024) {
-            colony.lastThreatTick = level.getGameTime();
-            markDirty(level);
+        if (colony == null || colony.core().distSqr(bell) > 1024 || isFriendlyOwner(level, colony, player)) {
+            return;
         }
+        long now = level.getGameTime();
+        if (colony.lastBellAlarmTick != Colony.NEVER && now - colony.lastBellAlarmTick >= 0 && now - colony.lastBellAlarmTick < BELL_ALARM_COOLDOWN) {
+            return;
+        }
+        colony.lastBellAlarmTick = now;
+        colony.lastThreatTick = now;
+        markDirty(level);
+    }
+
+    /** Property owner of the colony, owner of a commissioned house, or owner of a land plot of the colony. */
+    public static boolean isFriendlyOwner(ServerLevel level, Colony colony, UUID player) {
+        if (player == null) {
+            return false;
+        }
+        if (player.equals(colony.propertyOwner)) {
+            return true;
+        }
+        for (ConstructionJob job : colony.jobs) {
+            if (player.equals(job.owner)) {
+                return true;
+            }
+        }
+        for (LandPlot plot : data(level).land) {
+            if (player.equals(plot.owner()) && colony.id().equals(plot.colony())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Drops colony references to a villager that left the world for good (death, conversion, discard). */
@@ -217,7 +277,12 @@ public final class ColonyManager {
 
     private static void tickColony(ServerLevel level, Colony colony, int[] scanBudget, int[] catchupBudget) {
         if (!isActive(level, colony)) {
+            trackDeadColony(level, colony);
             return;
+        }
+        if (colony.deadTicks != 0) {
+            colony.deadTicks = 0;
+            markDirty(level);
         }
         long now = level.getGameTime();
         BlockPos core = colony.core();
@@ -243,10 +308,11 @@ public final class ColonyManager {
             Census.run(level, colony);
         }
         OfflineSim.bookkeeping(level, colony);
-        if (colony.deferredCatchupTicks > 0 && ColonyConfig.get().village.offline_development && terrainChangesAllowed(level)) {
-            return;
+        // A deferred catch-up only postpones the catch-up step; the colony itself keeps running.
+        boolean deferred = colony.deferredCatchupTicks > 0 && ColonyConfig.get().village.offline_development && terrainChangesAllowed(level);
+        if (!deferred) {
+            catchupBudget[0] -= Math.max(0, OfflineSim.catchupStep(level, colony, catchupBudget[0]));
         }
-        catchupBudget[0] -= Math.max(0, OfflineSim.catchupStep(level, colony, catchupBudget[0]));
         if (!entityTicking) {
             return;
         }
@@ -287,6 +353,41 @@ public final class ColonyManager {
         }
     }
 
+    /** Loaded ticks without bell and members after which a colony is dissolved (3 in-game days). */
+    public static final long DISSOLVE_TICKS = 72000;
+
+    /** Bell gone: count loaded, member-less time and dissolve the colony once it reaches 3 days. */
+    private static void trackDeadColony(ServerLevel level, Colony colony) {
+        BlockPos core = colony.core();
+        long now = level.getGameTime();
+        if (!level.hasChunk(core.getX() >> 4, core.getZ() >> 4) || Math.floorMod(now + core.asLong(), 100L) != 0) {
+            return;
+        }
+        if (colony.founder != null && !colony.founderLeaderLost) {
+            return;
+        }
+        if (!members(level, colony).isEmpty()) {
+            if (colony.deadTicks != 0) {
+                colony.deadTicks = 0;
+                markDirty(level);
+            }
+            return;
+        }
+        colony.deadTicks += 100;
+        markDirty(level);
+        if (colony.deadTicks >= DISSOLVE_TICKS) {
+            dissolve(level, colony);
+        }
+    }
+
+    /** Removes a colony; its roles, jobs, repairs and storage registrations go with it (chests and items stay). */
+    public static void dissolve(ServerLevel level, Colony colony) {
+        colony.runtime.clear();
+        colony.storages.clear();
+        data(level).removeColony(colony);
+        BetterThanVillage.LOGGER.info("Dissolved colony {} at {}: bell gone and no members", colony.id(), colony.core());
+    }
+
     /** Clears every static runtime cache (server shutdown). */
     public static void clearCaches() {
         PathBudget.clear();
@@ -298,5 +399,6 @@ public final class ColonyManager {
         net.betterthanvillage.defense.GuardShield.clearCaches();
         net.betterthanvillage.ai.nav.WaypointNavigator.clearCaches();
         TerrainSurvey.clear();
+        Protection.clearCaches();
     }
 }

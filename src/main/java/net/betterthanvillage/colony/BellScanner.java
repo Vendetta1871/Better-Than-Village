@@ -1,16 +1,22 @@
 package net.betterthanvillage.colony;
 
+import net.betterthanvillage.mixin.construction.SinglePoolElementAccessor;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.StructureTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece;
+import net.minecraft.world.level.levelgen.structure.StructurePiece;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.levelgen.structure.pools.SinglePoolElement;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
+import java.util.Optional;
 import java.util.WeakHashMap;
 
 /**
@@ -55,8 +61,21 @@ public final class BellScanner {
             if (!level.isLoaded(bell) || !level.getBlockState(bell).is(Blocks.BELL)) continue;
             StructureStart start = level.structureManager().getStructureWithPieceAt(bell, StructureTags.VILLAGE);
             if (!start.isValid() || start.getPieces().isEmpty()) continue;
-            ColonyManager.registerOrMerge(level, bell, start.getBoundingBox());
+            ColonyManager.registerOrMerge(level, bell, start.getBoundingBox(), isAbandoned(start));
         }
+    }
+
+    /** Abandoned (zombie) village variant: some piece uses a template from a ".../zombie/..." pool. */
+    static boolean isAbandoned(StructureStart start) {
+        for (StructurePiece piece : start.getPieces()) {
+            if (piece instanceof PoolElementStructurePiece pool && pool.getElement() instanceof SinglePoolElement single) {
+                Optional<ResourceLocation> id = ((SinglePoolElementAccessor) single).btv$template().left();
+                if (id.isPresent() && id.get().getPath().contains("/zombie/")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public static void clear() {

@@ -1,6 +1,8 @@
 package net.betterthanvillage.colony;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.betterthanvillage.ai.VillagerUtil;
+import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.HouseConstructionTask;
 import net.betterthanvillage.defense.GolemManager;
@@ -17,7 +19,7 @@ import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -37,31 +39,30 @@ public final class Census {
     public static void run(ServerLevel level, Colony colony) {
         long now = level.getGameTime();
         List<Villager> members = ColonyManager.members(level, colony);
-        bootstrap(level, colony, members);
-        members = ColonyManager.members(level, colony);
-        int beds = (int) level.getPoiManager().getCountInRange(t -> t.is(PoiTypes.HOME), colony.core(), colony.radius(), PoiManager.Occupancy.ANY);
+        if (bootstrap(level, colony, members)) {
+            members = ColonyManager.members(level, colony);
+        }
+        List<Villager> adults = ColonyManager.adults(members);
         colony.lastPopulation = members.size();
-        colony.lastBeds = beds;
+        colony.lastBeds = countBeds(level, colony);
         colony.lastCensusTick = now;
         long t = Math.floorMod(level.getDayTime(), 24000L);
         if (t >= 9000 && t < 12000) {
             eveningHandout(level, colony, members);
         }
-        maintainElder(level, colony);
+        maintainElder(level, colony, adults);
         ColonyStorage.recount(level, colony);
         TerrainSurvey.step(level, colony);
-        RoleBalancer.rebalance(level, colony, false);
-        laborCensus(level, colony);
+        RoleBalancer.rebalance(level, colony, false, adults);
+        laborCensus(colony, adults);
         Economy.step(level, colony);
         GolemManager.step(level, colony);
         jobHousekeeping(level, colony, now);
-        breed(level, colony);
+        breed(level, colony, members, adults);
     }
 
-    /** Steps run right after the census: stock caps, managed pair repair, house storages. */
+    /** Steps run right after the census: managed pair repair, house storages. */
     public static void afterCensus(ServerLevel level, Colony colony) {
-        capEggs(level, colony);
-        capMilk(level, colony);
         if (ColonyManager.terrainChangesAllowed(level)) {
             repairManagedPairs(level, colony);
             placeHouseStorage(level, colony);
@@ -70,26 +71,84 @@ public final class Census {
 
     // ---------------------------------------------------------------- bootstrap
 
-    private static void bootstrap(ServerLevel level, Colony colony, List<Villager> members) {
-        if (colony.professionBootstrapComplete) return;
+    /**
+     * Initial top-up of a generated village to 8 adults (once). Abandoned (zombie) villages are never topped up;
+     * colonies created by colonization/commands start with the flag set. Returns true if villagers were spawned.
+     */
+    private static boolean bootstrap(ServerLevel level, Colony colony, List<Villager> members) {
+        if (colony.professionBootstrapComplete) return false;
+        if (colony.abandonedVillage) {
+            colony.professionBootstrapComplete = true;
+            ColonyManager.markDirty(level);
+            return false;
+        }
         int adults = 0;
         for (Villager v : members) if (!v.isBaby()) adults++;
         if (adults >= 8) {
             colony.professionBootstrapComplete = true;
             ColonyManager.markDirty(level);
-            return;
+            return false;
         }
         colony.bootstrapAttempts++;
-        if (colony.bootstrapAttempts < 2) return;
+        if (colony.bootstrapAttempts < 2) return false;
         int missing = 8 - adults;
+        int spawned = 0;
         for (int i = 0; i < missing; i++) {
             if (SpawnSpots.spawnAdult(level, colony, i) == null) break;
-            adults++;
+            spawned++;
         }
-        if (adults >= 8) {
+        if (adults + spawned >= 8) {
             colony.professionBootstrapComplete = true;
         }
         ColonyManager.markDirty(level);
+        return spawned > 0;
+    }
+
+    // ---------------------------------------------------------------- beds
+
+    private static final String BED_CACHE = "census_beds";
+    private static final int BED_DISK_READS = 8;
+
+    /**
+     * HOME POIs in this colony's territory (nearest-core circle, so overlapping colonies do not double count).
+     * Loaded chunks are counted live; unloaded chunks reuse the count from when they were last seen, and at most
+     * 8 never-seen unloaded columns per census are read from disk. While any column is still unknown the
+     * previous total is kept as a floor.
+     */
+    private static int countBeds(ServerLevel level, Colony colony) {
+        Long2IntOpenHashMap cache = colony.runtime(BED_CACHE, Long2IntOpenHashMap::new);
+        BlockPos core = colony.core();
+        int r = colony.radius();
+        long r2 = (long) r * r;
+        PoiManager poi = level.getPoiManager();
+        int reads = 0;
+        int total = 0;
+        boolean unknown = false;
+        for (int cx = (core.getX() - r) >> 4; cx <= (core.getX() + r) >> 4; cx++) {
+            for (int cz = (core.getZ() - r) >> 4; cz <= (core.getZ() + r) >> 4; cz++) {
+                long nx = Math.max(cx << 4, Math.min(core.getX(), (cx << 4) + 15)) - core.getX();
+                long nz = Math.max(cz << 4, Math.min(core.getZ(), (cz << 4) + 15)) - core.getZ();
+                if (nx * nx + nz * nz > r2) continue;
+                long key = ChunkPos.asLong(cx, cz);
+                if (!level.hasChunk(cx, cz)) {
+                    if (cache.containsKey(key)) {
+                        total += cache.get(key);
+                        continue;
+                    }
+                    if (reads >= BED_DISK_READS) {
+                        unknown = true;
+                        continue;
+                    }
+                    reads++;
+                }
+                int n = (int) poi.getInChunk(h -> h.is(PoiTypes.HOME), new ChunkPos(cx, cz), PoiManager.Occupancy.ANY)
+                        .filter(rec -> ColonyManager.colonyAt(level, rec.getPos()) == colony)
+                        .count();
+                cache.put(key, n);
+                total += n;
+            }
+        }
+        return unknown ? Math.max(total, colony.lastBeds) : total;
     }
 
     // ---------------------------------------------------------------- evening food
@@ -133,8 +192,16 @@ public final class Census {
     // ---------------------------------------------------------------- elder
 
     public static void maintainElder(ServerLevel level, Colony colony) {
+        maintainElder(level, colony, ColonyManager.adultMembers(level, colony));
+    }
+
+    /**
+     * Keeps exactly one elder among the adults. A missing elder is promoted from the nearest citizen, else from a
+     * role with more than one member; never from founders or independent traders. No villager is ever spawned:
+     * without a candidate the post stays empty.
+     */
+    public static void maintainElder(ServerLevel level, Colony colony, List<Villager> adults) {
         long now = level.getGameTime();
-        List<Villager> adults = ColonyManager.adultMembers(level, colony);
         BlockPos core = colony.core();
         Comparator<Villager> byCore = Comparator.comparingDouble(v -> v.distanceToSqr(core.getX() + 0.5, core.getY(), core.getZ() + 0.5));
         List<Villager> elders = new ArrayList<>();
@@ -153,19 +220,28 @@ public final class Census {
             colony.elder = keep.getUUID();
             return;
         }
-        Villager pick = adults.stream().filter(v -> colony.roleOf(v.getUUID()) == ColonyRole.CITIZEN).min(byCore).orElse(null);
+        List<Villager> candidates = new ArrayList<>();
+        for (Villager v : adults) {
+            if (!colony.isFounderParty(v.getUUID()) && !RoleBalancer.isIndependentTrader(colony, v)) candidates.add(v);
+        }
+        Villager pick = candidates.stream().filter(v -> colony.roleOf(v.getUUID()) == ColonyRole.CITIZEN).min(byCore).orElse(null);
         if (pick == null) {
             EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
-            for (Villager v : adults) counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
-            pick = adults.stream().filter(v -> {
+            for (Villager v : candidates) counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
+            pick = candidates.stream().filter(v -> {
                 ColonyRole r = colony.roleOf(v.getUUID());
                 return r != ColonyRole.FOUNDER && counts.getOrDefault(r, 0) > 1;
             }).min(byCore).orElse(null);
         }
         if (pick == null) {
-            pick = SpawnSpots.spawnAdult(level, colony, adults.size());
+            if (colony.elder != null) {
+                colony.elder = null;
+                ColonyManager.markDirty(level);
+            }
+            return;
         }
-        if (pick == null) return;
+        VillagerUtil.stopModTasks(level, pick);
+        Nav.reset(pick);
         colony.setRole(pick.getUUID(), ColonyRole.ELDER, now);
         colony.elder = pick.getUUID();
         RoleBalancer.applyRole(level, colony, pick);
@@ -174,11 +250,11 @@ public final class Census {
 
     // ---------------------------------------------------------------- labor census
 
-    private static void laborCensus(ServerLevel level, Colony colony) {
+    private static void laborCensus(Colony colony, List<Villager> adults) {
         EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
         for (ColonyRole r : ColonyRole.values()) counts.put(r, 0);
-        for (Villager v : ColonyManager.adultMembers(level, colony)) {
-            if (colony.isFounderParty(v.getUUID())) continue;
+        for (Villager v : adults) {
+            if (colony.isFounderParty(v.getUUID()) || RoleBalancer.isIndependentTrader(colony, v)) continue;
             counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
         }
         colony.laborCensus.clear();
@@ -199,7 +275,7 @@ public final class Census {
             if (job.builder == null) continue;
             net.minecraft.world.entity.Entity e = level.getEntity(job.builder);
             boolean valid = e instanceof Villager v && v.isAlive() && !v.isBaby()
-                    && ColonyManager.colonyAt(level, v.blockPosition()) == colony && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER;
+                    && ColonyManager.colonyOf(level, v) == colony && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER;
             boolean stalled = false;
             if (valid && day && job.status == JobStatus.BUILDING && job.lastProgressTick != Long.MIN_VALUE) {
                 boolean running = VillagerUtil.isRunning((Villager) e, HouseConstructionTask.class);
@@ -215,12 +291,16 @@ public final class Census {
 
     /** Reasons blocking growth; empty means growth is allowed. */
     public static List<String> populationGate(ServerLevel level, Colony colony) {
+        return populationGate(level, colony, ColonyManager.members(level, colony));
+    }
+
+    public static List<String> populationGate(ServerLevel level, Colony colony, List<Villager> members) {
         List<String> reasons = new ArrayList<>();
         int pop = colony.lastPopulation;
         int max = ColonyConfig.get().village.max_population_per_bell;
         if (pop >= max) reasons.add("лимит населения " + max);
         if (colony.lastBeds <= pop) reasons.add("нет лишней кровати");
-        int food = colony.cachedFood + ColonyStorage.carriedFood(ColonyManager.members(level, colony));
+        int food = colony.cachedFood + ColonyStorage.carriedFood(members);
         int need = Math.max(24, 6 * pop);
         if (food < need) reasons.add("еда всего " + food + "/" + need);
         long now = level.getGameTime();
@@ -231,16 +311,16 @@ public final class Census {
     }
 
     public static boolean growthAllowed(ServerLevel level, Villager villager) {
-        Colony colony = ColonyManager.colonyAt(level, villager.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, villager);
         return colony == null || populationGate(level, colony).isEmpty();
     }
 
-    private static void breed(ServerLevel level, Colony colony) {
+    private static void breed(ServerLevel level, Colony colony, List<Villager> members, List<Villager> adults) {
         long now = level.getGameTime();
-        if (now < colony.nextBreedingTick || colony.cachedFood < 24 || !populationGate(level, colony).isEmpty()) return;
+        if (now < colony.nextBreedingTick || colony.cachedFood < 24 || !populationGate(level, colony, members).isEmpty()) return;
         BlockPos core = colony.core();
         List<Villager> parents = new ArrayList<>();
-        for (Villager v : ColonyManager.adultMembers(level, colony)) {
+        for (Villager v : adults) {
             if (v.getAge() == 0) parents.add(v);
         }
         if (parents.size() < 2) return;
@@ -258,57 +338,6 @@ public final class Census {
         colony.nextBreedingTick = now + 300;
         level.sendParticles(ParticleTypes.HEART, spot.getX() + 0.5, spot.getY() + 1, spot.getZ() + 0.5, 8, 0.3, 0.3, 0.3, 0);
         ColonyManager.markDirty(level);
-    }
-
-    // ---------------------------------------------------------------- stock caps
-
-    private static void capEggs(ServerLevel level, Colony colony) {
-        int kept = 0;
-        for (ColonyStorage.Slot slot : ColonyStorage.usable(level, colony)) {
-            Container c = slot.container();
-            for (int i = 0; i < c.getContainerSize(); i++) {
-                ItemStack s = c.getItem(i);
-                if (!s.is(Items.EGG)) continue;
-                int allowed = Math.max(0, 32 - kept);
-                if (s.getCount() > allowed) {
-                    s.setCount(allowed);
-                    c.setChanged();
-                }
-                kept += s.getCount();
-            }
-        }
-    }
-
-    private static void capMilk(ServerLevel level, Colony colony) {
-        int kept = 0;
-        for (ColonyStorage.Slot slot : ColonyStorage.usable(level, colony)) {
-            Container c = slot.container();
-            for (int i = 0; i < c.getContainerSize(); i++) {
-                ItemStack s = c.getItem(i);
-                if (!s.is(Items.MILK_BUCKET)) continue;
-                if (kept < 4) {
-                    kept++;
-                    continue;
-                }
-                ItemStack bucket = new ItemStack(Items.BUCKET);
-                int free = freeFor(c, bucket, i);
-                if (free > 0) {
-                    c.setItem(i, ItemStack.EMPTY);
-                    ColonyStorage.insert(c, bucket);
-                    c.setChanged();
-                }
-            }
-        }
-    }
-
-    private static int freeFor(Container c, ItemStack stack, int vacatedSlot) {
-        int free = 0;
-        for (int i = 0; i < c.getContainerSize(); i++) {
-            ItemStack s = c.getItem(i);
-            if (i == vacatedSlot || s.isEmpty()) free += stack.getMaxStackSize();
-            else if (ItemStack.isSameItemSameComponents(s, stack)) free += s.getMaxStackSize() - s.getCount();
-        }
-        return free;
     }
 
     // ---------------------------------------------------------------- managed storages

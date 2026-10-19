@@ -103,6 +103,10 @@ public final class Colony implements VillageCapability {
     public BlockPos livestockPen;
     public boolean professionBootstrapComplete;
     public boolean starterWarehousePlaced;
+    /** Generated as an abandoned (zombie) village variant: no initial villager bootstrap. */
+    public boolean abandonedVillage;
+    /** Loaded ticks spent without a bell and without members (dissolution timer). */
+    public long deadTicks;
     public long lastProfessionRebalanceTick = NEVER;
 
     // ---- storage ----
@@ -112,7 +116,18 @@ public final class Colony implements VillageCapability {
     public final Map<BlockPos, BlockPos> managedChestPairs = new LinkedHashMap<>();
 
     // ---- roles ----
-    public final Map<UUID, RoleEntry> roles = new LinkedHashMap<>();
+    /** Bumped whenever a villager gains a role entry in any colony (membership index invalidation). */
+    static int roleVersion;
+    public final Map<UUID, RoleEntry> roles = new LinkedHashMap<>() {
+        @Override
+        public RoleEntry put(UUID key, RoleEntry value) {
+            RoleEntry old = super.put(key, value);
+            if (old == null) {
+                roleVersion++;
+            }
+            return old;
+        }
+    };
 
     // ---- construction jobs ----
     public final List<ConstructionJob> jobs = new ArrayList<>();
@@ -134,6 +149,7 @@ public final class Colony implements VillageCapability {
     public long nextHousePlanTick;
     public int houseSiteCursor;
     public long lastMemberTick = NEVER;
+    public long lastBellAlarmTick = NEVER;
     /** Free-form runtime state attached by subsystems (not persisted). */
     public final Map<String, Object> runtime = new HashMap<>();
 
@@ -242,6 +258,14 @@ public final class Colony implements VillageCapability {
             }
         }
         return n;
+    }
+
+    /** True within the territory circle widened by margin blocks (XZ). */
+    public boolean withinXZ(BlockPos pos, int margin) {
+        long dx = pos.getX() - core.getX();
+        long dz = pos.getZ() - core.getZ();
+        long r = (long) radius + margin;
+        return dx * dx + dz * dz <= r * r;
     }
 
     /** True inside the horizontal territory circle. */
@@ -357,6 +381,8 @@ public final class Colony implements VillageCapability {
         }
         tag.putBoolean("profession_bootstrap_complete", professionBootstrapComplete);
         tag.putBoolean("starter_warehouse_placed", starterWarehousePlaced || !managedStorages.isEmpty());
+        tag.putBoolean("abandoned_village", abandonedVillage);
+        tag.putLong("dead_ticks", deadTicks);
         tag.putLong("last_profession_rebalance_tick", lastProfessionRebalanceTick);
         ListTag managed = new ListTag();
         managedStorages.forEach((pos, kind) -> {
@@ -498,6 +524,8 @@ public final class Colony implements VillageCapability {
         c.livestockPen = tag.getBoolean("has_livestock_pen") ? BlockPos.of(tag.getLong("livestock_pen")) : null;
         c.professionBootstrapComplete = tag.getBoolean("profession_bootstrap_complete");
         c.starterWarehousePlaced = tag.getBoolean("starter_warehouse_placed");
+        c.abandonedVillage = tag.getBoolean("abandoned_village");
+        c.deadTicks = Math.max(0, tag.getLong("dead_ticks"));
         c.lastProfessionRebalanceTick = tag.contains("last_profession_rebalance_tick") ? tag.getLong("last_profession_rebalance_tick") : NEVER;
         ListTag managed = tag.getList("managed_storages", Tag.TAG_COMPOUND);
         for (int i = 0; i < managed.size(); i++) {

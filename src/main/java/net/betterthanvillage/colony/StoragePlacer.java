@@ -11,7 +11,6 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 
 /** Mod-placed double chests ("managed storages") and their site search. */
@@ -42,6 +41,9 @@ public final class StoragePlacer {
     /** Placement checks shared with the site search. */
     public static boolean canPlace(ServerLevel level, BlockPos pos) {
         BlockPos east = pos.east();
+        if (!level.isLoaded(pos) || !level.isLoaded(east) || !level.getBlockState(pos).isAir() || !level.getBlockState(east).isAir()) {
+            return false;
+        }
         ColonySavedData data = ColonyManager.data(level);
         for (Colony c : data.colonies()) {
             if (c.repairs.containsKey(pos) || c.repairs.containsKey(east) || c.repairs.containsKey(pos.above()) || c.repairs.containsKey(east.above())) {
@@ -52,9 +54,6 @@ public final class StoragePlacer {
             return false;
         }
         if (!Protection.terrainModifiable(level, pos) || !Protection.terrainModifiable(level, east)) {
-            return false;
-        }
-        if (!level.getBlockState(pos).isAir() || !level.getBlockState(east).isAir()) {
             return false;
         }
         return sideFree(level, pos, Direction.NORTH) || sideFree(level, pos, Direction.SOUTH);
@@ -141,8 +140,7 @@ public final class StoragePlacer {
             if (s.is(BlockTags.DOORS) || s.is(BlockTags.BEDS) || s.getBlock() instanceof BellBlock) return false;
         }
         for (ConstructionJob job : colony.jobs) {
-            BoundingBox box = job.box();
-            if (box.isInside(pos) || box.isInside(east)) return false;
+            if (Protection.inJobBox(job, pos) || Protection.inJobBox(job, east)) return false;
         }
         return true;
     }

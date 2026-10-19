@@ -37,13 +37,23 @@ public final class ColonySavedData extends SavedData {
     public final List<LandWarning> landWarnings = new ArrayList<>();
     /** Runtime only: recent player placements, pos -> (player, tick). */
     private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
+    /** Runtime only: the level this data belongs to (lazy pruning of player blocks). */
+    private ServerLevel level;
+    /** Runtime only: villager UUID -> colony holding its role entry. */
+    private final Map<UUID, Colony> memberIndex = new HashMap<>();
+    private int memberIndexVersion;
+    private boolean memberIndexDirty = true;
 
     public record RecentPlacement(UUID player, long tick) {
     }
 
     public static ColonySavedData get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new SavedData.Factory<>(ColonySavedData::new, ColonySavedData::load, null), ID);
+        ColonySavedData data = level.getDataStorage().computeIfAbsent(FACTORY, ID);
+        data.level = level;
+        return data;
     }
+
+    private static final SavedData.Factory<ColonySavedData> FACTORY = new SavedData.Factory<>(ColonySavedData::new, ColonySavedData::load, null);
 
     // ---------------------------------------------------------------- colonies
 
@@ -57,7 +67,51 @@ public final class ColonySavedData extends SavedData {
 
     public void addColony(Colony colony) {
         colonies.put(colony.id(), colony);
+        memberIndexDirty = true;
         setDirty();
+    }
+
+    public void removeColony(Colony colony) {
+        if (colonies.remove(colony.id(), colony)) {
+            landWarnings.removeIf(w -> colony.id().equals(w.colony));
+            memberIndexDirty = true;
+            setDirty();
+        }
+    }
+
+    /** Colony whose role map holds this villager (newest entry wins), or null. */
+    public Colony roleColony(UUID villager) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (memberIndexDirty || memberIndexVersion != Colony.roleVersion) {
+                rebuildMemberIndex();
+            }
+            Colony c = memberIndex.get(villager);
+            if (c == null) {
+                return null;
+            }
+            if (c.roles.containsKey(villager) && colonies.get(c.id()) == c) {
+                return c;
+            }
+            // removed since the last rebuild
+            memberIndexDirty = true;
+        }
+        return null;
+    }
+
+    private void rebuildMemberIndex() {
+        memberIndex.clear();
+        Map<UUID, Long> stamp = new HashMap<>();
+        for (Colony colony : colonies.values()) {
+            for (Map.Entry<UUID, Colony.RoleEntry> e : colony.roles.entrySet()) {
+                Long prev = stamp.get(e.getKey());
+                if (prev == null || e.getValue().changedAt() > prev) {
+                    stamp.put(e.getKey(), e.getValue().changedAt());
+                    memberIndex.put(e.getKey(), colony);
+                }
+            }
+        }
+        memberIndexVersion = Colony.roleVersion;
+        memberIndexDirty = false;
     }
 
     // ---------------------------------------------------------------- player blocks
@@ -111,7 +165,7 @@ public final class ColonySavedData extends SavedData {
         int minCz = (pos.getZ() - r) >> 4, maxCz = (pos.getZ() + r) >> 4;
         for (int cx = minCx; cx <= maxCx; cx++) {
             for (int cz = minCz; cz <= maxCz; cz++) {
-                LongSet set = playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+                LongSet set = playerBlocksInChunk(cx, cz);
                 if (set == null) continue;
                 for (long key : set) {
                     long dx = BlockPos.getX(key) - pos.getX();
@@ -125,9 +179,30 @@ public final class ColonySavedData extends SavedData {
         return false;
     }
 
-    /** Player blocks within the given chunk (read-only view; may be null). */
+    /**
+     * Player blocks within the given chunk (read-only view; may be null). When the chunk is loaded,
+     * entries whose block became air are forgotten first. Not done in isPlayerBlock: the griefing
+     * listener runs after a block was removed and must still see it as a player block.
+     */
     public LongSet playerBlocksInChunk(int cx, int cz) {
-        return playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+        LongSet set = playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+        if (set != null && level != null && level.hasChunk(cx, cz)) {
+            long[] stale = null;
+            int n = 0;
+            for (long key : set) {
+                if (level.getBlockState(BlockPos.of(key)).isAir()) {
+                    if (stale == null) stale = new long[set.size()];
+                    stale[n++] = key;
+                }
+            }
+            for (int i = 0; i < n; i++) {
+                forgetPlacement(BlockPos.of(stale[i]));
+            }
+            if (n > 0) {
+                set = playerBlocksByChunk.get(ChunkPos.asLong(cx, cz));
+            }
+        }
+        return set;
     }
 
     // ---------------------------------------------------------------- land

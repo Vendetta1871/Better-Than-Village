@@ -7,6 +7,7 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -14,6 +15,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
@@ -24,14 +26,27 @@ public final class ColonyStorage {
 
     // ---------------------------------------------------------------- food helpers
 
-    /** max(1, nutrition) for food items, else 0. */
+    /** Edible items the colony never counts, hands out or eats (valuable or harmful). */
+    private static final Set<Item> NOT_COLONY_FOOD = Set.of(Items.GOLDEN_APPLE, Items.ENCHANTED_GOLDEN_APPLE, Items.ROTTEN_FLESH,
+            Items.SPIDER_EYE, Items.POISONOUS_POTATO, Items.PUFFERFISH, Items.SUSPICIOUS_STEW, Items.CHORUS_FRUIT);
+
+    /** max(1, nutrition) for colony food, else 0. */
     public static int foodValue(ItemStack stack) {
         FoodProperties food = stack.get(DataComponents.FOOD);
-        return food == null ? 0 : Math.max(1, food.nutrition());
+        return food == null || NOT_COLONY_FOOD.contains(stack.getItem()) ? 0 : Math.max(1, food.nutrition());
     }
 
     public static boolean isFood(ItemStack stack) {
-        return stack.has(DataComponents.FOOD);
+        return stack.has(DataComponents.FOOD) && !NOT_COLONY_FOOD.contains(stack.getItem());
+    }
+
+    /** What remains after eating count items of this food (bowls of stews and soups), or EMPTY. */
+    public static ItemStack eatRemainder(ItemStack food, int count) {
+        FoodProperties props = food.get(DataComponents.FOOD);
+        if (props == null || count <= 0 || props.usingConvertsTo().isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        return props.usingConvertsTo().get().copyWithCount(count);
     }
 
     /** Sum of food value x count over a container. */
@@ -243,30 +258,49 @@ public final class ColonyStorage {
         return true;
     }
 
-    /** Consumes n nutrition points of food; requires total >= n. */
+    private record FoodSlot(Container container, int index, int value) {
+    }
+
+    /**
+     * Consumes n nutrition points of food, cheapest food value first; requires total >= n.
+     * Bowls of eaten stews and soups go back to storage.
+     */
     public static boolean consumeNutrition(ServerLevel level, Colony colony, int n) {
-        List<Slot> slots = usable(level, colony);
+        if (n <= 0) {
+            return true;
+        }
+        List<FoodSlot> food = new ArrayList<>();
         int total = 0;
-        for (Slot slot : slots) {
-            total += foodValue(slot.container());
+        for (Slot slot : usable(level, colony)) {
+            Container c = slot.container();
+            for (int i = 0; i < c.getContainerSize(); i++) {
+                ItemStack s = c.getItem(i);
+                int value = foodValue(s);
+                if (value <= 0) continue;
+                food.add(new FoodSlot(c, i, value));
+                total += value * s.getCount();
+            }
         }
         if (total < n) {
             return false;
         }
+        food.sort(Comparator.comparingInt(FoodSlot::value));
         int remaining = n;
-        for (Slot slot : slots) {
-            Container c = slot.container();
-            for (int i = 0; i < c.getContainerSize() && remaining > 0; i++) {
-                ItemStack s = c.getItem(i);
-                int value = foodValue(s);
-                if (value <= 0) continue;
-                int items = Math.min(s.getCount(), (remaining + value - 1) / value);
-                decrementCounters(colony, s.copyWithCount(items));
-                s.shrink(items);
-                remaining -= items * value;
-                c.setChanged();
-            }
+        List<ItemStack> leftovers = new ArrayList<>();
+        for (FoodSlot f : food) {
             if (remaining <= 0) break;
+            ItemStack s = f.container().getItem(f.index());
+            int items = Math.min(s.getCount(), (remaining + f.value() - 1) / f.value());
+            ItemStack eaten = s.copyWithCount(items);
+            decrementCounters(colony, eaten);
+            s.shrink(items);
+            remaining -= items * f.value();
+            f.container().setChanged();
+            ItemStack rest = eatRemainder(eaten, items);
+            if (!rest.isEmpty()) leftovers.add(rest);
+        }
+        for (ItemStack rest : leftovers) {
+            deposit(level, colony, rest);
         }
         return true;
     }

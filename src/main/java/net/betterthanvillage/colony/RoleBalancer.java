@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -28,6 +29,8 @@ import java.util.Set;
 /** Demand weights, target apportionment, rebalancing and role visuals. */
 public final class RoleBalancer {
     public static final String ROLE_NAME_TAG = "btv_role_name";
+    /** Set once the colony has applied a role profession to a villager. */
+    public static final String MANAGED_TAG = "btv_managed";
     public static final long ROLE_COOLDOWN = 2400;
     private static final Set<String> RECOGNISED_NAMES = Set.of("Builder", "Guard", "Militia", "Lumberjack", "Miner", "Farmer", "Fisherman",
             "Rancher", "Elder", "Founder", "Строитель", "Ополченец", "Лесоруб", "Шахтёр", "Фермер", "Рыбак", "Животновод", "Старейшина", "Основатель");
@@ -153,10 +156,27 @@ public final class RoleBalancer {
 
     // ---------------------------------------------------------------- rebalance
 
+    /**
+     * A villager with vanilla trading progress whose profession the colony never managed: it keeps its
+     * profession and trades, takes no colony role and does not count for role demand.
+     */
+    public static boolean isIndependentTrader(Colony colony, Villager v) {
+        if (v.getVillagerXp() <= 0 && v.getVillagerData().getLevel() <= 1) return false;
+        if (v.getVillagerData().getProfession() == VillagerProfession.NONE || v.getTags().contains(MANAGED_TAG)) return false;
+        return colony == null || colony.roleOf(v.getUUID()) == ColonyRole.CITIZEN;
+    }
+
     /** Returns the number of villagers whose role changed. */
     public static int rebalance(ServerLevel level, Colony colony, boolean forced) {
+        return rebalance(level, colony, forced, ColonyManager.adultMembers(level, colony));
+    }
+
+    public static int rebalance(ServerLevel level, Colony colony, boolean forced, List<Villager> adultMembers) {
         long now = level.getGameTime();
-        List<Villager> adults = ColonyManager.adultMembers(level, colony);
+        List<Villager> adults = new ArrayList<>();
+        for (Villager v : adultMembers) {
+            if (!isIndependentTrader(colony, v)) adults.add(v);
+        }
         adults.sort(Comparator.comparing(Villager::getUUID));
         List<Villager> eligible = new ArrayList<>();
         EnumMap<ColonyRole, Integer> current = new EnumMap<>(ColonyRole.class);
@@ -215,7 +235,7 @@ public final class RoleBalancer {
         if (changed > 0 || colony.lastProfessionRebalanceTick == Colony.NEVER) {
             colony.lastProfessionRebalanceTick = now;
         }
-        for (Villager v : adults) {
+        for (Villager v : adultMembers) {
             applyRole(level, colony, v);
         }
         if (changed > 0) ColonyManager.markDirty(level);
@@ -245,7 +265,15 @@ public final class RoleBalancer {
 
     /** Sets villager type, profession and name tag for the villager's colony role. */
     public static void applyRole(ServerLevel level, Colony colony, Villager v) {
+        if (isIndependentTrader(colony, v)) {
+            // vanilla profession, trades and name stay untouched
+            v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), ColonyRole.CITIZEN);
+            return;
+        }
         ColonyRole role = colony != null ? colony.roleOf(v.getUUID()) : ColonyRole.CITIZEN;
+        if (colony != null) {
+            v.addTag(MANAGED_TAG);
+        }
         BlockPos typePos = colony != null ? colony.core() : v.blockPosition();
         VillagerType type = VillagerType.byBiome(level.getBiome(typePos));
         VillagerData data = v.getVillagerData();
