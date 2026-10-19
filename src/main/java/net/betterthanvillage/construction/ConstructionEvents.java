@@ -39,6 +39,7 @@ public final class ConstructionEvents {
     public static void register(IEventBus bus) {
         bus.addListener(ConstructionEvents::onRegisterCommands);
         bus.addListener(ConstructionEvents::onServerStopped);
+        net.betterthanvillage.society.Deeds.siteFinder = HousePlanner::findCommissionSite;
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {

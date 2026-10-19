@@ -133,6 +133,23 @@ public final class HousePlanner {
         return job;
     }
 
+    /**
+     * Commissioned-house site search for the property-deed code ({@code Deeds.siteFinder}, 05 §2.2):
+     * starts the site cursor if idle and runs up to 32 site-search calls with the unrotated template
+     * footprint. Returns an unowned job with template, origin and size set, or null.
+     */
+    public static ConstructionJob findCommissionSite(ServerLevel level, Colony colony, net.minecraft.resources.ResourceLocation templateId,
+                                                     net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate template) {
+        Vec3i size = template.getSize();
+        if (colony.houseSiteCursor < 0) colony.houseSiteCursor = 0;
+        BlockPos site = null;
+        for (int i = 0; i < COMMISSION_SEARCH_CALLS && site == null && colony.houseSiteCursor >= 0; i++) {
+            site = SiteSearch.step(level, colony, size.getX(), size.getZ(), size.getY(), false);
+        }
+        if (site == null) return null;
+        return newJob(new HouseCatalog.Entry("", "", templateId, size, 0), site);
+    }
+
     private static ConstructionJob newJob(HouseCatalog.Entry entry, BlockPos site) {
         ConstructionJob job = new ConstructionJob();
         job.template = entry.id();

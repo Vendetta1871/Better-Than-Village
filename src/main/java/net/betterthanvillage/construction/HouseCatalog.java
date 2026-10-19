@@ -1,7 +1,7 @@
 package net.betterthanvillage.construction;
 
 import net.betterthanvillage.BetterThanVillage;
-import net.betterthanvillage.mixin.construction.StructureTemplateAccessor;
+import net.betterthanvillage.mixin.society.StructureTemplateAccess;
 import net.minecraft.core.Vec3i;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -95,7 +95,7 @@ public final class HouseCatalog {
     }
 
     public static List<StructureTemplate.StructureBlockInfo> blocks(StructureTemplate template) {
-        List<StructureTemplate.Palette> palettes = ((StructureTemplateAccessor) template).btv$palettes();
+        List<StructureTemplate.Palette> palettes = ((StructureTemplateAccess) template).btv$palettes();
         return palettes.isEmpty() ? List.of() : palettes.get(0).blocks();
     }
 

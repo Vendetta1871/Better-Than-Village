@@ -7,7 +7,6 @@
     "LevelChunkMixin",
     "PathNavigationInvoker",
     "SinglePoolElementAccessor",
-    "StructureTemplateAccessor",
     "WalkNodeEvaluatorMixin"
   ],
   "client": [],
