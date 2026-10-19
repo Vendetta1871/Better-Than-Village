@@ -138,7 +138,6 @@ public final class FisherTask extends ColonyTask {
 
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
-        if (now % 200 == 0) net.betterthanvillage.BetterThanVillage.LOGGER.info("DBGFOOD " + "fisher "+debugState()+" w="+water+" s="+stand+" hand="+v.getMainHandItem() + " @" + v.blockPosition() + " storage=" + net.betterthanvillage.colony.ColonyStorage.nearest(level, colony(level, v), v.blockPosition()));
         if (now < nextAction) return;
         Colony colony = colony(level, v);
         if (colony == null) return;

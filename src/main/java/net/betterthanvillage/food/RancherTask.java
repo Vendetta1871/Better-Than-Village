@@ -261,7 +261,6 @@ public final class RancherTask extends ColonyTask {
 
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
-        if (now % 200 == 0) net.betterthanvillage.BetterThanVillage.LOGGER.info("DBGFOOD " + "rancher "+debugState()+" pen="+colony(level,v).livestockPen+" t="+target + " @" + v.blockPosition() + " storage=" + net.betterthanvillage.colony.ColonyStorage.nearest(level, colony(level, v), v.blockPosition()));
         if (state != lastSeen) {
             lastSeen = state;
             stateTicks = 0;
