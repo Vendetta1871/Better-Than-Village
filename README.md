@@ -6,7 +6,7 @@ elder, founder), share categorized storage, build houses, roads and walls, repai
 themselves, trade from colony stock, sell deeds and land, punish theft and griefing, catch up while
 unloaded and found new colonies.
 
-Clean-room reimplementation of the behavior documented in `docs/independent-villagers/`.
+Clean-room reimplementation of the gameplay of the Independent Villagers mod.
 Implementation notes: `docs/dev/ARCHITECTURE.md`.
 
 ## Build

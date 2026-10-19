@@ -1,20 +1,19 @@
 # Better Than Village — implementation notes
 
-Clean-room NeoForge 1.21.1 reimplementation of the behavior described in
-`docs/independent-villagers/` (the "spec"). The spec was written for the original Fabric
-mod on MC 1.21.11 with Yarn names; this project uses **Mojang mappings on MC 1.21.1**.
+Clean-room NeoForge 1.21.1 reimplementation of the gameplay of the Independent Villagers
+Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 
 ## Ground rules
 
-- Behavior comes from the spec only. Never read, decompile or copy anything from `inspiration/`
+- Behavior comes from a written behavior spec only (kept outside this repository). Never read, decompile or copy anything from `inspiration/`
   (the original jar) — it is "All Rights Reserved". No original assets (structure NBTs, template
   pools) are shipped; house blueprints use **vanilla** village templates
   (`minecraft:village/<biome>/houses/...`).
-- Names: mod id / namespace `better_than_village` (spec: `smart_colonies`), package
-  `net.betterthanvillage` (spec: `net.smartcolonies`), command root `/btv` (spec:
-  `/smartcolonies`), command tags `btv_*` (spec: `smart_colonies_*`), item custom-data keys
-  `better_than_village_*` (spec: `smart_colonies_*`). NBT keys inside our own saved data keep the
-  spec names.
+- Names: mod id / namespace `better_than_village` (original: `smart_colonies`), package
+  `net.betterthanvillage` (original: `net.smartcolonies`), command root `/btv` (original:
+  `/smartcolonies`), command tags `btv_*` (original: `smart_colonies_*`), item custom-data keys
+  `better_than_village_*` (original: `smart_colonies_*`). NBT keys inside our own saved data keep the original
+  names.
 - Code comments in English. Russian villager status strings from the spec are kept verbatim
   (they are only shown by `/btv status`); player-facing chat goes through lang keys
   (`en_us.json` + `ru_ru.json`).
