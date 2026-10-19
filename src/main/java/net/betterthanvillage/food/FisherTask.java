@@ -5,6 +5,7 @@ import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
+import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.PathBudget;
@@ -36,7 +37,7 @@ import java.util.WeakHashMap;
 /** Fisher (04 §3): static bobber prop, timed catches, fish cooking and rod crafting in storage. */
 public final class FisherTask extends ColonyTask {
     public static final String STAT_FISHING = "рыбалка";
-    public static final String STATUS_NO_ROD = "для удочки нужны 5 брёвен или 2 бревна и 2 нити";
+    public static final String STATUS_NO_ROD = "для удочки нужны 2 бревна и 2 нити";
 
     private enum State { PREPARE, SEARCH, FISHING, DELIVER }
 
@@ -77,6 +78,8 @@ public final class FisherTask extends ColonyTask {
     private FishingHook bobber;
     private long nextCatch;
     private long standSince;
+    /** The spot search found no water: rest longer before trying again. */
+    private boolean noWater;
 
     public FisherTask() {
         super(12000);
@@ -104,7 +107,7 @@ public final class FisherTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null
                 && colony.roleOf(v.getUUID()) == ColonyRole.FISHERMAN && !done;
     }
@@ -118,6 +121,7 @@ public final class FisherTask extends ColonyTask {
         catches = 0;
         nextAction = now;
         done = false;
+        noWater = false;
         discardBobber();
         nextCatch = now + 100;
     }
@@ -140,12 +144,15 @@ public final class FisherTask extends ColonyTask {
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
         if (now < nextAction) return;
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony == null) return;
         switch (state) {
             case PREPARE, DELIVER -> storageVisit(level, v, colony, now);
             case SEARCH -> {
-                if (!search(level, v, colony, now) && cursor >= OD.length) state = State.DELIVER;
+                if (!search(level, v, colony, now) && cursor >= OD.length) {
+                    noWater = true;
+                    state = State.DELIVER;
+                }
             }
             default -> fish(level, v, now);
         }
@@ -265,27 +272,25 @@ public final class FisherTask extends ColonyTask {
         SimpleContainer inv = v.getInventory();
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (!s.isEmpty() && isFish(s)) FoodUtil.deposit(level, colony, v, s);
+            // Fish, and anything picked up that a fisherman does not keep.
+            if (!s.isEmpty() && (isFish(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.FISHERMAN))) FoodUtil.deposit(level, colony, v, s);
         }
         inv.setChanged();
         cookFish(level, colony);
         if (state == State.DELIVER) {
             done = true;
-            cooldown = now + 40;
+            cooldown = now + (noWater ? 1200 : 40);
             return;
         }
         if (!v.getMainHandItem().is(Items.FISHING_ROD)) {
             ItemStack rod = ColonyStorage.withdrawOne(level, colony, s -> s.is(Items.FISHING_ROD));
             if (rod.isEmpty()) {
-                int logs = ColonyStorage.count(level, colony, s -> s.is(ItemTags.LOGS));
-                int string = ColonyStorage.count(level, colony, s -> s.is(Items.STRING));
-                boolean crafted = false;
-                if (logs >= 2 && string >= 2) {
-                    crafted = ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 2)
-                            && ColonyStorage.consume(level, colony, s -> s.is(Items.STRING), 2);
-                } else if (logs >= 5) {
-                    crafted = ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 5);
-                }
+                // A rod needs string: 2 logs (sticks) and 2 string, consumed atomically.
+                boolean crafted = ColonyStorage.count(level, colony, s -> s.is(Items.STRING)) >= 2
+                        && ColonyStorage.transaction(level, colony,
+                                () -> ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 2)
+                                        && ColonyStorage.consume(level, colony, s -> s.is(Items.STRING), 2),
+                                List.of());
                 if (crafted) rod = new ItemStack(Items.FISHING_ROD);
             }
             if (!rod.isEmpty()) {

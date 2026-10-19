@@ -6,8 +6,10 @@ import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
+import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Protection;
+import net.betterthanvillage.construction.BuildCost;
 import net.betterthanvillage.defense.RaidShelter;
 import net.betterthanvillage.mixin.food.ItemEntityAccessor;
 import net.betterthanvillage.registry.ModRegistries;
@@ -28,6 +30,8 @@ import net.minecraft.world.item.Items;
 public final class ItemPickup {
     public static final String STAT_PICKUP = "подбор полезных предметов";
     public static final String STATUS_GOING = "идёт подобрать: ";
+    /** Persistent-data flag on a player's death drops. */
+    private static final String PLAYER_LOOT = "better_than_village_player_loot";
 
     private ItemPickup() {
     }
@@ -72,15 +76,25 @@ public final class ItemPickup {
                 || s.is(ItemTags.WOOL) || isWeaponOrArmour(s)) {
             return true;
         }
+        return roleItem(s, role);
+    }
+
+    /** Items only useful for the work of this role. */
+    private static boolean roleItem(ItemStack s, ColonyRole role) {
+        String path = path(s);
         return switch (role) {
             case FARMER -> path.endsWith("_seeds") || s.is(ItemTags.HOES);
-            case RANCHER -> s.is(Items.EGG) || s.is(Items.MILK_BUCKET) || s.is(Items.BUCKET) || s.is(Items.SHEARS);
+            case RANCHER -> RancherTask.isProduct(s) || s.is(Items.BUCKET) || s.is(Items.SHEARS);
             case FISHERMAN -> s.is(Items.FISHING_ROD);
             case BUILDER -> s.is(Items.STONE) || s.is(Items.STONE_BRICKS) || s.is(Items.GLASS);
-            case MINER -> s.is(ItemTags.PICKAXES);
-            case LUMBERJACK -> s.is(ItemTags.AXES);
+            case MINER -> s.is(ItemTags.PICKAXES) || s.is(ItemTags.STONE_CRAFTING_MATERIALS) || path.startsWith("raw_") || s.is(Items.COAL);
+            case LUMBERJACK -> s.is(ItemTags.AXES) || s.is(ItemTags.LOGS) || s.is(ItemTags.SAPLINGS);
             default -> false;
         };
+    }
+
+    public static void markPlayerLoot(ItemEntity item) {
+        item.getPersistentData().putBoolean(PLAYER_LOOT, true);
     }
 
     public static boolean eligible(ServerLevel level, Colony colony, Villager v, ItemEntity item, ColonyRole role) {
@@ -89,11 +103,15 @@ public final class ItemPickup {
         // Player Q-drops: anything thrown by a player (or by a thrower no longer loaded) is not up for grabs;
         // items thrown by mobs (villager food sharing) stay eligible.
         if (access.btv$thrower() != null && (item.getOwner() == null || item.getOwner() instanceof Player)) return false;
-        BlockPos pos = item.blockPosition();
-        if (ColonyManager.data(level).inLand(pos) || Protection.inPlayerOwnedJob(level, pos)) return false;
-        if (!v.hasLineOfSight(item)) return false;
+        if (item.getPersistentData().getBoolean(PLAYER_LOOT)) return false;
         ItemStack s = item.getItem();
         if (!useful(s, role)) return false;
+        BlockPos pos = item.blockPosition();
+        ColonySavedData data = ColonyManager.data(level);
+        if (data.inLand(pos) || Protection.inPlayerOwnedJob(level, pos)) return false;
+        // Next to player builds (hopper lines, farms) only food and the role's own work items are taken.
+        if (!ColonyStorage.isFood(s) && !roleItem(s, role) && data.playerBuildNear(pos, 4)) return false;
+        if (!v.hasLineOfSight(item)) return false;
         if (s.is(Items.EGG) && FoodUtil.count(v.getInventory(), x -> x.is(Items.EGG)) >= 16) return false;
         return !s.is(Items.MILK_BUCKET) || MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
     }
@@ -137,13 +155,17 @@ public final class ItemPickup {
         WorkTracker.status(v, STATUS_GOING + path(best.getItem()));
     }
 
-    private static boolean keepWhenDumping(ItemStack s, ColonyRole role) {
+    /** Items a villager of this role keeps when unloading at a storage. */
+    public static boolean keepWhenDumping(ItemStack s, ColonyRole role) {
         if (ColonyStorage.isFood(s) || s.is(Items.TORCH) || s.is(ItemTags.PICKAXES) || s.is(ItemTags.AXES) || s.is(ItemTags.HOES)
                 || s.is(Items.FISHING_ROD)) return true;
         return switch (role) {
             case GUARD -> isWeaponOrArmour(s);
             case RANCHER -> s.is(Items.SHEARS) || s.is(Items.BUCKET) || s.is(Items.WHEAT) || s.is(Items.WHEAT_SEEDS) || s.is(Items.CARROT);
-            case FARMER -> s.is(Items.WHEAT) || path(s).endsWith("_seeds");
+            case FARMER -> s.is(Items.WHEAT) || path(s).endsWith("_seeds") || s.is(Items.BUCKET) || s.is(Items.WATER_BUCKET);
+            // Building material fetched for the current house must not go straight back to storage.
+            case BUILDER -> BuildCost.buildingMaterial(s) || s.is(ItemTags.WOOL) || s.is(Items.COAL) || s.is(Items.CHARCOAL)
+                    || s.is(Items.IRON_INGOT) || s.is(Items.IRON_NUGGET) || s.is(Items.WATER_BUCKET) || s.is(Items.FLOWER_POT);
             default -> false;
         };
     }

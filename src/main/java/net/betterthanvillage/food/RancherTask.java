@@ -26,6 +26,8 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.animal.Cow;
@@ -46,6 +48,9 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.living.BabyEntitySpawnEvent;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +68,12 @@ public final class RancherTask extends ColonyTask {
     private static final int PEN_CAP = 40;
     private static final int ACTION_BUDGET = 12;
     private static final int PRODUCT_BUDGET = 16;
+    /** Max penned animals of one species before breeding it stops. */
+    private static final int SPECIES_BREED_CAP = 16;
+    /** Ticks between two breedings of the same species in a colony. */
+    private static final int BREED_COOLDOWN = 1200;
+    /** Consecutive blocked-perimeter failures before the pen is relocated. */
+    private static final int PEN_BLOCKED_RELOCATE = 3;
 
     public static final String STAT_PEN = "загон";
     public static final String STAT_LED = "животное приведено в загон";
@@ -90,6 +101,7 @@ public final class RancherTask extends ColonyTask {
     private boolean done;
     private final Map<UUID, Long> productCooldowns = new HashMap<>();
     private final Map<UUID, Long> lureCooldowns = new HashMap<>();
+    private int penBlocked;
 
     public RancherTask() {
         super(12000);
@@ -146,7 +158,7 @@ public final class RancherTask extends ColonyTask {
         if (!level.isLoaded(g)) return;
         if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(g).inflate(0.15, 0.2, 0.15), e -> e.isAlive() && !e.isSpectator()).isEmpty()) return;
         BlockState s = level.getBlockState(g);
-        if (s.is(Blocks.OAK_FENCE_GATE) && s.getValue(FenceGateBlock.OPEN)) {
+        if (s.is(BlockTags.FENCE_GATES) && s.hasProperty(FenceGateBlock.OPEN) && s.getValue(FenceGateBlock.OPEN)) {
             SafeEdit.place(level, g, s.setValue(FenceGateBlock.OPEN, false), 3);
         }
     }
@@ -156,7 +168,7 @@ public final class RancherTask extends ColonyTask {
         BlockPos g = gate(colony);
         if (!level.isLoaded(g)) return;
         BlockState s = level.getBlockState(g);
-        if (s.is(Blocks.OAK_FENCE_GATE) && !s.getValue(FenceGateBlock.OPEN)) {
+        if (s.is(BlockTags.FENCE_GATES) && s.hasProperty(FenceGateBlock.OPEN) && !s.getValue(FenceGateBlock.OPEN)) {
             SafeEdit.place(level, g, s.setValue(FenceGateBlock.OPEN, true), 3);
         }
     }
@@ -167,13 +179,55 @@ public final class RancherTask extends ColonyTask {
         return level.getEntitiesOfClass(Animal.class, box, a -> a.isAlive() && managed(a));
     }
 
-    /** Penned animals (except one) walk to the pen centre, away from the open gate. */
+    /** Penned animals (except one) near the gate walk to the pen centre, away from the open gate. */
     private static void herdInside(ServerLevel level, Colony colony, Animal except) {
         BlockPos p = colony.livestockPen;
         if (p == null) return;
-        for (Animal a : animals(level, colony)) {
+        AABB nearGate = new AABB(gate(colony)).inflate(3, 2, 3);
+        for (Animal a : level.getEntitiesOfClass(Animal.class, nearGate, a -> a.isAlive() && managed(a))) {
             if (a != except && inPen(colony, a)) a.getNavigation().moveTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, 0.8);
         }
+    }
+
+    /** Animals the rancher must not lure: player-owned, tied, ridden, protected or in another pen. */
+    private static boolean foreignAnimal(ServerLevel level, Colony colony, Animal a) {
+        if (a.hasCustomName() || a.isLeashed() || a.isVehicle() || a.isPassenger()) return true;
+        if (a instanceof OwnableEntity owned && owned.getOwnerUUID() != null) return true;
+        BlockPos pos = a.blockPosition();
+        ColonySavedData data = ColonyManager.data(level);
+        if (data.inLand(pos) || Protection.inPlayerOwnedJob(level, pos)) return true;
+        for (Colony other : data.colonies()) {
+            if (other != colony && inPen(other, a)) return true;
+        }
+        return inPlayerEnclosure(level, data, pos);
+    }
+
+    /** Player-placed fences, walls or gates on all four sides within 12 blocks. */
+    private static boolean inPlayerEnclosure(ServerLevel level, ColonySavedData data, BlockPos pos) {
+        for (Direction d : Direction.Plane.HORIZONTAL) {
+            boolean hit = false;
+            for (int k = 1; k <= 12 && !hit; k++) {
+                BlockPos q = pos.relative(d, k);
+                if (!data.isPlayerBlock(q) || !level.isLoaded(q)) continue;
+                BlockState s = level.getBlockState(q);
+                hit = s.is(BlockTags.FENCES) || s.is(BlockTags.WALLS) || s.is(BlockTags.FENCE_GATES);
+            }
+            if (!hit) return false;
+        }
+        return true;
+    }
+
+    private static boolean perimeterBlock(BlockState s, boolean gateCell) {
+        return gateCell ? s.is(BlockTags.FENCE_GATES) : s.is(BlockTags.FENCES) || s.is(BlockTags.WALLS) || s.is(BlockTags.FENCE_GATES);
+    }
+
+    /** No free slot in the villager inventory and none in colony storage. */
+    private static boolean noRoomAnywhere(ServerLevel level, Colony colony, Villager v) {
+        SimpleContainer inv = v.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).isEmpty()) return false;
+        }
+        return ColonyStorage.emptySlots(level, colony) == 0;
     }
 
     // ---------------------------------------------------------------- inventory helpers
@@ -231,7 +285,7 @@ public final class RancherTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null
                 && colony.roleOf(v.getUUID()) == ColonyRole.RANCHER && !done;
     }
@@ -255,7 +309,7 @@ public final class RancherTask extends ColonyTask {
     protected void stop(ServerLevel level, Villager v, long now) {
         if (target != null) AnimalFollowGoal.release(target);
         putLureAway(level, v);
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null) closeGate(level, colony);
         v.getNavigation().stop();
         v.getBrain().eraseMemory(ModRegistries.ANIMAL_TARGET_POS.get());
@@ -273,7 +327,7 @@ public final class RancherTask extends ColonyTask {
         }
         if (now < nextRun) return;
         nextRun = now + 5;
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony == null) return;
         if (state == State.PREPARE || state == State.DELIVER) {
             storageVisit(level, v, colony, now);
@@ -330,23 +384,11 @@ public final class RancherTask extends ColonyTask {
             return;
         }
         SimpleContainer inv = v.getInventory();
-        // 1-2: egg caps (excess eggs are deleted)
-        trimStorageEggs(level, colony);
-        int allowed = Math.max(0, EGG_CAP - ColonyStorage.count(level, colony, s -> s.is(Items.EGG)));
+        // Egg and milk caps only stop collecting; products are never deleted. Products and picked-up
+        // items the role does not keep go to storage.
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (!s.is(Items.EGG)) continue;
-            int keep = Math.min(allowed, s.getCount());
-            s.setCount(keep);
-            allowed -= keep;
-        }
-        // 3-4: milk caps
-        MilkLedger.trimStorage(level, colony);
-        MilkLedger.convert(inv, Math.max(0, MilkLedger.CAP - MilkLedger.storageMilk(level, colony)));
-        // 5: products
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (isProduct(s)) FoodUtil.deposit(level, colony, v, s);
+            if (!s.isEmpty() && (isProduct(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.RANCHER))) FoodUtil.deposit(level, colony, v, s);
         }
         // 6: keep at most 2 empty buckets
         int buckets = 0;
@@ -394,22 +436,6 @@ public final class RancherTask extends ColonyTask {
         }
     }
 
-    private static void trimStorageEggs(ServerLevel level, Colony colony) {
-        int kept = 0;
-        for (ColonyStorage.Slot slot : ColonyStorage.usable(level, colony)) {
-            for (int i = 0; i < slot.container().getContainerSize(); i++) {
-                ItemStack s = slot.container().getItem(i);
-                if (!s.is(Items.EGG)) continue;
-                int keep = Math.min(Math.max(0, EGG_CAP - kept), s.getCount());
-                if (keep < s.getCount()) {
-                    s.setCount(keep);
-                    slot.container().setChanged();
-                }
-                kept += keep;
-            }
-        }
-    }
-
     // ---------------------------------------------------------------- pen construction (04 §4.7)
 
     private void buildPen(ServerLevel level, Villager v, Colony colony, long now) {
@@ -430,8 +456,7 @@ public final class RancherTask extends ColonyTask {
             for (int dz = -PEN_HALF; dz <= PEN_HALF; dz++) {
                 if (Math.abs(dx) != PEN_HALF && Math.abs(dz) != PEN_HALF) continue;
                 BlockPos c = p.offset(dx, 0, dz);
-                Block expected = c.equals(g) ? Blocks.OAK_FENCE_GATE : Blocks.OAK_FENCE;
-                if (!level.getBlockState(c).is(expected)) missing.add(c);
+                if (!perimeterBlock(level.getBlockState(c), c.equals(g))) missing.add(c);
             }
         }
         if (!missing.isEmpty()) {
@@ -441,6 +466,12 @@ public final class RancherTask extends ColonyTask {
             }
             if (remaining.isEmpty()) {
                 WorkTracker.status(v, STATUS_PEN_BLOCKED);
+                if (++penBlocked >= PEN_BLOCKED_RELOCATE) {
+                    // Permanently blocked perimeter: give the site up, the next visit picks a new one.
+                    penBlocked = 0;
+                    colony.livestockPen = null;
+                    ColonyManager.markDirty(level);
+                }
                 done = true;
                 cooldown = now + 600;
                 return;
@@ -488,6 +519,7 @@ public final class RancherTask extends ColonyTask {
             nextRun = now + 8;
             return;
         }
+        penBlocked = 0;
         closeGate(level, colony);
         setState(State.CHOOSE, now);
         actions = 0;
@@ -581,6 +613,10 @@ public final class RancherTask extends ColonyTask {
             if (penCount.getOrDefault(a.getType(), 0) >= SPECIES_CAP) continue;
             Item item = lureItem(a);
             if (item == null || !FoodUtil.carries(v.getInventory(), s -> s.is(item))) continue;
+            if (foreignAnimal(level, colony, a)) {
+                lureCooldowns.put(a.getUUID(), now + 1200);
+                continue;
+            }
             if (leadPick == null) {
                 leadPick = a;
                 continue;
@@ -606,7 +642,9 @@ public final class RancherTask extends ColonyTask {
         boolean eggRoom = eggs(level, colony, v) < EGG_CAP;
         boolean milkRoom = FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET)) && MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
         Animal harvestPick = null;
+        boolean noRoom = noRoomAnywhere(level, colony, v);
         for (Animal a : list) {
+            if (noRoom) break;
             if (!inPen(colony, a) || !productReady(a, now, shears, eggRoom, milkRoom)) continue;
             if (harvestPick == null || v.distanceToSqr(a) < v.distanceToSqr(harvestPick)) harvestPick = a;
         }
@@ -615,31 +653,43 @@ public final class RancherTask extends ColonyTask {
             setState(State.HARVEST, now);
             return;
         }
-        if (penned < PEN_CAP && breed(level, v, colony, list, now)) return;
+        if (penned < PEN_CAP && breed(level, v, colony, list, penCount, now)) return;
         setState(State.DELIVER, now);
     }
 
-    private boolean breed(ServerLevel level, Villager v, Colony colony, List<Animal> list, long now) {
+    /** Colony stock of a breeding item that breeding must not touch (bread needs wheat). */
+    private static int breedingReserve(Item item) {
+        return item == Items.WHEAT ? 32 : 16;
+    }
+
+    private boolean breed(ServerLevel level, Villager v, Colony colony, List<Animal> list, Map<Object, Integer> penCount, long now) {
+        Map<Object, Long> speciesCooldowns = colony.runtime("better_than_village:breed_cooldowns", HashMap::new);
         List<Animal> adults = new ArrayList<>();
         for (Animal a : list) {
             if (inPen(colony, a) && !a.isBaby() && a.getAge() == 0) adults.add(a);
         }
-        // Species whose breeding item is missing: checked once instead of once per pair.
-        Set<Object> noItems = new HashSet<>();
+        // Species that may not breed now (cap, cooldown, reserve, no items): checked once instead of once per pair.
+        Set<Object> skip = new HashSet<>();
         for (int i = 0; i < adults.size(); i++) {
             Animal a = adults.get(i);
-            if (noItems.contains(a.getType())) continue;
+            Object type = a.getType();
+            if (skip.contains(type)) continue;
+            Item item = lureItem(a);
+            if (item == null || penCount.getOrDefault(type, 0) >= SPECIES_BREED_CAP
+                    || speciesCooldowns.getOrDefault(type, Long.MIN_VALUE) > now
+                    || breedingStock(level, colony, v, item) - 2 < breedingReserve(item)) {
+                skip.add(type);
+                continue;
+            }
             for (int j = i + 1; j < adults.size(); j++) {
                 Animal b = adults.get(j);
                 if (a.getType() != b.getType()) continue;
-                Item item = lureItem(a);
-                if (item == null || !consumeBreedingItems(level, colony, v, item)) {
-                    noItems.add(a.getType());
+                if (!consumeBreedingItems(level, colony, v, item)) {
+                    skip.add(type);
                     break;
                 }
-                a.setInLoveTime(600);
-                b.setInLoveTime(600);
-                a.spawnChildFromBreeding(level, b);
+                spawnChild(level, a, b);
+                speciesCooldowns.put(type, now + BREED_COOLDOWN);
                 BlockPos p = colony.livestockPen;
                 level.sendParticles(ParticleTypes.HEART, p.getX() + 0.5, p.getY() + 1, p.getZ() + 0.5, 8, 2.0, 0.5, 2.0, 0);
                 actions++;
@@ -649,6 +699,32 @@ public final class RancherTask extends ColonyTask {
             }
         }
         return false;
+    }
+
+    private static int breedingStock(ServerLevel level, Colony colony, Villager v, Item item) {
+        ItemStack hand = v.getMainHandItem();
+        return FoodUtil.count(v.getInventory(), s -> s.is(item)) + (hand.is(item) ? hand.getCount() : 0)
+                + ColonyStorage.count(level, colony, s -> s.is(item));
+    }
+
+    /**
+     * Animal.spawnChildFromBreeding without the experience orb of finalizeSpawnChildFromBreeding:
+     * villager breeding must not be an XP farm.
+     */
+    private static void spawnChild(ServerLevel level, Animal a, Animal b) {
+        AgeableMob child = a.getBreedOffspring(level, b);
+        BabyEntitySpawnEvent event = new BabyEntitySpawnEvent(a, b, child);
+        boolean cancelled = NeoForge.EVENT_BUS.post(event).isCanceled();
+        child = event.getChild();
+        a.setAge(6000);
+        b.setAge(6000);
+        a.resetLove();
+        b.resetLove();
+        if (cancelled || child == null) return;
+        child.setBaby(true);
+        child.moveTo(a.getX(), a.getY(), a.getZ(), 0.0F, 0.0F);
+        level.broadcastEntityEvent(a, (byte) 18);
+        level.addFreshEntityWithPassengers(child);
     }
 
     /** Takes 2 breeding items: inventory slots first, then the main hand, then storage. */

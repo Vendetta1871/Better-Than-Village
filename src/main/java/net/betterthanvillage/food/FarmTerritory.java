@@ -9,9 +9,11 @@ import net.betterthanvillage.construction.Damage;
 import net.betterthanvillage.mixin.construction.SinglePoolElementAccessor;
 import net.betterthanvillage.mixin.society.StructureTemplateAccess;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.StructureTags;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.state.BlockState;
@@ -177,7 +179,28 @@ public final class FarmTerritory {
     /** The position was farmland in a generated vanilla village farm piece. */
     public static boolean wasTemplateFarmland(ServerLevel level, BlockPos pos) {
         StructureStart start = village(level, pos);
-        if (start == null) return false;
+        return start != null && templateFarmlandIn(level, start, pos);
+    }
+
+    /**
+     * Same as {@link #wasTemplateFarmland(ServerLevel, BlockPos)}, with the village starts of each chunk
+     * looked up once and kept in the caller's cache (cleared by the caller, e.g. once per sweep).
+     */
+    public static boolean wasTemplateFarmland(ServerLevel level, BlockPos pos, Map<Long, List<StructureStart>> cache) {
+        if (!level.isLoaded(pos)) return false;
+        ChunkPos chunk = new ChunkPos(pos);
+        List<StructureStart> starts = cache.computeIfAbsent(chunk.toLong(), k -> {
+            var registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
+            return level.structureManager().startsForStructure(chunk,
+                    s -> registry.getHolder(registry.getId(s)).map(h -> h.is(StructureTags.VILLAGE)).orElse(false));
+        });
+        for (StructureStart start : starts) {
+            if (start.isValid() && start.getBoundingBox().isInside(pos) && templateFarmlandIn(level, start, pos)) return true;
+        }
+        return false;
+    }
+
+    private static boolean templateFarmlandIn(ServerLevel level, StructureStart start, BlockPos pos) {
         for (StructurePiece piece : start.getPieces()) {
             if (!(piece instanceof PoolElementStructurePiece pep) || !pep.getBoundingBox().isInside(pos)) continue;
             if (!(pep.getElement() instanceof SinglePoolElement element)) continue;
@@ -210,7 +233,8 @@ public final class FarmTerritory {
     public static boolean vanillaFarmSuitable(ServerLevel level, BlockPos pos) {
         if (Damage.isProtectedHousePiece(level, pos) || Damage.isProtectedHousePiece(level, pos.below())) return false;
         Colony colony = ColonyManager.colonyAt(level, pos);
-        return colony == null || territoryOk(level, colony, pos.below());
+        if (colony == null) return true;
+        return !ColonyManager.data(level).isPlayerBlock(pos.below()) && territoryOk(level, colony, pos.below());
     }
 
     public static void clearCaches() {

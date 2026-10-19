@@ -9,6 +9,7 @@ import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
+import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.SafeEditScope;
@@ -32,6 +33,7 @@ import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.FarmBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
@@ -93,6 +95,10 @@ public final class FarmerTask extends ColonyTask {
     /** Pumpkin fruit spots reserved by this task instance; never cleared (04 §2.7). */
     private final Set<BlockPos> pumpkinSpots = new HashSet<>();
     private final BlockWorkTimer timer = new BlockWorkTimer();
+    /** The last sweep found nothing to do: the task rests longer before the next one. */
+    private boolean idleSweep;
+    /** Village structure starts per chunk, valid for one sweep. */
+    private final Map<Long, List<StructureStart>> villageStarts = new HashMap<>();
 
     public FarmerTask() {
         super(12000);
@@ -156,7 +162,7 @@ public final class FarmerTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null
                 && colony.roleOf(v.getUUID()) == ColonyRole.FARMER && !done && ColonyManager.terrainChangesAllowed(level);
     }
@@ -172,6 +178,7 @@ public final class FarmerTask extends ColonyTask {
         clearCandidates();
         cursor = 0;
         nextAct = now;
+        idleSweep = false;
         blacklist.values().removeIf(exp -> exp <= now);
     }
 
@@ -189,7 +196,7 @@ public final class FarmerTask extends ColonyTask {
         if (now < nextAct) return;
         nextAct = now + 2;
         if (!ColonyManager.terrainChangesAllowed(level)) return;
-        Colony colony = colony(level, v);
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony == null) return;
         if (state == State.PREPARE || state == State.DELIVER) {
             storageVisit(level, v, colony, now);
@@ -207,6 +214,7 @@ public final class FarmerTask extends ColonyTask {
                         return;
                     }
                 }
+                idleSweep = true;
                 state = State.DELIVER;
             }
         } else if (state == State.NEW_FIELD) {
@@ -304,13 +312,18 @@ public final class FarmerTask extends ColonyTask {
         }
         if (!walk(level, v, storage, now)) return;
         SimpleContainer inv = v.getInventory();
+        int seedsKept = 0;
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
             if (s.isEmpty()) continue;
             int keep;
-            if (isFarmerSeed(s)) keep = 8;
-            else if (s.is(Items.BREAD)) keep = 1;
+            if (isFarmerSeed(s)) {
+                // Up to the 32 seeds taken below are kept, so seeds are not deposited and withdrawn again.
+                keep = Math.min(s.getCount(), Math.max(0, 32 - seedsKept));
+                seedsKept += keep;
+            } else if (s.is(Items.BREAD)) keep = 1;
             else if (s.is(Items.WHEAT) || s.is(Items.BEETROOT) || s.is(Items.PUMPKIN) || s.is(Items.MELON_SLICE)) keep = 0;
+            else if (!ItemPickup.keepWhenDumping(s, ColonyRole.FARMER)) keep = 0; // picked-up items
             else continue;
             if (s.getCount() <= keep) continue;
             ItemStack excess = s.split(s.getCount() - keep);
@@ -330,7 +343,7 @@ public final class FarmerTask extends ColonyTask {
         }
         if (state == State.DELIVER) {
             done = true;
-            cooldown = now + 20;
+            cooldown = now + (idleSweep ? 300 : 20);
             return;
         }
         ToolSupply.ensureTool(level, colony, v, ToolSupply.Kind.HOE);
@@ -366,11 +379,12 @@ public final class FarmerTask extends ColonyTask {
         long r2 = (long) r * r;
         int seeds = plantableSeeds(v);
         boolean bucket = FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET));
+        if (cursor == 0) villageStarts.clear();
         for (int n = 0; n < 2048; n++) {
             if (cursor >= OD.length || OD[cursor] > r2) {
                 cursor = 0;
                 sweepComplete = true;
-                return pickTarget(v, seeds) ? 1 : 2;
+                return pickTarget(level, colony, v, seeds) ? 1 : 2;
             }
             column(level, v, colony, colony.core().getX() + OX[cursor], colony.core().getZ() + OZ[cursor], seeds, bucket, now);
             cursor++;
@@ -378,8 +392,21 @@ public final class FarmerTask extends ColonyTask {
         return 0;
     }
 
-    private boolean pickTarget(Villager v, int seeds) {
+    /** No free inventory slot and no free storage slot: harvesting would only drop the produce. */
+    private static boolean noRoomAnywhere(ServerLevel level, Colony colony, Villager v) {
+        SimpleContainer inv = v.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).isEmpty()) return false;
+        }
+        return ColonyStorage.emptySlots(level, colony) == 0;
+    }
+
+    private boolean pickTarget(ServerLevel level, Colony colony, Villager v, int seeds) {
         boolean waterBucket = FoodUtil.carries(v.getInventory(), s -> s.is(Items.WATER_BUCKET));
+        if ((harvestC != null || hayC != null) && noRoomAnywhere(level, colony, v)) {
+            harvestC = null;
+            hayC = null;
+        }
         BlockPos t = null;
         State next = null;
         if (seeds > 0 && restoreC != null) {
@@ -436,6 +463,12 @@ public final class FarmerTask extends ColonyTask {
             BlockState aboveState = level.getBlockState(above);
             boolean soil = FarmTerritory.isSoil(s) && FarmTerritory.isAirOrGrass(aboveState);
             if (!(crop || farmland || hay || melon || pumpkin || water || grass || soil)) continue;
+            ColonySavedData data = ColonyManager.data(level);
+            if ((farmland || soil) && colony.farmland.contains(pos) && data.isPlayerBlock(pos)) {
+                // Player-tilled field: never the colony's to farm or restore.
+                colony.farmland.remove(pos);
+                ColonyManager.markDirty(level);
+            }
             Qualifier q = new Qualifier(level, colony, pos);
             if (farmland && !colony.farmland.contains(pos) && q.ok()) FarmTerritory.registerFarmland(level, colony, pos);
             if (blacklisted(pos, now) || blacklisted(above, now)) continue;
@@ -444,7 +477,7 @@ public final class FarmerTask extends ColonyTask {
             }
             boolean mature = crop && ((CropBlock) s.getBlock()).isMaxAge(s);
             // Same soil test as perform(), otherwise a refused harvest would be picked again every sweep.
-            if ((melon || mature || pumpkin) && closer(v, harvestC, pos)
+            if ((melon || mature || pumpkin) && closer(v, harvestC, pos) && !data.isPlayerBlock(pos.below())
                     && FarmTerritory.soilOk(level, colony, pos.below()) && q.editable()) {
                 harvestC = pos;
             }
@@ -458,8 +491,9 @@ public final class FarmerTask extends ColonyTask {
                         && FarmTerritory.waterWithin4(level, pos) && FarmTerritory.soilOk(level, colony, pos) && q.editable()) {
                     expandC = above;
                 }
-                if (soil && !reserved && (colony.farmland.contains(pos) || FarmTerritory.wasTemplateFarmland(level, pos))
-                        && plantSlot(level, colony, v, above) >= 0 && FarmTerritory.waterWithin4(level, pos)
+                // Cheap tests (light, water) before the structure lookup of wasTemplateFarmland.
+                if (soil && !reserved && plantSlot(level, colony, v, above) >= 0 && FarmTerritory.waterWithin4(level, pos)
+                        && (colony.farmland.contains(pos) || FarmTerritory.wasTemplateFarmland(level, pos, villageStarts))
                         && FarmTerritory.soilOk(level, colony, pos) && q.ok()) {
                     FarmTerritory.registerFarmland(level, colony, pos);
                     if (closer(v, restoreC, above) && q.editable()) restoreC = above;
@@ -534,6 +568,7 @@ public final class FarmerTask extends ColonyTask {
         switch (state) {
             case HARVEST -> {
                 if (s.getBlock() instanceof CropBlock crop && isVanillaCrop(s) && crop.isMaxAge(s)) {
+                    if (ColonyManager.data(level).isPlayerBlock(t.below())) return false;
                     BlockState fresh = crop.defaultBlockState();
                     if (!FarmTerritory.soilOk(level, colony, t.below()) || !fresh.canSurvive(level, t) || !SafeEdit.place(level, t, fresh, 3)) return false;
                     FarmTerritory.registerFarmland(level, colony, t.below());
@@ -631,6 +666,7 @@ public final class FarmerTask extends ColonyTask {
         boolean farmland = ps.is(Blocks.FARMLAND);
         if (!farmland && !(FarmTerritory.isSoil(ps) && FarmTerritory.waterWithin4(level, p))) return false;
         if (!farmland && pumpkinSpots.contains(p)) return false; // reserved pumpkin fruit spot
+        if (ColonyManager.data(level).isPlayerBlock(p)) return false; // player field, even when trampled
         if (!level.getBlockState(above).isAir()) SafeEdit.breakBlock(level, v, above);
         if (!farmland) {
             if (!Protection.terrainModifiable(level, p)) return false;

@@ -34,7 +34,7 @@ public abstract class HarvestFarmlandMixin {
 
     @Inject(method = "tick(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/npc/Villager;J)V", at = @At("HEAD"), cancellable = true)
     private void btv$tick(ServerLevel level, Villager v, long time, CallbackInfo ci) {
-        Colony colony = ColonyManager.colonyAt(level, v.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null && colony.roleOf(v.getUUID()) == ColonyRole.FARMER) {
             ci.cancel();
         } else if (aboveFarmlandPos != null && !FarmTerritory.vanillaFarmSuitable(level, aboveFarmlandPos)) {
