@@ -2,6 +2,7 @@ package net.betterthanvillage.ai.nav;
 
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
+import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.construction.Fortifications;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -45,8 +46,7 @@ public final class DoorHandler {
 
     /** Called every tick for every villager. */
     public static void tick(ServerLevel level, Villager v) {
-        Colony colony = ColonyManager.foundingPartyColony(level, v.getUUID());
-        if (colony == null) colony = ColonyManager.colonyAt(level, v.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony == null) return;
         if (v.getNavigation() instanceof GroundPathNavigation ground) {
             ground.setCanOpenDoors(!v.isSleeping());
@@ -57,12 +57,11 @@ public final class DoorHandler {
         if ((now + v.getId()) % 3 != 0) return;
         BlockPos center = v.blockPosition();
         BlockPos penGate = colony.livestockPen != null ? colony.livestockPen.north(5) : null;
-        boolean night = Math.floorMod(level.getDayTime(), 24000L) >= 12000;
         for (BlockPos p : BlockPos.betweenClosed(center.offset(-4, -1, -4), center.offset(4, 2, 4))) {
             BlockState s = level.getBlockState(p);
             Kind kind = kindOf(s);
             if (kind == null) continue;
-            if (kind == Kind.GATE && (Fortifications.isWallBlock(level, p) || p.equals(penGate))) continue;
+            if (kind == Kind.GATE && (Fortifications.isWallBlock(level, p) || p.equals(penGate) || playerGate(level, p))) continue;
             if (kind == Kind.DOOR && s.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) continue;
             if (s.hasProperty(BlockStateProperties.POWERED) && s.getValue(BlockStateProperties.POWERED)) continue;
             Vec3 c = Vec3.atCenterOf(p);
@@ -79,10 +78,14 @@ public final class DoorHandler {
                     Map<BlockPos, Long> rec = RECORDED.get(level);
                     if (rec != null) rec.computeIfPresent(pos, (k, t) -> now);
                 }
-            } else if (night && open) {
-                RECORDED.computeIfAbsent(level, l -> new HashMap<>()).putIfAbsent(pos, now - 12);
             }
         }
+    }
+
+    /** A gate a player placed or one on player land: villagers neither open nor path through it (pens, yards). */
+    public static boolean playerGate(ServerLevel level, BlockPos pos) {
+        ColonySavedData data = ColonyManager.data(level);
+        return data.isPlayerBlock(pos) || data.inLand(pos);
     }
 
     private static Kind kindOf(BlockState s) {

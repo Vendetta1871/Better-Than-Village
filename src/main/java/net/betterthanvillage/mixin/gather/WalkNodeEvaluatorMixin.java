@@ -1,5 +1,6 @@
 package net.betterthanvillage.mixin.gather;
 
+import net.betterthanvillage.ai.nav.DoorHandler;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.construction.Fortifications;
@@ -35,11 +36,9 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
             cir.setReturnValue(PathType.WALKABLE);
             return;
         }
-        if (!villager) return;
-        if (ColonyManager.colonyAt(level, this.mob.blockPosition()) == null
-                && ColonyManager.foundingPartyColony(level, this.mob.getUUID()) == null) {
-            return;
-        }
+        if (!(this.mob instanceof Villager v) || ColonyManager.colonyOf(level, v) == null) return;
+        // Player pens and yards stay closed to villagers.
+        if (DoorHandler.playerGate(level, p)) return;
         Colony at = ColonyManager.colonyAt(level, p);
         if (at == null || at.livestockPen == null || !at.livestockPen.north(5).equals(p)) {
             cir.setReturnValue(PathType.WALKABLE);

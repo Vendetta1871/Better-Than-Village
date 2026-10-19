@@ -1,5 +1,7 @@
 package net.betterthanvillage.ai.nav;
 
+import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.work.BlockWorkTimer;
 import net.betterthanvillage.ai.work.SafeEdit;
 import net.betterthanvillage.ai.work.WorkTracker;
@@ -7,6 +9,7 @@ import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.PathBudget;
 import net.betterthanvillage.colony.Protection;
+import net.betterthanvillage.construction.Terrain;
 import net.betterthanvillage.gather.GatherUtil;
 import net.betterthanvillage.gather.MinerTask;
 import net.betterthanvillage.registry.ModRegistries;
@@ -109,8 +112,11 @@ public final class AntiStuck {
             STATES.remove(v);
             return;
         }
-        if (target == null) {
+        // Only movement owned by a colony task is watched: vanilla walks (and the storage position the sensor
+        // keeps for everyone) are none of our business.
+        if (target == null && VillagerUtil.isRunning(v, ColonyTask.class)) {
             for (MemoryModuleType<BlockPos> mem : ModRegistries.targetMemories()) {
+                if (mem == ModRegistries.STORAGE_CHEST_POS.get()) continue;
                 Optional<BlockPos> value = v.getBrain().getMemory(mem);
                 if (value.isPresent()) {
                     target = value.get();
@@ -118,7 +124,6 @@ public final class AntiStuck {
                 }
             }
         }
-        if (target == null) target = v.getNavigation().getTargetPos();
         if (target == null) {
             STATES.remove(v);
             return;
@@ -387,25 +392,8 @@ public final class AntiStuck {
 
     /** Teleports the villager to a safe cell near the core; returns true on success. */
     public static boolean emergencyTeleport(ServerLevel level, Colony colony, Villager v) {
-        BlockPos core = colony.core();
-        BlockPos dest = null;
-        search:
-        for (int r = 1; r <= 12; r++) {
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
-                    int x = core.getX() + dx, z = core.getZ() + dz;
-                    if (!level.hasChunk(x >> 4, z >> 4)) continue;
-                    BlockPos c = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
-                    if (!level.getFluidState(c).isEmpty() || !level.getFluidState(c.below()).isEmpty()) continue;
-                    if (solid(level, c) || solid(level, c.above())) continue;
-                    if (!level.getBlockState(c.below()).isFaceSturdy(level, c.below(), Direction.UP)) continue;
-                    if (!GatherUtil.freeOfLiving(level, c, v)) continue;
-                    dest = c;
-                    break search;
-                }
-            }
-        }
+        BlockPos dest = teleportDestination(level, colony, v, true);
+        if (dest == null) dest = teleportDestination(level, colony, v, false);
         if (dest == null) return false;
         level.sendParticles(ParticleTypes.PORTAL, v.getX(), v.getY() + v.getBbHeight() / 2, v.getZ(), 16, 0.3, 0.6, 0.3, 0.1);
         v.getNavigation().stop();
@@ -424,5 +412,30 @@ public final class AntiStuck {
         GatherUtil.teleport(v, dest);
         level.sendParticles(ParticleTypes.PORTAL, dest.getX() + 0.5, dest.getY() + 1, dest.getZ() + 0.5, 16, 0.3, 0.6, 0.3, 0.1);
         return true;
+    }
+
+    /**
+     * Open-sky ground cell near the core: standable, within 4 blocks of the core's height, on natural ground
+     * or road (never a roof), outside every construction box. The first pass accepts road floors only.
+     */
+    private static BlockPos teleportDestination(ServerLevel level, Colony colony, Villager v, boolean roadOnly) {
+        BlockPos core = colony.core();
+        for (int r = 1; r <= 16; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                    int x = core.getX() + dx, z = core.getZ() + dz;
+                    if (!level.hasChunk(x >> 4, z >> 4)) continue;
+                    BlockPos c = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
+                    if (Math.abs(c.getY() - core.getY()) > 4 || !Nav.standable(level, c)) continue;
+                    BlockState floor = level.getBlockState(c.below());
+                    boolean road = Terrain.isRoad(floor);
+                    if (roadOnly ? !road : !(road || Terrain.natural(floor))) continue;
+                    if (GatherUtil.inStructure(level, c, 1, 2, 1) || !GatherUtil.freeOfLiving(level, c, v)) continue;
+                    return c;
+                }
+            }
+        }
+        return null;
     }
 }

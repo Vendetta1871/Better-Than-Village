@@ -31,11 +31,11 @@ public final class ColonyGate<E extends LivingEntity> implements BehaviorControl
         if (!(entity instanceof Villager villager)) {
             return false;
         }
-        if (ColonyManager.foundingPartyColony(level, villager.getUUID()) != null) {
-            return true;
+        Colony colony = ColonyManager.colonyOf(level, villager);
+        if (colony == null) {
+            return false;
         }
-        Colony colony = ColonyManager.colonyAt(level, villager.blockPosition());
-        return colony != null && (anyMember || colony.roleOf(villager.getUUID()) != ColonyRole.CITIZEN);
+        return colony.isFounderParty(villager.getUUID()) || anyMember || colony.roleOf(villager.getUUID()) != ColonyRole.CITIZEN;
     }
 
     @Override

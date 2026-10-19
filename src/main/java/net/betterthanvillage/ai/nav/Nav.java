@@ -1,5 +1,7 @@
 package net.betterthanvillage.ai.nav;
 
+import net.betterthanvillage.ai.MovementGate;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.PathBudget;
 import net.minecraft.core.BlockPos;
@@ -46,6 +48,7 @@ public final class Nav {
         public Vec3 stationaryPos;
         public long stationaryTime;
         public Path lastPath;
+        public long lastQuickRepath = Long.MIN_VALUE / 2;
         public final Map<BlockPos, Long> blacklist = new HashMap<>();
     }
 
@@ -88,9 +91,16 @@ public final class Nav {
             return false;
         }
         if (!sameTarget) {
-            if (s.target == null || s.target.distSqr(target) > 9) {
+            BlockPos prev = s.target;
+            if (prev == null || prev.distSqr(target) > 9) {
                 s.failures = 0;
                 s.nextRepath = now;
+            } else if ((!nav.isInProgress() || v.position().distanceToSqr(Vec3.atBottomCenterOf(prev)) <= 2.25)
+                    && now - s.lastQuickRepath >= 5) {
+                // Cell-by-cell walkers: the next nearby cell paths at once once the last one is reached
+                // (rate-limited so a target oscillating between two cells cannot spam the pathfinder).
+                s.nextRepath = now;
+                s.lastQuickRepath = now;
             }
             s.target = target.immutable();
         }
@@ -116,6 +126,8 @@ public final class Nav {
             ground.setCanOpenDoors(true);
         }
         nav.setCanFloat(true);
+        // A running vanilla walk would stop the navigation (and so this path) when it is gated next tick.
+        VillagerUtil.stopRunning(level, v, b -> b instanceof MovementGate<?>);
         Set<BlockPos> goals = new LinkedHashSet<>();
         if (standable(level, target)) {
             goals.add(target);
@@ -194,6 +206,33 @@ public final class Nav {
         State s = STATES.get(v);
         if (s == null || s.target == null || s.lastCall == Long.MIN_VALUE || now - s.lastCall >= 60) return null;
         return s.target;
+    }
+
+    /**
+     * True while a mod caller actively steers the villager: it called within the last 20 ticks (the slowest
+     * callers repath every 20 ticks) or the navigation still follows the path this helper started.
+     */
+    public static boolean steering(Villager v, long now) {
+        State s = STATES.get(v);
+        if (s == null || s.target == null || s.lastCall == Long.MIN_VALUE) return false;
+        long age = now - s.lastCall;
+        if (age < 0 || age >= 60) return false;
+        if (age <= 20) return true;
+        PathNavigation nav = v.getNavigation();
+        return s.lastPath != null && nav.getPath() == s.lastPath && nav.isInProgress();
+    }
+
+    /** Ends the current approach (its owner stopped): vanilla movement may resume at once; blacklist is kept. */
+    public static void release(Villager v) {
+        State s = STATES.get(v);
+        if (s == null) return;
+        PathNavigation nav = v.getNavigation();
+        if (s.lastPath != null && nav.getPath() == s.lastPath) nav.stop();
+        s.target = null;
+        s.lastCall = Long.MIN_VALUE;
+        s.lastPath = null;
+        s.failures = 0;
+        s.stationaryPos = null;
     }
 
     public static boolean isBlacklisted(Villager v, BlockPos pos, long now) {

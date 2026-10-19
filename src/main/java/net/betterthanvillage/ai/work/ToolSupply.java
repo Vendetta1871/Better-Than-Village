@@ -52,7 +52,7 @@ public final class ToolSupply {
         ItemStack held = v.getMainHandItem();
         int score = kind.score(held);
         if (score >= 4) return false;
-        ItemStack tool = ColonyStorage.withdrawOne(level, colony, s -> s.is(kind.tag) && kind.score(s) > score);
+        ItemStack tool = withdrawBest(level, colony, kind, score);
         if (tool.isEmpty()) {
             tool = craft(level, colony, kind, score);
         }
@@ -67,12 +67,22 @@ public final class ToolSupply {
     public static boolean takeStored(ServerLevel level, Colony colony, Villager v, Kind kind) {
         int score = kind.score(v.getMainHandItem());
         if (score >= 4) return false;
-        ItemStack tool = ColonyStorage.withdrawOne(level, colony, s -> s.is(kind.tag) && kind.score(s) > score);
+        ItemStack tool = withdrawBest(level, colony, kind, score);
         if (tool.isEmpty()) return false;
         ItemStack old = v.getMainHandItem().copy();
         v.setItemSlot(EquipmentSlot.MAINHAND, tool);
         stash(level, colony, v, old);
         return true;
+    }
+
+    /** The highest-tier stored tool of this kind that beats the given score (empty if none). */
+    private static ItemStack withdrawBest(ServerLevel level, Colony colony, Kind kind, int above) {
+        for (int tier = 4; tier > above; tier--) {
+            int want = tier;
+            ItemStack tool = ColonyStorage.withdrawOne(level, colony, s -> s.is(kind.tag) && kind.score(s) == want);
+            if (!tool.isEmpty()) return tool;
+        }
+        return ItemStack.EMPTY;
     }
 
     private static ItemStack craft(ServerLevel level, Colony colony, Kind kind, int score) {
@@ -113,8 +123,11 @@ public final class ToolSupply {
         }
     }
 
-    private static boolean isFuel(ItemStack s) {
-        return s.is(Items.COAL) || s.is(Items.CHARCOAL) || s.is(ItemTags.LOGS);
+    /** Logs kept back from the furnace for building and tools. */
+    private static final int LOG_FUEL_RESERVE = 16;
+
+    private static boolean isCoal(ItemStack s) {
+        return s.is(Items.COAL) || s.is(Items.CHARCOAL);
     }
 
     /** Converts raw iron in storage to ingots so that ingots reach target (bookkeeping only). */
@@ -126,13 +139,20 @@ public final class ToolSupply {
     public static void smelt(ServerLevel level, Colony colony, Item raw, Item result, int target) {
         int have = ColonyStorage.count(level, colony, s -> s.is(result));
         int rawCount = ColonyStorage.count(level, colony, s -> s.is(raw));
-        int fuel = ColonyStorage.count(level, colony, ToolSupply::isFuel);
+        // Coal and charcoal burn first; logs only for the shortfall and never below the building reserve.
+        int coal = ColonyStorage.count(level, colony, ToolSupply::isCoal);
+        int spareLogs = Math.max(0, ColonyStorage.count(level, colony, s -> s.is(ItemTags.LOGS)) - LOG_FUEL_RESERVE);
+        long fuel = (long) coal + spareLogs;
         long want = target == Integer.MAX_VALUE ? Long.MAX_VALUE : (long) target - have;
-        int k = (int) Math.min(Math.max(0, want), Math.min(rawCount, (long) fuel * 8));
+        int k = (int) Math.min(Math.max(0, want), Math.min(rawCount, fuel * 8));
         if (k <= 0) return;
         int fuelUsed = (k + 7) / 8;
+        int coalUsed = Math.min(coal, fuelUsed);
+        int logsUsed = fuelUsed - coalUsed;
         ColonyStorage.transaction(level, colony,
-                () -> ColonyStorage.consume(level, colony, s -> s.is(raw), k) && ColonyStorage.consume(level, colony, ToolSupply::isFuel, fuelUsed),
+                () -> ColonyStorage.consume(level, colony, s -> s.is(raw), k)
+                        && ColonyStorage.consume(level, colony, ToolSupply::isCoal, coalUsed)
+                        && ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), logsUsed),
                 List.of(new ItemStack(result, k)));
     }
 

@@ -21,9 +21,9 @@ public abstract class ColonyTask extends Behavior<Villager> {
         super(ImmutableMap.of(), minDuration, maxDuration);
     }
 
-    /** Positional colony of the villager (null if outside every colony). */
+    /** The villager's own colony (membership-aware; null if it belongs to none). */
     protected static Colony colony(ServerLevel level, Villager v) {
-        return ColonyManager.colonyAt(level, v.blockPosition());
+        return ColonyManager.colonyOf(level, v);
     }
 
     protected static ColonyRole role(Colony colony, Villager v) {

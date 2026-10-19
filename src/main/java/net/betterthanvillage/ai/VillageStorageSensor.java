@@ -19,7 +19,7 @@ public final class VillageStorageSensor extends Sensor<Villager> {
 
     @Override
     protected void doTick(ServerLevel level, Villager villager) {
-        Colony colony = ColonyManager.colonyAt(level, villager.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, villager);
         BlockPos best = null;
         if (colony != null) {
             double bestD = Double.MAX_VALUE;

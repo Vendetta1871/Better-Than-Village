@@ -30,6 +30,8 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.NeutralMob;
+import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiTypes;
@@ -42,14 +44,25 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /** The per-tick colony controller for villagers (runs at the end of Villager#customServerAiStep). */
 public final class VillagerController {
     private static final int BED_SEARCH_RADIUS = 48;
     private static final Map<Villager, Long> NEXT_BED_SEARCH = new WeakHashMap<>();
+    /** Night bed of a villager without a free bed of its own: never written to HOME, holds no POI ticket. */
+    private static final Map<Villager, BlockPos> SPARE_BED = new WeakHashMap<>();
+    /** Beds a villager could not path to, with the game time until which it ignores them. */
+    private static final Map<Villager, Map<BlockPos, Long>> UNREACHABLE_BED = new WeakHashMap<>();
+    /** Villagers whose colony task was steering the navigation last tick. */
+    private static final Map<Villager, Boolean> TASK_STEERED = new WeakHashMap<>();
+    private static final Map<Villager, Long> LOCAL_THREAT = new WeakHashMap<>();
+    private static final int CIVILIAN_ALARM_RANGE = 24;
 
     private VillagerController() {
     }
@@ -59,7 +72,7 @@ public final class VillagerController {
         if (v.isBaby() || v.getVillagerData().getProfession() != net.minecraft.world.entity.npc.VillagerProfession.NONE) {
             return;
         }
-        Colony colony = ColonyManager.colonyAt(level, v.blockPosition());
+        Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null && colony.roleOf(v.getUUID()) != ColonyRole.CITIZEN) {
             RoleBalancer.applyRole(level, colony, v);
         }
@@ -67,11 +80,9 @@ public final class VillagerController {
 
     public static void tick(ServerLevel level, Villager v) {
         long now = level.getGameTime();
-        Colony colony = ColonyManager.foundingPartyColony(level, v.getUUID());
-        if (colony == null) {
-            colony = ColonyManager.colonyAt(level, v.blockPosition());
-        }
+        Colony colony = ColonyManager.colonyOf(level, v);
         DoorHandler.tick(level, v);
+        releaseFinishedTaskWalk(v, now);
         if (colony == null) {
             v.getBrain().eraseMemory(ModRegistries.COLONY_ROLE.get());
             Activity a = VillagerUtil.currentActivity(v);
@@ -103,9 +114,8 @@ public final class VillagerController {
         if (VillagerUtil.currentActivity(v) == ModRegistries.COLONY_SHELTER.get()) {
             VillagerUtil.refreshActivities(level, v);
         }
-        if (GuardShield.tick(level, v, colony)) {
-            return;
-        }
+        // The shield no longer freezes the guard: GuardCombatTask keeps closing in while it blocks.
+        GuardShield.tick(level, v, colony);
         if (role == ColonyRole.FOUNDER) {
             v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), role);
             if (VillagerUtil.currentActivity(v) != ModRegistries.COLONY_TRAVEL.get()) {
@@ -129,7 +139,10 @@ public final class VillagerController {
         boolean night = t >= 12000;
         boolean raidShelter = RaidShelter.isActive(level, colony);
         LivingEntity threat = role == ColonyRole.GUARD ? ThreatManager.findThreat(level, colony) : null;
-        boolean alarm = (colony.lastThreatTick != Colony.NEVER && now - colony.lastThreatTick <= 200) || raidShelter || threat != null;
+        // Guards answer the colony-wide alarm; civilians only a raid or a hostile close to themselves.
+        boolean alarm = role == ColonyRole.GUARD
+                ? (colony.lastThreatTick != Colony.NEVER && now - colony.lastThreatTick <= 200) || raidShelter || threat != null
+                : raidShelter || threatNearby(level, colony, v, now);
 
         sleepController(level, colony, v, night, alarm);
         if (v.isSleeping()) {
@@ -151,7 +164,7 @@ public final class VillagerController {
         boolean engaged = false;
         if (role == ColonyRole.GUARD) {
             Optional<LivingEntity> mem = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get());
-            engaged = (mem.isPresent() && ThreatManager.isValidHostile(mem.get()) && ThreatManager.inColony(colony, mem.get())) || threat != null;
+            engaged = (mem.isPresent() && ThreatManager.keepsTarget(level, colony, mem.get())) || threat != null;
         }
         boolean workNeeded;
         if (role == ColonyRole.GUARD && (alarm || engaged)) {
@@ -208,32 +221,110 @@ public final class VillagerController {
             if ((now + v.getId()) % 20 != 0) return;
             BlockPos bed = null;
             Optional<GlobalPos> home = v.getBrain().getMemory(MemoryModuleType.HOME);
-            if (home.isPresent() && home.get().dimension() == level.dimension() && usableBed(level, v, home.get().pos())) {
+            if (home.isPresent() && home.get().dimension() == level.dimension() && usableBed(level, v, home.get().pos())
+                    && !unreachableBed(v, home.get().pos(), now)) {
                 bed = home.get().pos();
+                SPARE_BED.remove(v);
+            }
+            if (bed == null) {
+                BlockPos spare = SPARE_BED.get(v);
+                if (spare != null && usableBed(level, v, spare) && !unreachableBed(v, spare, now)) {
+                    bed = spare;
+                } else {
+                    SPARE_BED.remove(v);
+                }
             }
             if (bed == null) {
                 // The POI search reads POI sections synchronously, so keep it local and retry a miss slowly.
                 Long next = NEXT_BED_SEARCH.get(v);
                 if (next != null && now < next) return;
-                bed = level.getPoiManager().findAllClosestFirstWithType(t -> t.is(PoiTypes.HOME), p -> p.closerThan(colony.core(), colony.radius()) && usableBed(level, v, p),
-                                v.blockPosition(), Math.min(colony.radius(), BED_SEARCH_RADIUS), PoiManager.Occupancy.ANY)
-                        .map(pair -> pair.getSecond()).findFirst().orElse(null);
+                bed = findBed(level, colony, v, home.isEmpty(), now);
                 if (bed == null) {
                     NEXT_BED_SEARCH.put(v, now + 200);
                     return;
                 }
                 NEXT_BED_SEARCH.remove(v);
             }
-            v.getBrain().setMemory(MemoryModuleType.HOME, GlobalPos.of(level.dimension(), bed));
             if (v.blockPosition().distSqr(bed) <= 4) {
                 v.getNavigation().stop();
                 v.startSleeping(bed);
-            } else {
-                Nav.approach(level, v, bed, 0.85, Nav.R2_BED);
+            } else if (!Nav.approach(level, v, bed, 0.85, Nav.R2_BED) && Nav.isBlacklisted(v, bed, now)) {
+                // No way in (e.g. leaves grown over the doorstep): try another bed for a while.
+                UNREACHABLE_BED.computeIfAbsent(v, k -> new HashMap<>()).put(bed.immutable(), now + 2400);
+                SPARE_BED.remove(v);
             }
         } else if (v.isSleeping()) {
             v.stopSleeping();
         }
+    }
+
+    /**
+     * Bed for the night. A villager without HOME claims a free bed the vanilla way (takes the POI ticket and
+     * sets HOME, so vanilla releases it on death or when the bed is lost). Otherwise, or if no bed is free, it
+     * borrows an unoccupied bed for the night without touching HOME or tickets, so bed ownership and the
+     * free-bed count used by breeding always stay consistent.
+     */
+    private static BlockPos findBed(ServerLevel level, Colony colony, Villager v, boolean mayClaim, long now) {
+        PoiManager poi = level.getPoiManager();
+        Map<BlockPos, Long> unreachable = UNREACHABLE_BED.get(v);
+        if (unreachable != null) {
+            unreachable.values().removeIf(t -> t <= now);
+            if (unreachable.isEmpty()) UNREACHABLE_BED.remove(v);
+        }
+        int radius = Math.min(colony.radius(), BED_SEARCH_RADIUS);
+        if (mayClaim) {
+            BlockPos free = poi.findAllClosestFirstWithType(t -> t.is(PoiTypes.HOME), p -> p.closerThan(colony.core(), colony.radius()) && usableBed(level, v, p)
+                                    && !unreachableBed(v, p, now), v.blockPosition(), radius, PoiManager.Occupancy.HAS_SPACE)
+                    .map(pair -> pair.getSecond()).findFirst().orElse(null);
+            if (free != null && poi.take(t -> t.is(PoiTypes.HOME), (t, p) -> p.equals(free), free, 1).isPresent()) {
+                v.getBrain().setMemory(MemoryModuleType.HOME, GlobalPos.of(level.dimension(), free));
+                return free;
+            }
+        }
+        // One borrower per bed: villagers sharing the nearest bed would all walk there and only one could sleep.
+        Set<BlockPos> borrowed = new HashSet<>();
+        SPARE_BED.forEach((other, pos) -> {
+            if (other != v && other.isAlive()) borrowed.add(pos);
+        });
+        BlockPos spare = poi.findAllClosestFirstWithType(t -> t.is(PoiTypes.HOME), p -> p.closerThan(colony.core(), colony.radius()) && usableBed(level, v, p)
+                                && !borrowed.contains(p) && !unreachableBed(v, p, now), v.blockPosition(), radius, PoiManager.Occupancy.ANY)
+                .map(pair -> pair.getSecond()).findFirst().orElse(null);
+        if (spare != null) SPARE_BED.put(v, spare);
+        return spare;
+    }
+
+    /** A colony task stopped while it steered the villager: hand the movement back to vanilla at once. */
+    private static void releaseFinishedTaskWalk(Villager v, long now) {
+        boolean tracked = TASK_STEERED.containsKey(v);
+        if (!tracked && Nav.currentTarget(v, now) == null) return;
+        if (VillagerUtil.isRunning(v, ColonyTask.class)) {
+            if (Nav.currentTarget(v, now) != null) TASK_STEERED.put(v, Boolean.TRUE);
+        } else if (tracked) {
+            TASK_STEERED.remove(v);
+            Nav.release(v);
+        }
+    }
+
+    /** A hostile mob or colony threat within 24 blocks of the villager (sampled every 20 ticks, kept 100 ticks). */
+    private static boolean threatNearby(ServerLevel level, Colony colony, Villager v, long now) {
+        if ((now + v.getId()) % 20 == 0) {
+            double r2 = CIVILIAN_ALARM_RANGE * CIVILIAN_ALARM_RANGE;
+            LivingEntity colonyThreat = ThreatManager.findThreat(level, colony);
+            boolean near = colonyThreat != null && colonyThreat.distanceToSqr(v) <= r2;
+            if (!near) {
+                near = !level.getEntitiesOfClass(Monster.class, v.getBoundingBox().inflate(CIVILIAN_ALARM_RANGE, 8, CIVILIAN_ALARM_RANGE),
+                        m -> ThreatManager.isValidHostile(m) && (!(m instanceof NeutralMob n) || n.isAngry()) && m.distanceToSqr(v) <= r2).isEmpty();
+            }
+            if (near) LOCAL_THREAT.put(v, now);
+        }
+        Long last = LOCAL_THREAT.get(v);
+        return last != null && now - last >= 0 && now - last <= 100;
+    }
+
+    private static boolean unreachableBed(Villager v, BlockPos pos, long now) {
+        Map<BlockPos, Long> m = UNREACHABLE_BED.get(v);
+        Long until = m == null ? null : m.get(pos);
+        return until != null && now < until;
     }
 
     private static boolean usableBed(ServerLevel level, Villager v, BlockPos pos) {
@@ -254,7 +345,8 @@ public final class VillagerController {
         boolean breedReady = !v.isBaby() && v.getAge() == 0;
         boolean hasFood = hasFood(inv);
         int foodValue = ColonyStorage.foodValue(inv);
-        boolean needs = evening && (!hasFood || (breedReady && foodValue < 12));
+        // Babies never fetch food (they cannot breed); they still heal from what they carry.
+        boolean needs = evening && !v.isBaby() && (!hasFood || (breedReady && foodValue < 12));
         if ((now + v.getId()) % 20 != 0) {
             return needs;
         }

@@ -27,7 +27,7 @@ public final class MovementGate<E extends LivingEntity> implements BehaviorContr
         if (!(entity instanceof Villager villager)) {
             return false;
         }
-        if (Nav.currentTarget(villager, level.getGameTime()) != null) {
+        if (Nav.steering(villager, level.getGameTime())) {
             return true;
         }
         Activity a = villager.getBrain().getActiveNonCoreActivity().orElse(null);
