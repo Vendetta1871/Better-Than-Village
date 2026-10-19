@@ -3,7 +3,10 @@
   "minVersion": "0.8",
   "package": "net.betterthanvillage.mixin.gather",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "TrapDoorBlockAccessor",
+    "WalkNodeEvaluatorMixin"
+  ],
   "client": [],
   "injectors": {
     "defaultRequire": 1
