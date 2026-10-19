@@ -19,8 +19,17 @@ public final class VillagerUtil {
     private VillagerUtil() {
     }
 
+    /** A task implemented by this mod; vanilla tasks wrapped in a gate are not mod tasks. */
     public static boolean isModTask(BehaviorControl<?> behavior) {
-        return behavior.getClass().getName().startsWith(BetterThanVillage.PACKAGE_PREFIX);
+        return !(behavior instanceof ColonyGate<?> || behavior instanceof MovementGate<?>)
+                && behavior.getClass().getName().startsWith(BetterThanVillage.PACKAGE_PREFIX);
+    }
+
+    /** The vanilla task behind a gate wrapper (or the task itself). */
+    public static BehaviorControl<?> unwrap(BehaviorControl<?> behavior) {
+        if (behavior instanceof ColonyGate<?> g) return g.inner();
+        if (behavior instanceof MovementGate<?> m) return m.inner();
+        return behavior;
     }
 
     public static List<BehaviorControl<? super Villager>> running(Villager villager) {
@@ -91,6 +100,7 @@ public final class VillagerUtil {
     }
 
     public static boolean isVanillaFarmerTask(BehaviorControl<?> b) {
-        return b instanceof WorkAtComposter || b.getClass().getSimpleName().equals("HarvestFarmland");
+        BehaviorControl<?> u = unwrap(b);
+        return u instanceof WorkAtComposter || u.getClass().getSimpleName().equals("HarvestFarmland");
     }
 }

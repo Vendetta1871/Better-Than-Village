@@ -103,6 +103,11 @@ public final class Nav {
         if (now < s.nextRepath) {
             return false;
         }
+        // Mid-jump (or mid-fall) createPath returns null; that is no path failure, just retry shortly.
+        if (!v.onGround() && !v.isInLiquid() && !v.isPassenger()) {
+            s.nextRepath = now + 2;
+            return nav.isInProgress();
+        }
         s.nextRepath = now + 10 + Math.floorMod(v.getId(), 10);
         if (!PathBudget.tryAcquire(level)) {
             return false;

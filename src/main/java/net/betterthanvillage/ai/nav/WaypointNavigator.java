@@ -71,12 +71,15 @@ public final class WaypointNavigator {
         if (nav instanceof GroundPathNavigation ground) ground.setCanOpenDoors(true);
         nav.setCanFloat(true);
         State s = STATES.computeIfAbsent(mob, m -> new State());
+        // s.goal is the goal the current plan was made for; a moving target drifts away from it
+        // gradually, so it is only updated on a replan.
         if (s.goal == null || s.goal.distSqr(goal) > 16) {
             s.waypoints = new ArrayList<>();
             s.index = 0;
             s.path = null;
+            s.directTry = now;
+            s.goal = goal.immutable();
         }
-        s.goal = goal.immutable();
         BlockPos here = mob.blockPosition();
         if (s.anchor == null || here.distSqr(s.anchor) >= 4) {
             s.anchor = here;

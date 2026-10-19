@@ -29,6 +29,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.level.pathfinder.PathType;
+import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -175,7 +177,10 @@ public final class AntiStuck {
         // Feet cell: on a dirt path (15/16 tall) blockPosition() is the path block itself.
         BlockPos p = BlockPos.containing(v.getX(), v.getY() + 0.5, v.getZ());
         for (Direction d : Direction.Plane.HORIZONTAL) {
-            if (Nav.standable(level, p.relative(d))) {
+            BlockPos n = p.relative(d);
+            // Carpet and slab floors are not "standable" cells but plain walkable ground; a step down is no pit wall either.
+            if (Nav.standable(level, n) || Nav.standable(level, n.below())
+                    || (level.isLoaded(n) && WalkNodeEvaluator.getPathTypeStatic(v, n) == PathType.WALKABLE)) {
                 PITS.remove(v);
                 return false;
             }

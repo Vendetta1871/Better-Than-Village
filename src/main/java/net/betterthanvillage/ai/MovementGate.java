@@ -68,4 +68,8 @@ public final class MovementGate<E extends LivingEntity> implements BehaviorContr
     public String debugString() {
         return inner.debugString();
     }
+
+    public BehaviorControl<E> inner() {
+        return inner;
+    }
 }

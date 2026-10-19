@@ -42,10 +42,15 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.WeakHashMap;
 
 /** The per-tick colony controller for villagers (runs at the end of Villager#customServerAiStep). */
 public final class VillagerController {
+    private static final int BED_SEARCH_RADIUS = 48;
+    private static final Map<Villager, Long> NEXT_BED_SEARCH = new WeakHashMap<>();
+
     private VillagerController() {
     }
 
@@ -81,6 +86,7 @@ public final class VillagerController {
             OfflineSim.bookkeeping(level, colony);
         }
         ItemPickup.tick(level, colony, v);
+        StarterWarehouseTask.clearStaleDisplay(v);
         ColonyRole role = colony.roleOf(v.getUUID());
 
         if (RaidShelter.isActive(level, colony) && role != ColonyRole.GUARD) {
@@ -161,12 +167,16 @@ public final class VillagerController {
                 default -> false;
             };
         }
+        // A guard under alarm fights before anything else (the evening food walk would leave the colony undefended).
+        boolean guardCombat = role == ColonyRole.GUARD && (engaged || alarm) && !(night && !alarm);
         Activity chosen = null;
-        if (forcedIdle || eating) {
+        if (guardCombat) {
+            chosen = Activity.FIGHT;
+        } else if (forcedIdle || eating) {
             chosen = Activity.IDLE;
         } else if (night && !alarm) {
             chosen = Activity.REST;
-        } else if (role == ColonyRole.GUARD && (engaged || alarm || v.getHealth() < v.getMaxHealth() * 0.3f)) {
+        } else if (role == ColonyRole.GUARD && v.getHealth() < v.getMaxHealth() * 0.3f) {
             chosen = Activity.FIGHT;
         } else if (workNeeded) {
             chosen = ModRegistries.COLONY_WORK.get();
@@ -202,11 +212,18 @@ public final class VillagerController {
                 bed = home.get().pos();
             }
             if (bed == null) {
+                // The POI search reads POI sections synchronously, so keep it local and retry a miss slowly.
+                Long next = NEXT_BED_SEARCH.get(v);
+                if (next != null && now < next) return;
                 bed = level.getPoiManager().findAllClosestFirstWithType(t -> t.is(PoiTypes.HOME), p -> p.closerThan(colony.core(), colony.radius()) && usableBed(level, v, p),
-                                v.blockPosition(), colony.radius() * 2, PoiManager.Occupancy.ANY)
+                                v.blockPosition(), Math.min(colony.radius(), BED_SEARCH_RADIUS), PoiManager.Occupancy.ANY)
                         .map(pair -> pair.getSecond()).findFirst().orElse(null);
+                if (bed == null) {
+                    NEXT_BED_SEARCH.put(v, now + 200);
+                    return;
+                }
+                NEXT_BED_SEARCH.remove(v);
             }
-            if (bed == null) return;
             v.getBrain().setMemory(MemoryModuleType.HOME, GlobalPos.of(level.dimension(), bed));
             if (v.blockPosition().distSqr(bed) <= 4) {
                 v.getNavigation().stop();

@@ -74,6 +74,10 @@ public final class DoorHandler {
                 if (!open) {
                     setOpen(level, v, pos, s, kind, true);
                     RECORDED.computeIfAbsent(level, l -> new HashMap<>()).put(pos, now);
+                } else {
+                    // Still on the path: keep a door we opened from closing in front of the villager.
+                    Map<BlockPos, Long> rec = RECORDED.get(level);
+                    if (rec != null) rec.computeIfPresent(pos, (k, t) -> now);
                 }
             } else if (night && open) {
                 RECORDED.computeIfAbsent(level, l -> new HashMap<>()).putIfAbsent(pos, now - 12);

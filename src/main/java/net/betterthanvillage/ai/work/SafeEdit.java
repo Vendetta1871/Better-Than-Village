@@ -20,6 +20,7 @@ public final class SafeEdit {
     /** Safe break without drops; credits "mining/clearing" on success. */
     public static boolean breakBlock(ServerLevel level, LivingEntity actor, BlockPos pos) {
         if (pos.equals(actor.blockPosition().below())) return false;
+        if (level.getBlockState(pos).getDestroySpeed(level, pos) < 0) return false;
         if (level.getBlockState(pos.above()).getBlock() instanceof FallingBlock) return false;
         AABB above = new AABB(pos.above()).inflate(0.02);
         for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, above)) {

@@ -1,6 +1,5 @@
 package net.betterthanvillage.ai.work;
 
-import net.betterthanvillage.BetterThanVillage;
 import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.AntiStuck;
 import net.betterthanvillage.ai.nav.Nav;
@@ -102,7 +101,7 @@ public final class WorkTracker {
         boolean modTask = false;
         boolean exempt = false;
         for (BehaviorControl<? super Villager> b : v.getBrain().getRunningBehaviors()) {
-            if (b.getClass().getName().startsWith(BetterThanVillage.PACKAGE_PREFIX)) {
+            if (VillagerUtil.isModTask(b)) {
                 modTask = true;
                 if (b instanceof MinerTask || b instanceof HouseConstructionTask) exempt = true;
             }

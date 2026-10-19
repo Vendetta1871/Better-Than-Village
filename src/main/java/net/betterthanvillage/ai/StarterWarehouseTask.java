@@ -10,12 +10,15 @@ import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
 
 /** Builder task: places the colony's first (GENERAL) double chest and seeds it. */
 public final class StarterWarehouseTask extends ColonyTask {
@@ -24,7 +27,7 @@ public final class StarterWarehouseTask extends ColonyTask {
     private BlockPos site;
     private long nextSearch;
     private long actionStart = -1;
-    private ItemStack previousHand = ItemStack.EMPTY;
+    private static final String DISPLAY_KEY = "better_than_village_display";
 
     public StarterWarehouseTask() {
         super(2400);
@@ -46,8 +49,27 @@ public final class StarterWarehouseTask extends ColonyTask {
         site = null;
         nextSearch = time;
         actionStart = -1;
-        previousHand = v.getMainHandItem().copy();
-        v.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.CHEST));
+        // Show a chest only in an empty hand: the real hand item never leaves the villager.
+        if (v.getMainHandItem().isEmpty()) {
+            ItemStack display = new ItemStack(Items.CHEST);
+            CompoundTag tag = new CompoundTag();
+            tag.putBoolean(DISPLAY_KEY, true);
+            display.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+            v.setItemSlot(EquipmentSlot.MAINHAND, display);
+        }
+    }
+
+    private static boolean isDisplay(ItemStack s) {
+        if (!s.is(Items.CHEST)) return false;
+        CustomData cd = s.get(DataComponents.CUSTOM_DATA);
+        return cd != null && cd.copyTag().getBoolean(DISPLAY_KEY);
+    }
+
+    /** Drops a display chest left in the hand (task interrupted by an unload); called from the villager tick. */
+    public static void clearStaleDisplay(Villager v) {
+        if (isDisplay(v.getMainHandItem()) && !VillagerUtil.isRunning(v, StarterWarehouseTask.class)) {
+            v.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        }
     }
 
     @Override
@@ -95,10 +117,9 @@ public final class StarterWarehouseTask extends ColonyTask {
 
     @Override
     protected void stop(ServerLevel level, Villager v, long time) {
-        if (v.getMainHandItem().is(Items.CHEST)) {
-            v.setItemSlot(EquipmentSlot.MAINHAND, previousHand);
+        if (isDisplay(v.getMainHandItem())) {
+            v.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
         }
-        previousHand = ItemStack.EMPTY;
         v.getBrain().eraseMemory(ModRegistries.BUILD_TARGET_POS.get());
         site = null;
         actionStart = -1;
