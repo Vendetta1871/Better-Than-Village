@@ -106,5 +106,15 @@
   "commands.better_than_village.film.expedition.no_storage": "У цели нет безопасного места для двойного склада. Осмотрите площадку и загрузите соседние чанки.",
   "commands.better_than_village.film.expedition.no_settlers": "Нужно пять свободных взрослых жителей сверх обязательных профессий; старейшина не уходит. Для подготовки: film population 24.",
   "commands.better_than_village.film.expedition.no_capital": "Нужно 48 единиц еды, брёвен или камня в общественном складе для стартового капитала.",
-  "commands.better_than_village.film.expedition.started": "Основатель и четверо сопровождающих собираются 10 секунд, затем идут в %s. Капитал подготовлен командой за 48 ресурсов; поход, основание и смена профессий — обычная логика. Следуйте за группой для загрузки маршрута."
+  "commands.better_than_village.film.expedition.started": "Основатель и четверо сопровождающих собираются 10 секунд, затем идут в %s. Капитал подготовлен командой за 48 ресурсов; поход, основание и смена профессий — обычная логика. Следуйте за группой для загрузки маршрута.",
+  "command.better_than_village.repair.none": "Рядом нет колонии.",
+  "command.better_than_village.repair.done": "Аудит ремонта: новых записей %s.",
+  "command.better_than_village.house.missing": "Шаблон тестового дома не найден. Проверьте версию мода.",
+  "command.better_than_village.house.bounds": "Дом выходит за высоту мира или его границу.",
+  "command.better_than_village.house.unloaded": "Вся площадка должна быть загружена. Подойдите ближе.",
+  "command.better_than_village.house.entity": "Внутри площадки есть игрок или животное. Освободите её и повторите команду.",
+  "command.better_than_village.house.overlap": "Площадка пересекает существующий дом или заказ строителя.",
+  "command.better_than_village.house.occupied": "Площадка занята в %1$s. Нужен свободный участок %2$s×%3$s; постройки не перезаписываются.",
+  "command.better_than_village.house.failed": "Не удалось поставить дом; прежние блоки возвращены.",
+  "command.better_than_village.house.done": "Здание готово: %1$s. Участок: %2$s; размер %3$s×%4$s; фасад смотрит на север."
 }

@@ -106,5 +106,15 @@
   "commands.better_than_village.film.expedition.no_storage": "No safe spot for a double storage at the target. Inspect the site and load neighbouring chunks.",
   "commands.better_than_village.film.expedition.no_settlers": "Five free adult villagers beyond the mandatory professions are needed; the elder does not leave. To prepare: film population 24.",
   "commands.better_than_village.film.expedition.no_capital": "48 units of food, logs or stone in public storage are needed as starting capital.",
-  "commands.better_than_village.film.expedition.started": "The founder and four companions gather for 10 seconds, then go to %s. The command prepared the capital for 48 resources; the journey, founding and profession changes are normal logic. Follow the group to load the route."
+  "commands.better_than_village.film.expedition.started": "The founder and four companions gather for 10 seconds, then go to %s. The command prepared the capital for 48 resources; the journey, founding and profession changes are normal logic. Follow the group to load the route.",
+  "command.better_than_village.repair.none": "No colony nearby.",
+  "command.better_than_village.repair.done": "Repair audit: %s new repair entries.",
+  "command.better_than_village.house.missing": "Test house template not found. Check the mod version.",
+  "command.better_than_village.house.bounds": "The house would exceed the world height or border.",
+  "command.better_than_village.house.unloaded": "The whole site must be loaded. Move closer.",
+  "command.better_than_village.house.entity": "There is a player or an animal inside the site. Clear it and repeat the command.",
+  "command.better_than_village.house.overlap": "The site overlaps an existing house or builder order.",
+  "command.better_than_village.house.occupied": "The site is occupied at %1$s. A free %2$s×%3$s site is needed; buildings are not overwritten.",
+  "command.better_than_village.house.failed": "Could not place the house; previous blocks were restored.",
+  "command.better_than_village.house.done": "Building ready: %1$s. Site: %2$s; size %3$s×%4$s; the facade faces north."
 }

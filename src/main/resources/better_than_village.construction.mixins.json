@@ -3,7 +3,12 @@
   "minVersion": "0.8",
   "package": "net.betterthanvillage.mixin.construction",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
+  "mixins": [
+    "LevelChunkMixin",
+    "PathNavigationInvoker",
+    "SinglePoolElementAccessor",
+    "WalkNodeEvaluatorMixin"
+  ],
   "client": [],
   "injectors": {
     "defaultRequire": 1
