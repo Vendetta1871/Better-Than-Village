@@ -129,7 +129,7 @@ public final class Fortifications {
         }
         FortificationState f = colony.fortifications;
         ColonyConfig cfg = ColonyConfig.get();
-        if (!cfg.roles.enable_village_walls || now < f.nextPlan || !colony.hasStorage() || raidActive(level, colony)) return;
+        if (!cfg.roles.enable_village_walls || now < f.nextPlan || !HousePlanner.established(level, colony) || !colony.hasStorage() || raidActive(level, colony)) return;
         f.nextPlan = now + 1200;
         int desired = neededRadius(level, colony);
         if (f.radius != 0 && desired <= f.radius) {
@@ -389,7 +389,7 @@ public final class Fortifications {
             rt.builderHasJob = false;
             boolean removal = hasRemoval(colony);
             if ((removal || colony.roadQueue.isEmpty()) && !Damage.hasActionableRepair(level, colony)
-                    && ColonyManager.isActive(level, colony) && !raidActive(level, colony)) {
+                    && HousePlanner.established(level, colony) && !raidActive(level, colony)) {
                 List<Villager> builders = sortedBuilders(level, colony);
                 if (!builders.isEmpty()) {
                     Villager last = builders.get(builders.size() - 1);

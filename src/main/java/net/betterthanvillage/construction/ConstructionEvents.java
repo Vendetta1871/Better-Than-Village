@@ -87,7 +87,9 @@ public final class ConstructionEvents {
         for (var v : SiteSearch.builders(source.getLevel(), colony)) {
             sb.append("builder @").append(v.blockPosition().toShortString()).append(" target ")
                     .append(v.getBrain().getMemory(net.betterthanvillage.registry.ModRegistries.BUILD_TARGET_POS.get()).map(BlockPos::toShortString).orElse("-"))
-                    .append(" hand ").append(v.getMainHandItem()).append('\n');
+                    .append(" hand ").append(v.getMainHandItem()).append(" running ").append(v.getBrain().getRunningBehaviors().stream().map(b -> b.getClass().getSimpleName()).toList())
+                    .append(" nav ").append(net.betterthanvillage.ai.nav.Nav.currentTarget(v, source.getLevel().getGameTime())).append(" moving ").append(v.getNavigation().isInProgress())
+                    .append(" status ").append(net.betterthanvillage.ai.work.WorkTracker.status(v)).append('\n');
         }
         sb.append("site cursor ").append(colony.houseSiteCursor).append(" next plan ").append(colony.nextHousePlanTick);
         String text = sb.toString();

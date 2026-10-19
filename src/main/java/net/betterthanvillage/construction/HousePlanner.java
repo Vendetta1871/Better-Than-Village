@@ -163,6 +163,15 @@ public final class HousePlanner {
 
     // ---------------------------------------------------------------- helpers
 
+    /**
+     * "Established" colony (05 §2.5/§3.2/§4.2/§6.3): the bell is present and the colony is past the
+     * unsettled start, i.e. its starter warehouse exists. Until then the builder only runs the
+     * starter-warehouse task (otherwise both tasks would fight over the builder's navigation).
+     */
+    public static boolean established(ServerLevel level, Colony colony) {
+        return ColonyManager.isActive(level, colony) && !colony.needsStarterWarehouse();
+    }
+
     public static int maxHouses() {
         return Mth.clamp(ColonyConfig.get().village.max_constructed_houses, 4, 200);
     }

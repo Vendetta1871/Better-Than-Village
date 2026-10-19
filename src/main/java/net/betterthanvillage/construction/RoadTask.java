@@ -29,7 +29,7 @@ public final class RoadTask extends ColonyTask {
 
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
-        return !v.isSleeping() && !v.isTrading() && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER && ColonyManager.isActive(level, colony)
+        return !v.isSleeping() && !v.isTrading() && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER && HousePlanner.established(level, colony)
                 && colony.hasStorage() && !colony.roadQueue.isEmpty() && !Fortifications.isWallBuilder(level, colony, v)
                 && !Damage.hasActionableRepair(level, colony);
     }

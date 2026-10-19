@@ -91,7 +91,7 @@ public final class HouseConstructionTask extends ColonyTask {
         long now = level.getGameTime();
         if (v.isSleeping() || v.isTrading() || now < cooldownUntil) return false;
         if (!ColonyManager.terrainChangesAllowed(level) || colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) return false;
-        if (!ColonyManager.isActive(level, colony) || !colony.hasStorage() || !colony.roadQueue.isEmpty()) return false;
+        if (!HousePlanner.established(level, colony) || !colony.hasStorage() || !colony.roadQueue.isEmpty()) return false;
         if (Damage.hasActionableRepair(level, colony) || Fortifications.isWallBuilder(level, colony, v)) return false;
         ConstructionJob candidate = null;
         for (ConstructionJob j : colony.jobs) {
