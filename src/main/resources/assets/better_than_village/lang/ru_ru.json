@@ -35,8 +35,10 @@
   "commands.better_than_village.status.workers": "Работники: [%s]",
   "commands.better_than_village.status.militia": "Ополчение: [%s]",
   "commands.better_than_village.status.golems": "Големы: %s/%s / Материалы големов: железо=%s/36, тыквы=%s, следующий через %s тиков",
-  "commands.better_than_village.status.economy": "Экономика: изумруды=%s, продано=%s, куплено=%s, следующая через %s тиков",
+  "commands.better_than_village.status.economy": "Экономика: изумрудов в казне=%s; последний сбор %s: пришло=%s, сделок=%s, оборот изумрудов=%s, неудовлетворённых заявок=%s; рыночный индекс: [%s]",
   "commands.better_than_village.status.households": "Хозяйства: %s (без кровати %s, без сундука %s), изумрудов дома=%s, ещё выдать=%s; [%s]",
+  "commands.better_than_village.status.debts": "Долги: открыто %s, всего %s изумрудов, просрочено %s; деревня должна %s при %s изумрудах; на последнем сборе в долг %s, возвращено %s; [%s]",
+  "commands.better_than_village.status.births": "Рождения: оплаченных заказов %s [%s]; призывников: %s",
   "commands.better_than_village.status.theft": "Тревога о краже: игрок=%s, украдено=%s, осталось=%s с",
   "commands.better_than_village.status.development": "Развитие: старейшина=%s, основатель=%s, цель=%s, визиты=%s, капитал=%s, заказ=%s",
   "commands.better_than_village.status.road": "Дорога: очередь=%s, голова=%s, простой=%s, пропущено=%s / Шахта: маршрут=%s, походов=%s, добыто=%s / Загон: %s",
@@ -110,5 +112,8 @@
   "command.better_than_village.house.overlap": "Площадка пересекает существующий дом или заказ строителя.",
   "command.better_than_village.house.occupied": "Площадка занята в %1$s. Нужен свободный участок %2$s×%3$s; постройки не перезаписываются.",
   "command.better_than_village.house.failed": "Не удалось поставить дом; прежние блоки возвращены.",
-  "command.better_than_village.house.done": "Здание готово: %1$s. Участок: %2$s; размер %3$s×%4$s; фасад смотрит на север."
+  "command.better_than_village.house.done": "Здание готово: %1$s. Участок: %2$s; размер %3$s×%4$s; фасад смотрит на север.",
+  "book.better_than_village.debt.page": "ДОЛГОВАЯ РАСПИСКА\n\nДолжник: %s\nКредитор: %s\n\nДолг: %s изумрудов\nПроценты: %s%% в день\nСрок: день %s",
+  "message.better_than_village.debt.overdue": "Срок вашей расписки перед %s истёк: %s изумрудов. Заплатите кредитору или старейшине.",
+  "message.better_than_village.debt.default": "Вы не вернули долг по расписке перед %s (%s изумрудов). Деревня больше не даст вам в долг."
 }

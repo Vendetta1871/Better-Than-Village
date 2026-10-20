@@ -31,7 +31,7 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | Package | Owner | Content |
 |---|---|---|
 | `config` | core | `ColonyConfig` (01 §2) |
-| `colony` | core | `Colony` (+NBT), `ColonySavedData`, `ColonyManager` (registration, membership, world tick), `ColonyStorage` (stockpile ops), `Census`, `RoleBalancer`, `TerrainSurvey`, `SpawnSpots`, `StoragePlacer`, `StorageScanner`, `Protection`, `SafeEditScope`, `PathBudget`, `BellScanner` |
+| `colony` | core | `Colony` (+NBT), `ColonySavedData`, `ColonyManager` (registration, membership, world tick), `ColonyStorage` (stockpile ops), `Census`, `Professions` (fixed professions, elder, inheritance, looks), `TerrainSurvey`, `SpawnSpots`, `StoragePlacer`, `StorageScanner`, `Protection`, `SafeEditScope`, `PathBudget`, `BellScanner` |
 | `ai` | core | `VillagerController` (mobTick logic, 02 §2.2), `ColonyBrain` (activity task lists), `ColonyTask` (base class for work tasks), `ColonyGate`/`MovementGate`, `VillageStorageSensor`, `StarterWarehouseTask`, `VillagerUtil` |
 | `ai.work` | core | `WorkTracker` (status/credit/watchdog), `BlockWorkTimer` (break timing), `SafeEdit` (safe break/place), `ToolSupply` (tool tiers, smelting, buckets) |
 | `ai.nav` | core + gather | `Nav` (standard approach 03 §5.1, core); `DoorHandler`, `AntiStuck`, `WaypointNavigator` (gather) |
@@ -39,8 +39,19 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | `gather` | gather | lumberjack, miner, night lighting |
 | `food` | food | farmer, fisher, rancher, item pickup |
 | `construction` | construction | house planning/catalog/builder, roads, walls, damage detection & repair |
-| `society` | society | economy, trading, deeds, land notices, theft, offline sim, colonization, film mode, commands |
+| `economy` | economy (v2 phase 1) | `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
+| `society` | society | player trading (`Trading`, `PlayerCredit`), deeds, land notices, theft, offline sim, colonization, film mode, commands |
 | `mixin.<subsystem>` | each | mixins, registered in `better_than_village.<subsystem>.mixins.json` (`client` mixins in `better_than_village.client.mixins.json`) |
+
+## Stock scope (v2)
+
+Every `ColonyStorage` call works on the stock in scope (`economy.StockScope`): during a villager's AI step
+(`VillagerMixin` HEAD..TAIL) that is the villager's household (its home chests); everything else, and colony
+tasks whose `ColonyTask.publicWork(v)` is true (houses, repairs, roads, walls, warriors' gear; switched by
+`BehaviorScopeMixin`), uses the treasury (`colony.storages`, the village stock without home chests). Use
+`StockScope.treasury(...)` for village-level work inside a villager step, `ColonyStorage.treasury(...)` /
+`usable(level, household)` for explicit chest lists. `ColonyStorage.recount` always counts all village stock.
+`colony.roleOf` is the villager's duty (warrior while conscripted), `colony.tradeOf` its profession for life.
 
 ## Core API cheat sheet
 
@@ -60,7 +71,7 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 - `BlockWorkTimer.tick(level, actor, pos, visuals)` / `tickAction(...)`.
 - `ToolSupply.ensureTool(level, colony, v, Kind.AXE|PICKAXE|HOE)`, `smeltTo`, `smeltAll`, `ensureBucket`.
 - `PathBudget.tryAcquire(level)` — the shared 6-per-tick probe limiter.
-- `RoleBalancer.applyRole`, `Census.populationGate`, `SpawnSpots.find/createVillager`.
+- `Professions.applyRole/assign/maintainElder/inherit`, `SpawnSpots.find/createVillager`.
 - Registries: `ModRegistries.COLONY_WORK/COLONY_SHELTER/COLONY_TRAVEL`, memories
   (`BUILD_TARGET_POS`, `TREE_TARGET_POS`, …, `THREAT_TARGET`), `ModTags.BUILDER_PROTECTED`, `ModTags.GOLEM_ATTACK`.
 

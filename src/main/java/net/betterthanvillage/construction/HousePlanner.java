@@ -5,6 +5,8 @@ import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.config.ColonyConfig;
+import net.betterthanvillage.economy.BirthOrder;
+import net.betterthanvillage.economy.Births;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,8 +36,9 @@ public final class HousePlanner {
         if (population == 0) return;
         int completed = completeCount(colony);
         boolean commission = colony.propertyOwner != null;
-        // the house cap holds even when beds are short (as in the offline planner); commissions are paid for
-        if (!commission && completed >= maxHouses()) return;
+        // Houses are only built when paid for: a player commission or a birth (docs_v2/03-economy.md §Births).
+        BirthOrder order = commission ? null : Births.unsited(colony);
+        if (!commission && order == null) return;
         if (hasActiveProject(colony)) return;
         String biome = biomeKey(level, colony.core());
         HouseCatalog.Entry entry = commission ? HouseCatalog.commission(level, biome, colony.propertyLevel) : HouseCatalog.home(level, biome, completed);
@@ -55,6 +58,7 @@ public final class HousePlanner {
                 colony.propertyOwner = null;
                 colony.propertyLevel = 0;
             }
+            if (order != null) order.job = job.id;
             colony.jobs.add(job);
             int reach = (int) Math.ceil(Math.sqrt(colony.core().distSqr(site.origin()))) + Math.max(site.w(), site.d()) + 4;
             colony.growRadius(Math.min(cfg.village.expansion_radius_max, reach));

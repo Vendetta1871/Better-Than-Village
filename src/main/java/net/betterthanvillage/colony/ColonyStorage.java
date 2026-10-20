@@ -107,6 +107,11 @@ public final class ColonyStorage {
         return slots(level, stockPositions(colony));
     }
 
+    /** Usable treasury containers, whatever the scope. */
+    public static List<Slot> treasury(ServerLevel level, Colony colony) {
+        return slots(level, colony.storages);
+    }
+
     /** Usable containers of a household's home chests. */
     public static List<Slot> usable(ServerLevel level, Household household) {
         return slots(level, household.chests);
@@ -522,6 +527,13 @@ public final class ColonyStorage {
 
     public static void decrementCounters(Colony colony, ItemStack removed) {
         int n = removed.getCount();
+        if (net.betterthanvillage.config.ColonyConfig.get().debug.log_food && foodValue(removed) > 0) {
+            StackTraceElement[] st = Thread.currentThread().getStackTrace();
+            StringBuilder where = new StringBuilder();
+            for (int i = 2; i < Math.min(st.length, 7); i++) where.append(st[i].getClassName().replaceAll(".*\\.", "")).append('.').append(st[i].getMethodName()).append('<');
+            net.betterthanvillage.BetterThanVillage.LOGGER.info("[food] {} x{} scope={} via {}", removed.getItem(), n,
+                    net.betterthanvillage.economy.StockScope.household(colony) != null ? "household" : "treasury", where);
+        }
         colony.cachedFood = Math.max(0, colony.cachedFood - foodValue(removed) * n);
         if (removed.is(ItemTags.LOGS)) colony.cachedLogs = Math.max(0, colony.cachedLogs - n);
         if (removed.is(ItemTags.STONE_CRAFTING_MATERIALS)) colony.cachedStone = Math.max(0, colony.cachedStone - n);

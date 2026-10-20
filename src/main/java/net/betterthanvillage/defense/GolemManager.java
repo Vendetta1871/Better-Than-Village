@@ -454,4 +454,17 @@ public final class GolemManager {
         }
         return true;
     }
+
+    /** Alive iron golems standing in this colony's territory (colony box, +-12 Y). */
+    public static int golemCount(ServerLevel level, Colony colony) {
+        BlockPos c = colony.core();
+        int r = colony.radius();
+        net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(c.getX() - r, c.getY() - 12, c.getZ() - r,
+                c.getX() + r + 1, c.getY() + 13, c.getZ() + r + 1);
+        int n = 0;
+        for (IronGolem golem : level.getEntitiesOfClass(IronGolem.class, box, IronGolem::isAlive)) {
+            if (ColonyManager.colonyAt(level, golem.blockPosition()) == colony) n++;
+        }
+        return n;
+    }
 }

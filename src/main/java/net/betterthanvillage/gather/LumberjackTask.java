@@ -1,6 +1,7 @@
 package net.betterthanvillage.gather;
 
 import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.work.BlockWorkTimer;
 import net.betterthanvillage.ai.work.SafeEdit;
@@ -94,7 +95,8 @@ public final class LumberjackTask extends ColonyTask {
 
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
-        if (v.isSleeping() || v.getTradingPlayer() != null || !ColonyManager.terrainChangesAllowed(level) || !assigned(colony, v)) {
+        if (v.isSleeping() || v.getTradingPlayer() != null || !ColonyManager.terrainChangesAllowed(level) || !assigned(colony, v)
+                || VillagerUtil.isRunning(v, net.betterthanvillage.economy.WorkshopTask.class)) {
             return false;
         }
         queue.clear();

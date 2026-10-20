@@ -1,6 +1,7 @@
 package net.betterthanvillage.colony;
 
 import net.betterthanvillage.api.VillageCapability;
+import net.betterthanvillage.economy.BirthOrder;
 import net.betterthanvillage.economy.Household;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
@@ -139,8 +140,16 @@ public final class Colony implements VillageCapability {
     // ---- households ----
     /** Households by owner (docs_v2/03-economy.md §Households). */
     public final Map<UUID, Household> households = new LinkedHashMap<>();
+    /** Paid-for births waiting for their house (docs_v2/03-economy.md §Births). */
+    public final List<BirthOrder> birthOrders = new ArrayList<>();
+    /** Conscripted villagers and the day their service began (02 §Conscription). */
+    public final Map<UUID, Long> conscripts = new LinkedHashMap<>();
     /** Set once the generated village got its households and starting capital. */
     public boolean householdsSettled;
+    /** Window index (day * 2 + window) of the last cleared gathering. */
+    public long lastGathering = Long.MIN_VALUE;
+    /** Market index per goods family (docs_v2/03-economy.md §Prices). */
+    public final Map<String, Double> marketIndex = new LinkedHashMap<>();
 
     // ---- construction jobs ----
     public final List<ConstructionJob> jobs = new ArrayList<>();
@@ -217,7 +226,16 @@ public final class Colony implements VillageCapability {
     }
 
     @Override
+    /** The villager's duty: its profession, or warrior while conscripted (02 §Conscription). */
     public ColonyRole roleOf(UUID villager) {
+        if (conscripts.containsKey(villager)) {
+            return ColonyRole.WARRIOR;
+        }
+        return tradeOf(villager);
+    }
+
+    /** The villager's profession for life, whatever its current duty. */
+    public ColonyRole tradeOf(UUID villager) {
         RoleEntry entry = roles.get(villager);
         return entry == null ? ColonyRole.CITIZEN : entry.role();
     }
@@ -435,6 +453,16 @@ public final class Colony implements VillageCapability {
         households.values().forEach(h -> householdList.add(h.save()));
         tag.put("households", householdList);
         tag.putBoolean("households_settled", householdsSettled);
+        tag.putLong("last_gathering", lastGathering);
+        CompoundTag conscriptTag = new CompoundTag();
+        conscripts.forEach((id, since) -> conscriptTag.putLong(id.toString(), since));
+        tag.put("conscripts", conscriptTag);
+        ListTag orders = new ListTag();
+        birthOrders.forEach(o -> orders.add(o.save()));
+        tag.put("birth_orders", orders);
+        CompoundTag index = new CompoundTag();
+        marketIndex.forEach(index::putDouble);
+        tag.put("market_index", index);
         ListTag jobList = new ListTag();
         jobs.forEach(job -> jobList.add(job.save()));
         tag.put("construction_jobs", jobList);
@@ -591,6 +619,24 @@ public final class Colony implements VillageCapability {
             if (h != null) c.households.put(h.owner, h);
         }
         c.householdsSettled = tag.getBoolean("households_settled");
+        c.lastGathering = tag.contains("last_gathering") ? tag.getLong("last_gathering") : Long.MIN_VALUE;
+        ListTag orders = tag.getList("birth_orders", Tag.TAG_COMPOUND);
+        for (int i = 0; i < orders.size(); i++) {
+            BirthOrder o = BirthOrder.load(orders.getCompound(i));
+            if (o != null) c.birthOrders.add(o);
+        }
+        CompoundTag conscriptTag = tag.getCompound("conscripts");
+        for (String key : conscriptTag.getAllKeys()) {
+            try {
+                c.conscripts.put(UUID.fromString(key), conscriptTag.getLong(key));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        CompoundTag index = tag.getCompound("market_index");
+        for (String key : index.getAllKeys()) {
+            double v = index.getDouble(key);
+            if (Double.isFinite(v)) c.marketIndex.put(key, Math.max(0.25, Math.min(4.0, v)));
+        }
         ListTag jobList = tag.getList("construction_jobs", Tag.TAG_COMPOUND);
         for (int i = 0; i < jobList.size(); i++) {
             c.jobs.add(ConstructionJob.load(jobList.getCompound(i)));

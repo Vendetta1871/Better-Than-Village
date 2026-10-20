@@ -439,6 +439,9 @@ public final class MinerTask extends ColonyTask {
         boolean ore = GatherUtil.isOre(state);
         BlockPos mined = blockTarget;
         if (SafeEdit.breakBlock(level, v, mined)) {
+            ItemStack bonus = Quarry.bonus(level, mined, state, v.getRandom());
+            if (!bonus.isEmpty()) drops = new java.util.ArrayList<>(drops);
+            if (!bonus.isEmpty()) drops.add(bonus);
             giveAll(level, v, drops);
             v.swing(InteractionHand.MAIN_HAND);
             minedThisTrip++;

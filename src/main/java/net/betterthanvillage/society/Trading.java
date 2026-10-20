@@ -6,12 +6,20 @@ import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Professions;
-import net.betterthanvillage.defense.GuardGear;
+import net.betterthanvillage.economy.Chests;
+import net.betterthanvillage.economy.Household;
+import net.betterthanvillage.economy.Market;
+import net.betterthanvillage.economy.Needs;
+import net.betterthanvillage.economy.Values;
+import net.betterthanvillage.economy.Values.Family;
 import net.betterthanvillage.mixin.society.VillagerTradeAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
@@ -23,25 +31,58 @@ import net.minecraft.world.item.trading.ItemCost;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
-import java.util.function.Predicate;
 
-/** Player trading driven by colony stock (06 §1.3): offer building, validation and settlement. */
+/**
+ * Player trading (docs_v2/03-economy.md §Player trade): a villager sells the goods of its household above its own
+ * needs and buys what its household lacks, with the household's own emeralds, at the gathering price formula with
+ * the player as the customer. The elder also sells land and house deeds for the treasury.
+ */
 public final class Trading {
     public static final String LABEL_PERMISSION = "продажа разрешения";
     public static final String LABEL_SELL = "торговля с игроком: продажа";
     public static final String LABEL_BUY = "торговля с игроком: покупка";
+    /** Most uses one offer allows before the stock is recomputed. */
+    private static final int MAX_USES = 12;
 
     /** Per-villager offer descriptors (weak: dropped with the villager). */
     private static final Map<Villager, Map<MerchantOffer, Desc>> TRACKED = new WeakHashMap<>();
 
-    /** Descriptor of one of our offers. */
-    record Desc(UUID colony, ColonyRole role, Item item, int count, int price, boolean villagerSells, int reserve,
-                Predicate<ItemStack> predicate, boolean permission) {
+    /** What one of our offers does (03 §Player trade, §Credit with the player). */
+    enum Kind {
+        /** Deed for emeralds; the treasury is paid. */
+        PERMISSION,
+        /** Household goods for emeralds. */
+        SELL,
+        /** The household buys goods with emeralds. */
+        BUY,
+        /** Household goods for a book and quill: the player signs a debt note. */
+        SELL_ON_CREDIT,
+        /** The player pays a debt and gets the note back. */
+        REPAY,
+        /** The household buys goods and pays with its own debt note. */
+        PAY_WITH_NOTE,
+        /** The player hands in a note and is paid. */
+        COLLECT
+    }
+
+    /** Descriptor of one of our offers; owner is the household (null for the treasury). */
+    record Desc(UUID colony, UUID owner, Kind kind, Item item, int count, int price, UUID debt) {
+        boolean villagerSells() {
+            return kind == Kind.SELL || kind == Kind.SELL_ON_CREDIT;
+        }
+
+        boolean permission() {
+            return kind == Kind.PERMISSION;
+        }
     }
 
     private Trading() {
@@ -68,23 +109,24 @@ public final class Trading {
             dropColonyOffers(v, false);
             return null;
         }
-        ColonyRole role = colony.roleOf(v.getUUID());
+        // Conscripts trade as their trade (their household's goods and needs).
+        ColonyRole role = colony.tradeOf(v.getUUID());
         ItemStack held = player.getItemInHand(hand);
         if (role == ColonyRole.MASON && Deeds.propertyLevel(held) > 0) {
             Deeds.builderOrder(level, colony, player, hand);
             return InteractionResult.SUCCESS;
         }
-        if (!hasTable(role)) {
+        if (!role.isProfession()) {
             dropColonyOffers(v, true);
-            // Expedition members do not trade at all (their cartographer profession would offer vanilla maps).
-            return role == ColonyRole.FOUNDER ? InteractionResult.SUCCESS : null;
+            // Expedition members and villagers without a profession do not trade.
+            return InteractionResult.SUCCESS;
         }
         if (v.isSleeping() || v.getTradingPlayer() != null) {
             dropColonyOffers(v, true);
             return null;
         }
         Professions.applyRole(level, colony, v);
-        rebuildOffers(level, colony, v, role);
+        rebuildOffers(level, colony, v, role, player);
         freeze(v);
         ((VillagerTradeAccess) v).btv$startTrading(player);
         return InteractionResult.SUCCESS;
@@ -93,7 +135,7 @@ public final class Trading {
     // ---------------------------------------------------------------- offers
 
     /** Price multiplier of every colony-built offer; vanilla trade tables only use 0.05 and 0.2, so it marks ours. */
-    private static final float COLONY_MULTIPLIER = 0f;
+    static final float COLONY_MULTIPLIER = 0f;
 
     /**
      * Removes colony-built offers (all of them, or only untracked ones when keepTracked). If nothing remains the
@@ -111,184 +153,183 @@ public final class Trading {
         }
     }
 
-    private static boolean hasTable(ColonyRole role) {
-        return switch (role) {
-            case ELDER, MINER, CARPENTER, FARMER, HERDER, MASON, WARRIOR -> true;
-            default -> false;
-        };
-    }
-
-    /** Rebuilds the role's offer list from colony storage; roles without a table keep their vanilla offers. */
-    public static void rebuildOffers(ServerLevel level, Colony colony, Villager v, ColonyRole role) {
-        if (!hasTable(role)) {
-            return;
+    /** Rebuilds the villager's offers from its household (and, for the elder, the deeds). */
+    public static void rebuildOffers(ServerLevel level, Colony colony, Villager v, ColonyRole role, Player player) {
+        MerchantOffers offers = new MerchantOffers();
+        Map<MerchantOffer, Desc> descs = new IdentityHashMap<>();
+        if (role == ColonyRole.ELDER) {
+            ColonyStorage.recount(level, colony);
+            int uses = Prices.deedMaxUses(colony);
+            String dim = level.dimension().location().toString();
+            // House deeds can only be redeemed when terrain changes are allowed (Deeds.placeOrder).
+            if (ColonyManager.terrainChangesAllowed(level)) {
+                permission(offers, descs, colony, Deeds.propertyDeed(1, colony.id(), dim), Prices.smallHousePrice(colony), uses, 10);
+                permission(offers, descs, colony, Deeds.propertyDeed(2, colony.id(), dim), Prices.mediumHousePrice(colony), uses, 20);
+            }
+            permission(offers, descs, colony, Deeds.landDeed(colony.id(), dim), Prices.landPrice(colony), uses, 10);
         }
-        Builder b = new Builder(level, colony, role);
-        switch (role) {
-            case ELDER -> {
-                ColonyStorage.recount(level, colony);
-                int uses = Prices.deedMaxUses(colony);
-                String dim = level.dimension().location().toString();
-                // House deeds can only be redeemed when terrain changes are allowed (Deeds.placeOrder).
-                if (ColonyManager.terrainChangesAllowed(level)) {
-                    b.permission(Deeds.propertyDeed(1, colony.id(), dim), Prices.smallHousePrice(colony), uses, 10);
-                    b.permission(Deeds.propertyDeed(2, colony.id(), dim), Prices.mediumHousePrice(colony), uses, 20);
-                }
-                b.permission(Deeds.landDeed(colony.id(), dim), Prices.landPrice(colony), uses, 10);
-            }
-            // Sell reserves are >= the colony's buy target for the same item family (no buy/sell arbitrage).
-            case MINER -> {
-                b.sell(Goods.COBBLE, 16, 96, 1);
-                b.sell(Goods.item(Items.COPPER_INGOT), 8, 8, 1);
-                b.sell(Goods.item(Items.IRON_INGOT), 4, 36, 2);
-                b.sell(Goods.item(Items.DIAMOND), 1, 4, 4);
-                b.buy(Items.OAK_LOG, Goods.LOGS, 8, 16, 1);
-                b.buy(Items.COAL, 8, 16, 1);
-            }
-            case CARPENTER -> {
-                b.sell(Goods.LOGS, 8, 48, 1);
-                b.sell(Goods.SAPLINGS, 4, 8, 1);
-                b.buy(Items.OAK_SAPLING, Goods.SAPLINGS, 8, 8, 1);
-            }
-            case FARMER -> {
-                b.sell(Goods.item(Items.WHEAT), 16, 32, 1);
-                b.sell(Goods.item(Items.BREAD), 6, 64, 1);
-                b.sell(Goods.ROOTS, 12, 24, 1);
-                b.buy(Items.WHEAT_SEEDS, 16, 16, 1);
-                b.buy(Items.PUMPKIN_SEEDS, 4, 8, 1);
-                b.buy(Items.BREAD, 8, 64, 2);
-            }
-            case HERDER -> {
-                b.sell(Goods.anyOf(Items.COD, Items.COOKED_COD), 8, 16, 1);
-                b.sell(Goods.anyOf(Items.SALMON, Items.COOKED_SALMON), 6, 12, 1);
-                b.buy(Items.STRING, 3, 3, 1);
-                b.sell(Goods.item(Items.EGG), 16, 16, 1);
-                b.sell(Goods.item(Items.LEATHER), 4, 8, 1);
-                b.sell(Goods.item(Items.FEATHER), 8, 12, 1);
-                b.sell(Goods.WOOL, 6, 12, 1);
-                b.buy(Items.WHEAT, 16, 16, 2);
-            }
-            case MASON -> {
-                b.sell(Goods.PLANKS, 16, 64, 1);
-                b.sell(Goods.STONE, 16, 128, 1);
-                b.buy(Items.OAK_LOG, Goods.LOGS, 16, 48, 2);
-                b.buy(Items.COBBLESTONE, Goods.COBBLE, 32, 96, 2);
-            }
-            case WARRIOR -> {
-                GuardGear.ensureStock(level, colony);
-                for (GuardGear.Entry entry : GuardGear.table()) {
-                    b.sell(Goods.exact(entry.item()), 1, 1, entry.price());
-                }
-                b.sell(Goods.item(Items.ARROW), 16, 32, 1);
-                b.buy(Items.ARROW, 32, 32, 2);
-                b.buy(Items.IRON_INGOT, 8, 24, 3);
-            }
-            default -> {
-            }
+        Household h = colony.households.get(v.getUUID());
+        if (h != null && h.hasChest()) {
+            householdOffers(level, colony, v, h, role, player, offers, descs);
         }
-        if (b.offers.isEmpty()) {
-            MerchantOffer placeholder = new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(placeholderItem(role)), 1, 0, COLONY_MULTIPLIER);
+        PlayerCredit.debtOffers(level, colony, v, role, h, player, offers, descs);
+        if (offers.isEmpty()) {
+            MerchantOffer placeholder = new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(Items.BREAD), 1, 0, COLONY_MULTIPLIER);
             placeholder.setToOutOfStock();
-            b.offers.add(placeholder);
+            offers.add(placeholder);
         }
-        v.setOffers(b.offers);
-        TRACKED.put(v, b.descs);
+        v.setOffers(offers);
+        TRACKED.put(v, descs);
     }
 
-    private static Item placeholderItem(ColonyRole role) {
-        return switch (role) {
-            case ELDER -> Items.PAPER;
-            case MINER, MASON -> Items.COBBLESTONE;
-            case CARPENTER -> Items.OAK_LOG;
-            case FARMER, HERDER -> Items.WHEAT;
-            case WARRIOR -> Items.ARROW;
-            default -> Items.BREAD;
+    private static void permission(MerchantOffers offers, Map<MerchantOffer, Desc> descs, Colony colony, ItemStack item, int price, int uses, int xp) {
+        MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), item, uses, xp, COLONY_MULTIPLIER);
+        offers.add(offer);
+        descs.put(offer, new Desc(colony.id(), null, Kind.PERMISSION, item.getItem(), item.getCount(), price, null));
+    }
+
+    /**
+     * Sell offers for household goods above the reserve, buy offers for families below it. A batch is the
+     * smallest lot worth a whole emerald; buying keeps a survival reserve of emeralds.
+     */
+    private static void householdOffers(ServerLevel level, Colony colony, Villager v, Household h, ColonyRole role, Player player,
+                                        MerchantOffers offers, Map<MerchantOffer, Desc> descs) {
+        List<ColonyStorage.Slot> slots = ColonyStorage.usable(level, h);
+        EnumMap<Family, Integer> reserve = Needs.household(role);
+        Map<Item, Integer> items = new LinkedHashMap<>();
+        Map<Item, ItemStack> samples = new LinkedHashMap<>();
+        for (ColonyStorage.Slot slot : slots) {
+            Container c = slot.container();
+            for (int i = 0; i < c.getContainerSize(); i++) {
+                ItemStack s = c.getItem(i);
+                if (s.isEmpty() || s.is(Items.EMERALD) || Values.family(s) == null) continue;
+                items.merge(s.getItem(), s.getCount(), Integer::sum);
+                samples.putIfAbsent(s.getItem(), s);
+            }
+        }
+        EnumMap<Family, Integer> held = new EnumMap<>(Family.class);
+        Map<Family, List<Item>> byFamily = new EnumMap<>(Family.class);
+        items.forEach((item, n) -> {
+            ItemStack sample = samples.get(item);
+            Family f = Values.family(sample);
+            held.merge(f, n * Values.units(sample, f), Integer::sum);
+            byFamily.computeIfAbsent(f, k -> new ArrayList<>()).add(item);
+        });
+        double rep = reputationFactor(v, player);
+        double hero = heroFactor(player);
+        // Sell: goods above the household's own needs.
+        for (Map.Entry<Family, List<Item>> e : byFamily.entrySet()) {
+            Family f = e.getKey();
+            int sellable = held.get(f) - reserve.getOrDefault(f, 0);
+            List<Item> list = e.getValue();
+            list.sort(Comparator.comparingDouble((Item it) -> -Values.base(samples.get(it)) / Values.units(samples.get(it), f)));
+            for (Item item : list) {
+                if (sellable <= 0 || offers.size() >= 12) break;
+                ItemStack sample = samples.get(item);
+                int units = Values.units(sample, f);
+                int qty = Math.min(items.get(item), sellable / units);
+                if (qty <= 0) continue;
+                double unit = Values.base(sample) * Market.index(colony, f) * (1 + h.greed) * rep * hero;
+                int batch = Math.max(1, (int) Math.ceil(1.0 / unit));
+                if (batch > qty || batch > sample.getMaxStackSize()) continue;
+                int price = Math.max(1, (int) Math.round(batch * unit));
+                int uses = Math.min(MAX_USES, qty / batch);
+                MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, Math.min(64, price)), new ItemStack(item, batch), uses, 1, COLONY_MULTIPLIER);
+                offers.add(offer);
+                descs.put(offer, new Desc(colony.id(), h.owner, Kind.SELL, item, batch, Math.min(64, price), null));
+                PlayerCredit.creditSellOffer(level, colony, h, player, item, batch, Math.min(64, price), offers, descs);
+                sellable -= uses * batch * units;
+            }
+        }
+        // Buy: families below the reserve, paid from emeralds above the survival reserve.
+        int cash = Chests.count(slots, s -> s.is(Items.EMERALD)) - survivalReserve(colony);
+        for (Map.Entry<Family, Integer> e : reserve.entrySet()) {
+            Family f = e.getKey();
+            int missing = e.getValue() - held.getOrDefault(f, 0);
+            if (missing <= 0 || cash <= 0 || offers.size() >= 16) continue;
+            Item item = buyItem(f, samples);
+            if (item == null) continue;
+            ItemStack sample = new ItemStack(item);
+            int units = Values.units(sample, f);
+            double unit = Values.base(sample) * Market.index(colony, f) * (1 + Needs.urgency(f, held.getOrDefault(f, 0))) * (1 - h.greed * 0.5);
+            int batch = Math.max(1, (int) Math.ceil(1.0 / unit));
+            if (batch > sample.getMaxStackSize()) continue;
+            int price = Math.max(1, (int) Math.round(batch * unit));
+            int wanted = (missing + batch * units - 1) / (batch * units);
+            int uses = Math.min(MAX_USES, Math.min(wanted, cash / price));
+            if (uses <= 0 && Chests.room(slots, sample) >= batch) {
+                // No cash left: the household pays the player with a debt note (03 §The player lends).
+                PlayerCredit.noteBuyOffer(level, colony, h, player, item, batch, Math.min(64, price), offers, descs);
+                continue;
+            }
+            if (uses <= 0 || Chests.room(slots, sample) < batch) continue;
+            MerchantOffer offer = new MerchantOffer(new ItemCost(item, batch), new ItemStack(Items.EMERALD, Math.min(64, price)), uses, 1, COLONY_MULTIPLIER);
+            offers.add(offer);
+            descs.put(offer, new Desc(colony.id(), h.owner, Kind.BUY, item, batch, Math.min(64, price), null));
+            cash -= uses * price;
+        }
+    }
+
+    /** The item a household asks the player for when it lacks a family: what it already uses, else the plainest kind. */
+    private static Item buyItem(Family f, Map<Item, ItemStack> samples) {
+        for (ItemStack s : samples.values()) {
+            if (Values.family(s) == f) return s.getItem();
+        }
+        return switch (f) {
+            case FOOD -> Items.BREAD;
+            case WHEAT -> Items.WHEAT;
+            case SEEDS -> Items.WHEAT_SEEDS;
+            case SAPLINGS -> Items.OAK_SAPLING;
+            case LOGS -> Items.OAK_LOG;
+            case COAL -> Items.COAL;
+            case TORCH -> Items.TORCH;
+            case PICKAXE -> Items.STONE_PICKAXE;
+            case AXE -> Items.STONE_AXE;
+            case HOE -> Items.STONE_HOE;
+            case SHEARS -> Items.SHEARS;
+            case BUCKET -> Items.BUCKET;
+            case FISHING_ROD -> Items.FISHING_ROD;
+            default -> null;
         };
     }
 
-    /** Collects offers and their descriptors for one villager. */
-    private static final class Builder {
-        final ServerLevel level;
-        final Colony colony;
-        final ColonyRole role;
-        final MerchantOffers offers = new MerchantOffers();
-        final Map<MerchantOffer, Desc> descs = new IdentityHashMap<>();
-        final List<ColonyStorage.Slot> roleSlots;
-
-        Builder(ServerLevel level, Colony colony, ColonyRole role) {
-            this.level = level;
-            this.colony = colony;
-            this.role = role;
-            this.roleSlots = roleSlots(level, colony, role);
-        }
-
-        void permission(ItemStack item, int price, int uses, int xp) {
-            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), item, uses, xp, COLONY_MULTIPLIER);
-            add(offer, new Desc(colony.id(), role, item.getItem(), item.getCount(), price, true, 0, s -> false, true));
-        }
-
-        void sell(Predicate<ItemStack> pred, int baseBatch, int reserve, int basePrice) {
-            int stock = ColonyStorage.count(roleSlots, pred);
-            int reserve2 = sellReserve(colony, role, reserve);
-            int batch = Prices.sellBatch(baseBatch, stock, reserve2);
-            int price = Prices.sellPrice(basePrice, baseBatch, stock, reserve2, batch);
-            if (price <= 0) return;
-            Item chosen = null;
-            int itemTotal = 0;
-            search:
-            for (ColonyStorage.Slot slot : roleSlots) {
-                for (int i = 0; i < slot.container().getContainerSize(); i++) {
-                    ItemStack s = slot.container().getItem(i);
-                    if (s.isEmpty() || !pred.test(s)) continue;
-                    Item item = s.getItem();
-                    int total = ColonyStorage.count(roleSlots, x -> x.is(item) && pred.test(x));
-                    if (total >= batch) {
-                        chosen = item;
-                        itemTotal = total;
-                        break search;
-                    }
-                }
-            }
-            if (chosen == null) return;
-            int uses = Math.min(12, Math.min((stock - reserve2) / batch, itemTotal / batch));
-            if (uses <= 0) return;
-            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), new ItemStack(chosen, batch), uses, 1, COLONY_MULTIPLIER);
-            add(offer, new Desc(colony.id(), role, chosen, batch, price, true, reserve2, pred, false));
-        }
-
-        void buy(Item item, int baseBatch, int target, int basePrice) {
-            buy(item, s -> s.is(item), baseBatch, target, basePrice);
-        }
-
-        /**
-         * The stock ("have") is counted with the same family predicate the colony's sellers use, so a colony never
-         * buys an item it is selling at the same time. The batch never shrinks: the price is for the full batch.
-         */
-        void buy(Item item, Predicate<ItemStack> family, int baseBatch, int target, int basePrice) {
-            int have = ColonyStorage.count(level, colony, family);
-            int target2 = Math.max(target, (role == ColonyRole.FARMER || role == ColonyRole.HERDER) ? colony.population() * 2 : target);
-            int price = Prices.buyPrice(basePrice, have, target2);
-            int batch = Math.max(1, baseBatch);
-            int affordable = ColonyStorage.count(level, colony, Goods.EMERALD) / price;
-            int wanted = (Math.max(0, target2 - have) + batch - 1) / batch;
-            int uses = Math.min(12, Math.min(affordable, wanted));
-            if (uses <= 0 || ColonyStorage.freeCapacity(level, colony, new ItemStack(item)) < batch) return;
-            MerchantOffer offer = new MerchantOffer(new ItemCost(item, batch), new ItemStack(Items.EMERALD, price), uses, 1, COLONY_MULTIPLIER);
-            add(offer, new Desc(colony.id(), role, item, batch, price, false, 0, s -> s.is(item), false));
-        }
-
-        private void add(MerchantOffer offer, Desc desc) {
-            offers.add(offer);
-            descs.put(offer, desc);
-        }
+    /** Emeralds a household never spends on the player's goods: a few days of food (03 §Currency). */
+    private static int survivalReserve(Colony colony) {
+        double food = Needs.DAILY_FOOD * Needs.FOOD_DAYS * Values.FOOD_UNIT * Market.index(colony, Family.FOOD);
+        return Math.max(2, (int) Math.ceil(food));
     }
 
-    private static List<ColonyStorage.Slot> roleSlots(ServerLevel level, Colony colony, ColonyRole role) {
-        return ColonyStorage.usableFor(level, colony, role, role == ColonyRole.WARRIOR);
+    /** The villager's gossip about the player moves its prices by up to 25 %. */
+    static double reputationFactor(Villager v, Player player) {
+        if (player == null) return 1.0;
+        int rep = v.getPlayerReputation(player);
+        return 1.0 - Math.max(-0.25, Math.min(0.25, rep / 100.0));
     }
 
-    private static int sellReserve(Colony colony, ColonyRole role, int reserve) {
-        return Math.max(reserve, (role == ColonyRole.FARMER || role == ColonyRole.HERDER) ? colony.population() * 2 : 0);
+    /** Hero of the Village discount, as in vanilla (30 % plus 6.25 % per level). */
+    private static double heroFactor(Player player) {
+        if (player == null) return 1.0;
+        MobEffectInstance hero = player.getEffect(MobEffects.HERO_OF_THE_VILLAGE);
+        return hero == null ? 1.0 : Math.max(0.25, 1.0 - (0.3 + 0.0625 * hero.getAmplifier()));
+    }
+
+    /** Debug listing: the offers the villager would show a neutral customer. */
+    public static String describeOffers(ServerLevel level, Colony colony, Villager v) {
+        ColonyRole role = colony.tradeOf(v.getUUID());
+        if (!role.isProfession()) return "-";
+        rebuildOffers(level, colony, v, role, null);
+        StringBuilder sb = new StringBuilder();
+        Map<MerchantOffer, Desc> tracked = TRACKED.get(v);
+        for (MerchantOffer o : v.getOffers()) {
+            Desc d = tracked == null ? null : tracked.get(o);
+            if (d == null) continue;
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(d.kind().name().toLowerCase(java.util.Locale.ROOT)).append(' ').append(d.count()).append(' ')
+                    .append(Values.name(d.item())).append(" for ").append(d.price());
+            sb.append(" x").append(o.getMaxUses());
+        }
+        dropColonyOffers(v, false);
+        return sb.length() == 0 ? "nothing" : sb.toString();
     }
 
     // ---------------------------------------------------------------- validation and settlement
@@ -310,26 +351,30 @@ public final class Trading {
             return true;
         }
         Colony colony = ColonyManager.data(level).colony(d.colony());
-        if (colony == null) {
-            return false;
-        }
-        return validate(level, colony, d, offer);
+        return colony != null && validate(level, colony, d, offer);
+    }
+
+    private static List<ColonyStorage.Slot> slots(ServerLevel level, Colony colony, Desc d) {
+        if (d.owner() == null) return ColonyStorage.usable(level, colony);
+        Household h = colony.households.get(d.owner());
+        return h == null ? List.of() : ColonyStorage.usable(level, h);
     }
 
     private static boolean validate(ServerLevel level, Colony colony, Desc d, MerchantOffer offer) {
         int paid = offer.getCostA().getCount();
         ItemStack emerald = new ItemStack(Items.EMERALD);
-        if (d.permission()) {
-            return ColonyStorage.freeCapacity(level, colony, emerald) >= paid;
-        }
-        if (d.villagerSells()) {
-            List<ColonyStorage.Slot> slots = roleSlots(level, colony, d.role());
-            return ColonyStorage.count(slots, d.predicate()) >= d.reserve() + d.count()
-                    && ColonyStorage.count(slots, s -> s.is(d.item()) && d.predicate().test(s)) >= d.count()
-                    && ColonyStorage.freeCapacity(level, colony, emerald) >= paid;
-        }
-        return ColonyStorage.count(level, colony, Goods.EMERALD) >= d.price()
-                && ColonyStorage.freeCapacity(level, colony, new ItemStack(d.item())) >= paid;
+        List<ColonyStorage.Slot> slots = slots(level, colony, d);
+        if (slots.isEmpty()) return false;
+        return switch (d.kind()) {
+            case PERMISSION -> Chests.room(slots, emerald) >= paid;
+            case SELL -> Chests.count(slots, s -> plain(s, d.item())) >= d.count() && Chests.room(slots, emerald) >= paid;
+            case BUY -> Chests.count(slots, s -> s.is(Items.EMERALD)) >= d.price() && Chests.room(slots, new ItemStack(d.item())) >= paid;
+            case SELL_ON_CREDIT, REPAY, PAY_WITH_NOTE, COLLECT -> PlayerCredit.validate(level, colony, d, slots);
+        };
+    }
+
+    static boolean plain(ItemStack s, Item item) {
+        return s.is(item) && Values.family(s) != null;
     }
 
     /** Disables a failed offer and resends the offer list to the trading player. */
@@ -341,7 +386,7 @@ public final class Trading {
         }
     }
 
-    /** Storage-side settlement after a completed trade. */
+    /** Chest-side settlement after a completed trade: the household (or treasury) gets or pays the real items. */
     public static void afterUsing(ServerLevel level, Villager v, MerchantOffer offer) {
         Desc d = desc(v, offer);
         if (d == null) {
@@ -352,21 +397,31 @@ public final class Trading {
             return;
         }
         int paid = offer.getCostA().getCount();
-        if (d.permission()) {
-            if (ColonyStorage.transaction(level, colony, () -> true, List.of(new ItemStack(Items.EMERALD, paid)))) {
-                colony.soldTrades++;
-                WorkTracker.status(v, LABEL_PERMISSION);
-            }
+        List<ColonyStorage.Slot> slots = slots(level, colony, d);
+        Household h = d.owner() == null ? null : colony.households.get(d.owner());
+        if (d.kind() == Kind.SELL_ON_CREDIT || d.kind() == Kind.REPAY || d.kind() == Kind.PAY_WITH_NOTE || d.kind() == Kind.COLLECT) {
+            PlayerCredit.settle(level, colony, v, d, slots, h);
+        } else if (d.permission()) {
+            Chests.put(slots, List.of(new ItemStack(Items.EMERALD, paid)));
+            colony.soldTrades++;
+            WorkTracker.status(v, LABEL_PERMISSION);
         } else if (d.villagerSells()) {
-            List<ColonyStorage.Slot> slots = roleSlots(level, colony, d.role());
-            if (!ColonyStorage.transaction(level, colony,
-                    () -> ColonyStorage.consume(level, colony, slots, s -> s.is(d.item()) && d.predicate().test(s), d.count()),
-                    List.of(new ItemStack(Items.EMERALD, paid)))) return;
+            List<ItemStack> goods = Chests.take(slots, s -> plain(s, d.item()), d.count());
+            if (Chests.total(goods) < d.count()) {
+                Chests.put(slots, goods);
+                return;
+            }
+            Chests.put(slots, List.of(new ItemStack(Items.EMERALD, paid)));
+            if (h != null) h.income += paid;
             colony.soldTrades++;
             WorkTracker.credit(v, LABEL_SELL, d.count());
         } else {
-            if (!ColonyStorage.transaction(level, colony, () -> ColonyStorage.consume(level, colony, Goods.EMERALD, d.price()),
-                    List.of(new ItemStack(d.item(), paid)))) return;
+            List<ItemStack> money = Chests.take(slots, s -> s.is(Items.EMERALD), d.price());
+            if (Chests.total(money) < d.price()) {
+                Chests.put(slots, money);
+                return;
+            }
+            Chests.put(slots, List.of(new ItemStack(d.item(), paid)));
             colony.boughtTrades++;
             WorkTracker.status(v, LABEL_BUY);
         }

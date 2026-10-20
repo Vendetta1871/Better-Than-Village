@@ -6,6 +6,9 @@ import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
+import net.betterthanvillage.economy.Household;
+import net.betterthanvillage.economy.StockScope;
+import net.betterthanvillage.economy.Treasury;
 import net.betterthanvillage.gather.MinerTask;
 import net.betterthanvillage.construction.HouseConstructionTask;
 import net.minecraft.server.level.ServerLevel;
@@ -55,6 +58,9 @@ public final class WorkTracker {
 
     /** Successful work: credit, refresh progress time and reset the watchdog. */
     public static void credit(Villager v, String label, int count) {
+        if (StockScope.inPublicWork() && v.level() instanceof ServerLevel level) {
+            Treasury.creditLabor(level, v, count);
+        }
         Stats s = stats(v);
         s.status = label;
         s.worked += count;
@@ -78,6 +84,11 @@ public final class WorkTracker {
     public static int deliver(ServerLevel level, Colony colony, Villager v, ItemStack stack) {
         int before = stack.getCount();
         Item item = stack.getItem();
+        Household h = StockScope.household(colony);
+        if (h != null) {
+            // Production of a household: the levy in kind goes to the treasury (03 §Taxes).
+            Treasury.levy(level, colony, h, stack);
+        }
         ColonyStorage.deposit(level, colony, stack);
         int moved = before - stack.getCount();
         if (moved > 0) {

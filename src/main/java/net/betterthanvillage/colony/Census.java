@@ -7,7 +7,7 @@ import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.HouseConstructionTask;
 import net.betterthanvillage.defense.GolemManager;
 import net.betterthanvillage.economy.Households;
-import net.betterthanvillage.society.Economy;
+import net.betterthanvillage.economy.Gathering;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
@@ -55,16 +55,16 @@ public final class Census {
         }
         Households.step(level, colony, adults);
         laborCensus(colony, adults);
-        Economy.step(level, colony);
+        Gathering.step(level, colony, members);
         GolemManager.step(level, colony);
         jobHousekeeping(level, colony, now);
-        breed(level, colony, members, adults);
     }
 
     /** Steps run right after the census: managed pair repair, house storages. */
     public static void afterCensus(ServerLevel level, Colony colony) {
         if (ColonyManager.terrainChangesAllowed(level)) {
             repairManagedPairs(level, colony);
+            net.betterthanvillage.economy.Treasury.expand(level, colony);
         }
     }
 
@@ -218,36 +218,9 @@ public final class Census {
         return reasons;
     }
 
+    /** Vanilla breeding never happens in a colony: births are paid for (docs_v2/03-economy.md §Births). */
     public static boolean growthAllowed(ServerLevel level, Villager villager) {
-        Colony colony = ColonyManager.colonyOf(level, villager);
-        return colony == null || populationGate(level, colony).isEmpty();
-    }
-
-    private static void breed(ServerLevel level, Colony colony, List<Villager> members, List<Villager> adults) {
-        long now = level.getGameTime();
-        if (now < colony.nextBreedingTick || colony.cachedFood < 24 || !populationGate(level, colony, members).isEmpty()) return;
-        BlockPos core = colony.core();
-        List<Villager> parents = new ArrayList<>();
-        for (Villager v : adults) {
-            if (v.getAge() == 0) parents.add(v);
-        }
-        if (parents.size() < 2) return;
-        parents.sort(Comparator.comparingDouble(v -> v.distanceToSqr(core.getX() + 0.5, core.getY(), core.getZ() + 0.5)));
-        BlockPos spot = SpawnSpots.find(level, colony, Math.floorDiv(now, 100L));
-        if (spot == null) return;
-        Villager baby = SpawnSpots.createVillager(level, spot, MobSpawnType.BREEDING);
-        if (baby == null) return;
-        baby.setAge(-1800);
-        boolean ok = ColonyStorage.transaction(level, colony,
-                () -> ColonyStorage.consumeNutrition(level, colony, 24) && level.addFreshEntity(baby), List.of());
-        if (!ok) return;
-        parents.get(0).setAge(1200);
-        parents.get(1).setAge(1200);
-        ColonyRole inherited = Professions.inherit(colony, parents.get(0).getUUID(), parents.get(1).getUUID(), level.random);
-        if (inherited != null) colony.pendingProfessions.put(baby.getUUID(), inherited);
-        colony.nextBreedingTick = now + 300;
-        level.sendParticles(ParticleTypes.HEART, spot.getX() + 0.5, spot.getY() + 1, spot.getZ() + 0.5, 8, 0.3, 0.3, 0.3, 0);
-        ColonyManager.markDirty(level);
+        return ColonyManager.colonyOf(level, villager) == null;
     }
 
     // ---------------------------------------------------------------- managed storages

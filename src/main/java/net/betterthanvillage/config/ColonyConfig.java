@@ -58,6 +58,8 @@ public final class ColonyConfig {
         public boolean render_build_boxes = false;
         /** Logs every villager teleport with the code path that caused it. */
         public boolean log_teleports = false;
+        /** Logs every removal of food from colony stock with its caller. */
+        public boolean log_food = false;
     }
 
     public static final class Work {
@@ -74,7 +76,35 @@ public final class ColonyConfig {
         /** Multiplies the starting emeralds handed out when a generated village is settled. */
         public double starting_capital_scale = 1.0;
         /** Share of the starting emeralds that goes to the treasury. */
-        public double treasury_share = 0.2;
+        public double treasury_share = 0.3;
+        /** Money tax: share of a household's income since the last collection. */
+        public double tax_rate = 0.10;
+        /** Levy in kind: share of produced goods. */
+        public double levy_rate = 0.05;
+        /** Emeralds per day the treasury pays the elder. */
+        public int elder_salary = 1;
+        /** Emeralds per day the treasury pays each warrior. */
+        public int warrior_wage = 1;
+        /** Units of public work (blocks placed, repaired, ...) paid with one emerald. */
+        public int labor_units_per_emerald = 32;
+        /** Credit any household gets, before income and goods count. */
+        public int credit_base = 3;
+        /** Days of average income a household may borrow. */
+        public double credit_income_days = 3;
+        /** A village owes at most this multiple of the emeralds it holds. */
+        public double village_debt_cap = 2.0;
+        /** Interest per in-game day. */
+        public double interest_per_day = 0.01;
+        /** Days until a debt is due. */
+        public int debt_term_days = 3;
+        /** Multiplies the chance that a miner's stone yields an ore (0 turns it off). */
+        public double quarry_ore_chance_scale = 1.0;
+        /** Emeralds a pair pays the treasury for a plot and a house with the child's workplace. */
+        public int birth_house_price = 24;
+        /** Days a trade may earn nothing before its villager is conscripted. */
+        public int conscription_idle_days = 3;
+        /** The treasury must cover all warriors' wages for this many days before it conscripts anyone. */
+        public int conscription_budget_days = 5;
     }
 
     public static ColonyConfig get() {
@@ -155,6 +185,20 @@ public final class ColonyConfig {
         work.deep_mining_ticks = clamp(work.deep_mining_ticks, 400, 12000);
         economy.starting_capital_scale = clamp(economy.starting_capital_scale, 0, 10);
         economy.treasury_share = clamp(economy.treasury_share, 0, 0.9);
+        economy.tax_rate = clamp(economy.tax_rate, 0, 0.9);
+        economy.levy_rate = clamp(economy.levy_rate, 0, 0.9);
+        economy.elder_salary = clamp(economy.elder_salary, 0, 64);
+        economy.warrior_wage = clamp(economy.warrior_wage, 0, 64);
+        economy.labor_units_per_emerald = clamp(economy.labor_units_per_emerald, 1, 4096);
+        economy.credit_base = clamp(economy.credit_base, 0, 1000);
+        economy.credit_income_days = clamp(economy.credit_income_days, 0, 100);
+        economy.village_debt_cap = clamp(economy.village_debt_cap, 0, 100);
+        economy.interest_per_day = clamp(economy.interest_per_day, 0, 1);
+        economy.debt_term_days = clamp(economy.debt_term_days, 1, 100);
+        economy.conscription_idle_days = clamp(economy.conscription_idle_days, 1, 100);
+        economy.birth_house_price = clamp(economy.birth_house_price, 1, 4096);
+        economy.quarry_ore_chance_scale = clamp(economy.quarry_ore_chance_scale, 0, 100);
+        economy.conscription_budget_days = clamp(economy.conscription_budget_days, 1, 100);
     }
 
     private static double clamp(double v, double lo, double hi) {

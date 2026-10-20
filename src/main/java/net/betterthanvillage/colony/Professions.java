@@ -136,6 +136,7 @@ public final class Professions {
     }
 
     private static void give(ServerLevel level, Colony colony, Villager v, ColonyRole role, long now) {
+        colony.conscripts.remove(v.getUUID());
         VillagerUtil.stopModTasks(level, v);
         Nav.reset(v);
         colony.setRole(v.getUUID(), role, now);
@@ -218,8 +219,8 @@ public final class Professions {
      * inherited, so the other parent's trade is used. Null when neither parent has a trade.
      */
     public static ColonyRole inherit(Colony colony, UUID a, UUID b, RandomSource random) {
-        ColonyRole ra = trade(colony.roleOf(a));
-        ColonyRole rb = trade(colony.roleOf(b));
+        ColonyRole ra = trade(colony.tradeOf(a));
+        ColonyRole rb = trade(colony.tradeOf(b));
         if (ra == null) return rb;
         if (rb == null) return ra;
         return random.nextBoolean() ? ra : rb;
@@ -233,7 +234,9 @@ public final class Professions {
 
     /** Sets villager type, profession and name tag for the villager's profession. */
     public static void applyRole(ServerLevel level, Colony colony, Villager v) {
-        ColonyRole role = colony != null ? colony.roleOf(v.getUUID()) : ColonyRole.CITIZEN;
+        // Conscripts keep their trade's look and name; their duty (memory) is warrior.
+        ColonyRole role = colony != null ? colony.tradeOf(v.getUUID()) : ColonyRole.CITIZEN;
+        ColonyRole duty = colony != null ? colony.roleOf(v.getUUID()) : ColonyRole.CITIZEN;
         if (colony != null) {
             v.addTag(MANAGED_TAG);
         }
@@ -263,7 +266,7 @@ public final class Professions {
             v.setCustomNameVisible(true);
             v.addTag(ROLE_NAME_TAG);
         }
-        v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), role);
+        v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), duty);
     }
 
     private static boolean isRecognisedRoleName(Component name) {

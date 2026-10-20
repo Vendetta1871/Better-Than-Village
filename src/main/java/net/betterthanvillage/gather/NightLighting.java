@@ -21,7 +21,10 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
-/** Village night lighting (03 §4): villagers place standing torches in dark spots inside the colony. */
+/**
+ * Village night lighting: the carpenter builds lamp posts (a fence with a torch on top) in dark spots inside the
+ * colony (docs_v2/02-professions.md §Carpenter). Posts are public work: the treasury pays fence and torch.
+ */
 public final class NightLighting {
     private NightLighting() {
     }
@@ -33,7 +36,7 @@ public final class NightLighting {
         if ((level.getGameTime() + (long) v.getId() * 17) % 80 != 0 || !v.isAlive() || v.isSleeping() || v.isBaby()) return;
         // Only adult members light their own colony.
         Colony colony = ColonyManager.colonyOf(level, v);
-        if (colony == null) return;
+        if (colony == null || colony.roleOf(v.getUUID()) != net.betterthanvillage.colony.ColonyRole.CARPENTER) return;
         BlockPos here = v.blockPosition();
         if (level.getMaxLocalRawBrightness(here) > 6 || here.getY() < GatherUtil.surfaceY(level, here) - MAX_DEPTH || torchNear(level, here)) return;
         BlockPos spot = findSpot(level, colony, here);
@@ -60,7 +63,20 @@ public final class NightLighting {
                 }
             }
         }
-        if (SafeEdit.place(level, spot, Blocks.TORCH.defaultBlockState(), 3)) {
+        // The post: a fence from the treasury (or two planks), the torch on top of it.
+        boolean fence = ColonyStorage.consume(level, colony, s -> s.is(ItemTags.WOODEN_FENCES), 1)
+                || ColonyStorage.consume(level, colony, s -> s.is(ItemTags.PLANKS), 2);
+        if (!fence) {
+            if (!external.isEmpty()) ToolSupply.stash(level, colony, v, external);
+            return;
+        }
+        if (!SafeEdit.place(level, spot, Blocks.OAK_FENCE.defaultBlockState(), 3)) {
+            ColonyStorage.deposit(level, colony, new ItemStack(Items.OAK_FENCE));
+            if (!external.isEmpty()) ToolSupply.stash(level, colony, v, external);
+            return;
+        }
+        if (SafeEdit.place(level, spot.above(), Blocks.TORCH.defaultBlockState(), 3)) {
+            net.betterthanvillage.ai.work.WorkTracker.credit(v, "фонарный столб", 2);
             if (slot >= 0) {
                 inv.getItem(slot).shrink(1);
                 inv.setChanged();
@@ -105,7 +121,6 @@ public final class NightLighting {
     }
 
     private static BlockPos findSpot(ServerLevel level, Colony colony, BlockPos here) {
-        BlockState torch = Blocks.TORCH.defaultBlockState();
         for (int r = 1; r <= 3; r++) {
             for (int dx = -r; dx <= r; dx++) {
                 for (int dz = -r; dz <= r; dz++) {
@@ -113,7 +128,11 @@ public final class NightLighting {
                     for (int dy = -1; dy <= 1; dy++) {
                         BlockPos c = here.offset(dx, dy, dz);
                         if (!level.isLoaded(c) || !colony.containsXZ(c)) continue;
-                        if (level.getMaxLocalRawBrightness(c) > 6 || !level.getBlockState(c).isAir() || !torch.canSurvive(level, c)) continue;
+                        // A post needs two free cells on sturdy ground.
+                        if (level.getMaxLocalRawBrightness(c) > 6 || !level.getBlockState(c).isAir() || !level.getBlockState(c.above()).isAir()
+                                || !level.getBlockState(c.below()).isFaceSturdy(level, c.below(), net.minecraft.core.Direction.UP)) continue;
+                        BlockState ground = level.getBlockState(c.below());
+                        if (ground.is(Blocks.DIRT_PATH) || ground.is(Blocks.FARMLAND)) continue;
                         // A protected spot would only churn torches every attempt and hide valid spots further out.
                         if (!Protection.terrainModifiable(level, c) || onPendingPlot(colony, c)) continue;
                         // No tunnels/caves, no roofed cells by day (house interiors), no structures or player builds.

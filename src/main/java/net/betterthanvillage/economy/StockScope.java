@@ -49,6 +49,11 @@ public final class StockScope {
         return CURRENT.get() instanceof UUID owner ? colony.households.get(owner) : null;
     }
 
+    /** True while a villager step works for the treasury (public work). */
+    public static boolean inPublicWork() {
+        return CURRENT.get() == TREASURY;
+    }
+
     /** True while the operations use a household's stock (of any colony). */
     public static boolean inHousehold() {
         return CURRENT.get() instanceof UUID;

@@ -16,6 +16,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.Professions;
+import net.betterthanvillage.economy.Gathering;
 import net.betterthanvillage.economy.Household;
 import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.colony.StorageKind;
@@ -44,7 +45,7 @@ import java.util.StringJoiner;
 /** /btv commands (01 §10, 06 §8). */
 public final class ColonyCommands {
     private static final SuggestionProvider<CommandSourceStack> ROLES = (ctx, b) -> SharedSuggestionProvider.suggest(
-            List.of("builder", "guard", "lumberjack", "miner", "farmer", "fisherman", "rancher"), b);
+            ColonyRole.TRADES.stream().map(ColonyRole::serializedName).toList(), b);
 
     private ColonyCommands() {
     }
@@ -53,6 +54,8 @@ public final class ColonyCommands {
         dispatcher.register(Commands.literal("btv")
                 // Debug dump (storage coordinates, thief UUID) and expensive: operators only.
                 .then(Commands.literal("status").requires(s -> s.hasPermission(2)).executes(ColonyCommands::status))
+                .then(Commands.literal("offers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::offers))
+                .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
                 .then(film()));
     }
 
@@ -103,6 +106,55 @@ public final class ColonyCommands {
         return 1;
     }
 
+    /** Debug: movement and activity state of every member. */
+    private static int villagers(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        long now = level.getGameTime();
+        for (Villager v : ColonyManager.members(level, c)) {
+            StringJoiner running = new StringJoiner(",");
+            v.getBrain().getRunningBehaviors().forEach(b -> {
+                if (VillagerUtil.isModTask(b)) running.add(b.getClass().getSimpleName());
+            });
+            BlockPos target = net.betterthanvillage.ai.nav.Nav.currentTarget(v, now);
+            var path = v.getNavigation().getPath();
+            String line = c.roleOf(v.getUUID()).serializedName() + (v.isBaby() ? "(baby)" : "") + "@" + v.blockPosition().toShortString()
+                    + " act=" + VillagerUtil.currentActivity(v) + " sleeping=" + v.isSleeping()
+                    + " forcedIdle=" + net.betterthanvillage.ai.nav.AntiStuck.isForcedIdle(v, now)
+                    + " navTarget=" + (target == null ? "-" : target.toShortString())
+                    + " path=" + (path == null ? "-" : (path.isDone() ? "done" : path.getNextNodeIndex() + "/" + path.getNodeCount())
+                    + (path.canReach() ? "" : " unreachable") + " end=" + (path.getEndNode() == null ? "-" : path.getEndNode().asBlockPos().toShortString()))
+                    + " walk=" + v.getBrain().getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET)
+                            .map(w -> w.getTarget().currentBlockPosition().toShortString()).orElse("-")
+                    + " home=" + v.getBrain().getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.HOME).map(g -> g.pos().toShortString()).orElse("-")
+                    + " tasks=[" + running + "] status=" + WorkTracker.status(v);
+            ok(source, Component.literal(line));
+        }
+        return 1;
+    }
+
+    /** Debug: what every adult member would offer a neutral player right now. */
+    private static int offers(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        for (Villager v : ColonyManager.adultMembers(level, c)) {
+            if (v.getTradingPlayer() != null) continue;
+            String line = c.roleOf(v.getUUID()).serializedName() + ": " + Trading.describeOffers(level, c, v);
+            ok(source, Component.literal(line));
+        }
+        return 1;
+    }
+
     static List<Component> statusLines(ServerLevel level, Colony c) {
         long now = level.getGameTime();
         List<Villager> members = ColonyManager.members(level, c);
@@ -139,13 +191,26 @@ public final class ColonyCommands {
                 counts.toString(), c.jobs.size(), activeWorkers, threatAge < 0 ? "-" : String.valueOf(threatAge)));
         out.add(Msg.command("status.workers", workers.toString()));
         out.add(Msg.command("status.militia", militia.toString()));
-        int golems = Economy.golemCount(level, c);
+        int golems = net.betterthanvillage.defense.GolemManager.golemCount(level, c);
         out.add(Msg.command("status.golems", golems, Math.max(4, (c.population() + 5) / 6),
                 ColonyStorage.count(level, c, s -> s.is(Items.IRON_INGOT)),
                 ColonyStorage.count(level, c, s -> s.is(Items.PUMPKIN) || s.is(Items.CARVED_PUMPKIN)), Math.max(0, c.nextGolemTick - level.getServer().getTickCount())));
-        out.add(Msg.command("status.economy", ColonyStorage.count(level, c, s -> s.is(Items.EMERALD)), c.soldTrades, c.boughtTrades,
-                Math.max(0, c.nextEconomyTick - now)));
+        Gathering.LastReport last = Gathering.lastReport(c);
+        StringJoiner index = new StringJoiner(", ");
+        c.marketIndex.forEach((family, v) -> {
+            if (Math.abs(v - 1.0) >= 0.05) index.add(family.toLowerCase(java.util.Locale.ROOT) + String.format("=%.2f", v));
+        });
+        out.add(Msg.command("status.economy", ColonyStorage.count(level, c, s -> s.is(Items.EMERALD)),
+                last == null ? "-" : (last.index() % 2 == 0 ? "morning " : "evening ") + (last.index() / 2),
+                last == null ? 0 : last.attendees(), last == null ? 0 : last.report().trades, last == null ? 0 : last.report().emeralds,
+                last == null ? 0 : last.report().unmetBids, index.toString()));
         out.add(householdStatus(level, c));
+        out.add(debtStatus(level, c));
+        StringJoiner orders = new StringJoiner(", ");
+        for (net.betterthanvillage.economy.BirthOrder o : c.birthOrders) {
+            orders.add(o.profession.serializedName() + (o.parentA == null ? " (treasury)" : "") + " job=" + (o.job == null ? "-" : o.job.toString().substring(0, 8)));
+        }
+        out.add(Msg.command("status.births", c.birthOrders.size(), orders.toString(), c.conscripts.size()));
         boolean theft = now < c.theftUntil;
         out.add(Msg.command("status.theft", theft ? c.reportedThief.toString() : "-", c.stolenItems, theft ? (c.theftUntil - now) / 20 : 0));
         out.add(Msg.command("status.development", String.valueOf(c.elder), String.valueOf(c.founder),
@@ -190,6 +255,23 @@ public final class ColonyCommands {
         return out;
     }
 
+    private static Component debtStatus(ServerLevel level, Colony c) {
+        long today = net.betterthanvillage.economy.Credit.day(level);
+        int open = 0, overdue = 0, owed = 0;
+        StringJoiner list = new StringJoiner(", ");
+        for (net.betterthanvillage.economy.Debt d : ColonyManager.data(level).debts.values()) {
+            if (!c.id().equals(d.debtor.colony()) && !c.id().equals(d.creditor.colony())) continue;
+            open++;
+            owed += d.owed();
+            if (d.overdue(today)) overdue++;
+            if (list.length() < 600) list.add(d.debtorName + "->" + d.creditorName + " " + d.owed() + " due " + d.dueDay + (d.strikes > 0 ? " strikes " + d.strikes : ""));
+        }
+        Gathering.LastReport last = Gathering.lastReport(c);
+        return Msg.command("status.debts", open, owed, overdue, net.betterthanvillage.economy.Credit.villageDebt(level, c),
+                net.betterthanvillage.economy.Credit.villageEmeralds(level, c), last == null ? 0 : last.report().credit,
+                last == null ? 0 : last.report().repaid, list.toString());
+    }
+
     private static Component householdStatus(ServerLevel level, Colony c) {
         int homeless = 0, chestless = 0, emeralds = 0, pending = 0;
         StringJoiner list = new StringJoiner(", ");
@@ -202,8 +284,11 @@ public final class ColonyCommands {
             int items = ColonyStorage.count(ColonyStorage.usable(level, h), s -> !s.is(Items.EMERALD));
             int food = 0;
             for (ColonyStorage.Slot slot : ColonyStorage.usable(level, h)) food += ColonyStorage.foodValue(slot.container());
-            list.add(c.roleOf(h.owner).serializedName() + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
-                    + " chests=" + h.chests.size() + " em=" + e + " items=" + items + " food=" + food + String.format(" g=%.2f", h.greed));
+list.add(c.tradeOf(h.owner).serializedName() + (c.conscripts.containsKey(h.owner) ? "(conscript)" : "")
+                    + (h.idlePoor ? "(idle poor)" : "") + (h.inDefault ? "(in default)" : "") + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
+                    + " chests=" + h.chests.size() + " em=" + e + " items=" + items + " food=" + food + " income=" + h.income
+                    + " hungry=" + h.hungryDays + String.format(" tax=%.1f", h.taxDue) + " owed=" + h.wagesOwed + " labor=" + h.labor
+                    + String.format(" g=%.2f", h.greed));
         }
         return Msg.command("status.households", c.households.size(), homeless, chestless, emeralds, pending, list.toString());
     }

@@ -183,6 +183,8 @@ public final class PlayerBlocks {
     /** One open colony container (per menu): net balance of what the player put in (+) or took out (-). */
     public static final class TheftState {
         UUID colony;
+        /** Owner of the home chest, if the container is one. */
+        UUID household;
         AbstractContainerMenu menu;
         Container container;
         final Map<Key, Integer> balance = new HashMap<>();
@@ -230,6 +232,8 @@ public final class PlayerBlocks {
                 if ((c == container || (container instanceof CompoundContainer cc && cc.contains(c))) && !Protection.isProtectedContainer(level, pos)) {
                     TheftState s = new TheftState();
                     s.colony = colony.id();
+                    var owner = net.betterthanvillage.economy.Households.ownerOf(colony, pos);
+                    s.household = owner == null ? null : owner.owner;
                     s.menu = menu;
                     s.container = container;
                     return s;
@@ -251,6 +255,7 @@ public final class PlayerBlocks {
         keys.addAll(after.keySet());
         int stolen = 0;
         boolean valuable = false;
+        double value = 0;
         for (Key key : keys) {
             int delta = after.getOrDefault(key, 0) - before.getOrDefault(key, 0);
             if (delta == 0) continue;
@@ -260,8 +265,14 @@ public final class PlayerBlocks {
             if (newlyTaken > 0) {
                 stolen += newlyTaken;
                 valuable |= Theft.valuable(key.stack());
+                value += PlayerCredit.value(colony, key.stack(), newlyTaken);
             }
             s.balance.put(key, next);
+        }
+        // A creditor whose note nobody could pay may take the debtor's goods up to the debt (05 §Offences).
+        if (stolen > 0 && s.household != null && value > 0 && value <= PlayerCredit.seizable(level, colony, s.household, player.getUUID())) {
+            PlayerCredit.seize(level, colony, s.household, player.getUUID(), value);
+            return;
         }
         Theft.taken(level, colony, player, stolen, valuable);
     }

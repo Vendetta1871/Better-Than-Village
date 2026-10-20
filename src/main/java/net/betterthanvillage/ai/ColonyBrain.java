@@ -40,7 +40,8 @@ public final class ColonyBrain {
                 task(3, new LumberjackTask()),
                 task(4, new MinerTask()),
                 task(5, new FisherTask()),
-                task(6, new RancherTask())));
+                task(6, new RancherTask()),
+                task(7, new net.betterthanvillage.economy.WorkshopTask())));
     }
 
     private static Pair<Integer, BehaviorControl<? super Villager>> task(int priority, BehaviorControl<? super Villager> task) {

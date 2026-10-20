@@ -3,6 +3,7 @@ package net.betterthanvillage.colony;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import net.betterthanvillage.economy.Debt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -35,6 +36,8 @@ public final class ColonySavedData extends SavedData {
     private final Map<Long, UUID> blockOwners = new HashMap<>();
     public final List<LandPlot> land = new ArrayList<>();
     public final List<LandWarning> landWarnings = new ArrayList<>();
+    /** Open debts by id (docs_v2/03-economy.md §Credit and debt notes). */
+    public final Map<UUID, Debt> debts = new LinkedHashMap<>();
     /** Runtime only: recent player placements, pos -> (player, tick). */
     private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
     /** Runtime only: the level this data belongs to (lazy pruning of player blocks). */
@@ -244,6 +247,9 @@ public final class ColonySavedData extends SavedData {
         ListTag warnings = new ListTag();
         landWarnings.forEach(w -> warnings.add(w.save()));
         tag.put("land_warnings", warnings);
+        ListTag debtList = new ListTag();
+        debts.values().forEach(d -> debtList.add(d.save()));
+        tag.put("debts", debtList);
         return tag;
     }
 
@@ -279,6 +285,11 @@ public final class ColonySavedData extends SavedData {
             if (w != null) {
                 data.landWarnings.add(w);
             }
+        }
+        ListTag debtList = tag.getList("debts", Tag.TAG_COMPOUND);
+        for (int i = 0; i < debtList.size(); i++) {
+            Debt d = Debt.load(debtList.getCompound(i));
+            if (d != null) data.debts.put(d.id, d);
         }
         return data;
     }

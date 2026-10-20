@@ -12,6 +12,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.defense.GuardPatrol;
+import net.betterthanvillage.economy.Gathering;
 import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.defense.GuardShield;
 import net.betterthanvillage.defense.RaidShelter;
@@ -154,6 +155,9 @@ public final class VillagerController {
             return;
         }
         boolean eating = foodRoutine(level, colony, v, evening);
+        if (!eating && !(role == ColonyRole.WARRIOR && alarm) && Gathering.attend(level, colony, v)) {
+            return;
+        }
         if (LandNotices.elderWalk(level, v, colony)) {
             return;
         }
@@ -179,7 +183,7 @@ public final class VillagerController {
                 case MASON -> colony.needsStarterWarehouse() || colony.storages.isEmpty() || colony.hasActiveConstruction()
                         || !colony.roadQueue.isEmpty() || !colony.repairs.isEmpty() || Fortifications.hasPendingWall(colony);
                 case CARPENTER -> true;
-                case MINER, FARMER, HERDER -> colony.hasStorage();
+                case MINER, FARMER, HERDER, SMITH, HEALER, LIBRARIAN -> colony.hasStorage();
                 case WARRIOR -> !colony.storages.isEmpty();
                 default -> false;
             };
@@ -346,11 +350,9 @@ public final class VillagerController {
     private static boolean foodRoutine(ServerLevel level, Colony colony, Villager v, boolean evening) {
         long now = level.getGameTime();
         SimpleContainer inv = v.getInventory();
-        boolean breedReady = !v.isBaby() && v.getAge() == 0;
         boolean hasFood = hasFood(inv);
-        int foodValue = ColonyStorage.foodValue(inv);
-        // Babies never fetch food (they cannot breed); they still heal from what they carry.
-        boolean needs = evening && !v.isBaby() && (!hasFood || (breedReady && foodValue < 12));
+        // Meals come from the home chest (Gathering); a villager only carries one bite for healing. Babies never fetch.
+        boolean needs = evening && !v.isBaby() && !hasFood;
         if ((now + v.getId()) % 20 != 0) {
             return needs;
         }
@@ -387,14 +389,6 @@ public final class VillagerController {
             Nav.approach(level, v, storage, 0.85);
             return true;
         }
-        int target = breedReady ? 12 : hasFood ? 0 : 1;
-        for (int k = 0; k < 12 && foodValue < target; k++) {
-            ItemStack food = ColonyStorage.withdrawOne(level, colony, ColonyStorage::isFood);
-            if (food.isEmpty()) break;
-            foodValue += ColonyStorage.foodValue(food);
-            ItemStack rest = inv.addItem(food);
-            if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
-        }
         if (!hasFood(inv)) {
             ItemStack food = ColonyStorage.withdrawOne(level, colony, ColonyStorage::isFood);
             if (!food.isEmpty()) {
@@ -403,7 +397,7 @@ public final class VillagerController {
             }
         }
         v.getBrain().eraseMemory(ModRegistries.STORAGE_CHEST_POS.get());
-        return !hasFood(inv) || (breedReady && ColonyStorage.foodValue(inv) < 12);
+        return !hasFood(inv);
     }
 
     private static boolean hasFood(SimpleContainer inv) {

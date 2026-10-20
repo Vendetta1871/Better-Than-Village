@@ -154,11 +154,13 @@ colony storage to the villager's own chest.
 
 ## Taxes and treasury
 
-- **Treasury.** The chests in the elder's house.
+- **Treasury.** The village stock: the warehouse the village placed by the bell and every
+  village chest that is not a home chest.
 - **Collection.** The elder collects taxes at the evening gathering:
   - **money tax**: a % of each household's income since the last collection (default 10 %);
   - **levy in kind**: a % of produced goods (default 5 %), for example food and building
-    materials.
+    materials. It is taken when the worker delivers the goods home, so it never taxes the same
+    stock twice.
 - **Unpaid tax.** Becomes debt, and the gossip about the villager worsens. After a long time,
   goods are confiscated at market value.
 - **What the treasury pays for:**
@@ -201,8 +203,9 @@ The flow:
    | Smith | furnaces and the armorer's workstation |
    | Others | their vanilla workstation, plus anything the trade needs |
 
-   Labour is paid to the mason (and the carpenter or miner for site work). Materials are bought
-   by the mason at the gathering. Each parent pays in proportion to their capital.
+   Each parent pays in proportion to their capital. The money goes to the treasury, which
+   builds the house as public work: it pays the mason for the labour and supplies the materials
+   (deliberate simplification, see README).
 5. **Birth.** The mason builds the house. When its bed is ready, the pair breeds the vanilla way,
    which already needs a free bed. The newborn claims the new bed and has a household from day
    one.

@@ -35,8 +35,10 @@
   "commands.better_than_village.status.workers": "Workers: [%s]",
   "commands.better_than_village.status.militia": "Militia: [%s]",
   "commands.better_than_village.status.golems": "Golems: %s/%s / Golem materials: iron=%s/36, pumpkin=%s, nextBuild=%s ticks",
-  "commands.better_than_village.status.economy": "Economy: emeralds=%s, sold=%s, bought=%s, next=%s ticks",
+  "commands.better_than_village.status.economy": "Economy: treasury emeralds=%s; last gathering %s: attendees=%s, trades=%s, emeralds traded=%s, unmet bids=%s; market index: [%s]",
   "commands.better_than_village.status.households": "Households: %s (homeless %s, without a chest %s), emeralds at home=%s, still to hand out=%s; [%s]",
+  "commands.better_than_village.status.debts": "Debts: %s open, %s emeralds owed, %s overdue; village owes %s while holding %s emeralds; last gathering lent %s and got back %s; [%s]",
+  "commands.better_than_village.status.births": "Births: %s paid orders [%s]; conscripts: %s",
   "commands.better_than_village.status.theft": "Theft alarm: player=%s, stolen=%s, remaining=%ss",
   "commands.better_than_village.status.development": "Development: elder=%s, founder=%s, founderTarget=%s, visits=%s, capital=%s, propertyOrder=%s",
   "commands.better_than_village.status.road": "Road: queue=%s, head=%s, stall=%s, skipped=%s / Mine: route=%s, trips=%s, yield=%s / Pen: %s",
@@ -110,5 +112,8 @@
   "command.better_than_village.house.overlap": "The site overlaps an existing house or builder order.",
   "command.better_than_village.house.occupied": "The site is occupied at %1$s. A free %2$s×%3$s site is needed; buildings are not overwritten.",
   "command.better_than_village.house.failed": "Could not place the house; previous blocks were restored.",
-  "command.better_than_village.house.done": "Building ready: %1$s. Site: %2$s; size %3$s×%4$s; the facade faces north."
+  "command.better_than_village.house.done": "Building ready: %1$s. Site: %2$s; size %3$s×%4$s; the facade faces north.",
+  "book.better_than_village.debt.page": "DEBT NOTE\n\nDebtor: %s\nCreditor: %s\n\nOwed: %s emeralds\nInterest: %s%% a day\nDue: day %s",
+  "message.better_than_village.debt.overdue": "Your debt note to %s is overdue: %s emeralds. Pay it at the creditor or the elder.",
+  "message.better_than_village.debt.default": "You are in default on your note to %s (%s emeralds). The village will give you no more credit."
 }

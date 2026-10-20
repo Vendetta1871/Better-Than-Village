@@ -3,6 +3,7 @@ package net.betterthanvillage.ai.work;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
+import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.food.FisherTask;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
@@ -66,16 +67,22 @@ public final class RoleTools {
             ItemStack s = v.getItemBySlot(slot);
             if (s.isEmpty() || !roleTool(s) || needed(role, s)) continue;
             ItemStack rest = s.copy();
-            ColonyStorage.deposit(level, colony, rest);
+            deposit(level, colony, rest);
             v.setItemSlot(slot, rest);
         }
         SimpleContainer inv = v.getInventory();
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
             if (s.isEmpty() || !roleTool(s) || needed(role, s)) continue;
-            ColonyStorage.deposit(level, colony, s);
+            deposit(level, colony, s);
         }
         inv.setChanged();
+    }
+
+    /** Warrior gear belongs to the treasury (07 §Warriors); other tools to the household. */
+    private static void deposit(ServerLevel level, Colony colony, ItemStack s) {
+        if (GUARD_GEAR.test(s)) StockScope.treasury(() -> ColonyStorage.deposit(level, colony, s));
+        else ColonyStorage.deposit(level, colony, s);
     }
 
     private static void takeMainTool(ServerLevel level, Colony colony, Villager v, ColonyRole role) {

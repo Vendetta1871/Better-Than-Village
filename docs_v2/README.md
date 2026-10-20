@@ -72,7 +72,7 @@ but never join a country.
 | Domain | The land a country controls. At generation it is split between villages so that domains touch but never overlap. The player is free here; it is defended only against other countries. |
 | Household | One adult villager with their house, home chest(s), money and goods. |
 | Home chest | The chest(s) inside a villager's house. They hold money, food, tools and goods for sale. |
-| Treasury | The warehouse in the elder's house. It holds tax money and the in-kind levy. |
+| Treasury | The village stock: the warehouse the village placed by the bell and every village chest that is not a home chest. It holds tax money and the in-kind levy. |
 | Gathering | The morning or evening market by the bell, where villagers trade with each other. |
 | Plot | Land inside the territory that the player has bought. The player builds freely on it. |
 | Deed map | A vanilla filled map that marks a bought plot or house with red X markers. It works as a receipt; ownership is stored on the server. |
@@ -88,8 +88,16 @@ but never join a country.
 
 ## Deliberate simplifications
 
-- **Starting money.** Villages start with emeralds already in chests: the world existed before
+- **Starting money and kits.** Villages start with emeralds already in chests, and every
+  household with the tools, inputs and a few days of food of its trade: the world existed before
   the player arrived.
+- **Children are fed by the village.** Children eat from the treasury; their parents do not buy
+  for them.
+- **Houses are bought from the treasury.** The parents of a child pay the treasury for the plot
+  and the house; the treasury builds it as public work (it pays the mason and supplies the
+  materials) instead of the parents hiring the mason and buying materials themselves.
+- **Lamp posts and workshops at home.** Processing trades (carpenter, smith, librarian, healer)
+  work at their home chest rather than at their workstation.
 - **Ore from stone.** Miners get ores from ordinary stone with a configurable chance. Otherwise
   they would strip every vein near the village and the economy would stall.
 - **Potions without Nether ingredients.** Healers brew potions without Nether ingredients.

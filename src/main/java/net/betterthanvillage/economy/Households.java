@@ -117,6 +117,7 @@ public final class Households {
                 h = new Household(v.getUUID());
                 h.greed = (level.random.nextFloat() * 2f - 1f) * 0.3f;
                 h.founded = now;
+                h.lastIncomeDay = Math.floorDiv(level.getDayTime(), 24000L);
                 colony.households.put(h.owner, h);
                 created.add(h);
             }
@@ -172,7 +173,7 @@ public final class Households {
         ColonyConfig.Economy cfg = ColonyConfig.get().economy;
         int total = 0;
         for (Household h : created) {
-            ColonyRole role = colony.roleOf(h.owner);
+            ColonyRole role = colony.tradeOf(h.owner);
             double noise = 0.75 + level.random.nextDouble() * 0.5;
             h.pendingCapital = (int) Math.round(baseCapital(role) * noise * cfg.starting_capital_scale);
             h.pendingKit = true;
@@ -242,7 +243,7 @@ public final class Households {
         }
         if (h.pendingKit) {
             h.pendingKit = false;
-            for (ItemStack stack : startingKit(colony.roleOf(h.owner))) {
+            for (ItemStack stack : startingKit(colony.tradeOf(h.owner))) {
                 ColonyStorage.insert(c, stack);
             }
         }
@@ -357,7 +358,7 @@ public final class Households {
     }
 
     /** Air with air above on sturdy ground, modifiable, not by a door, bed, bell or another chest. */
-    private static boolean chestFits(ServerLevel level, Colony colony, BlockPos c) {
+    static boolean chestFits(ServerLevel level, Colony colony, BlockPos c) {
         if (!level.isLoaded(c) || !level.getBlockState(c).isAir() || !level.getBlockState(c.above()).isAir()) return false;
         if (!level.getBlockState(c.below()).isFaceSturdy(level, c.below(), Direction.UP)) return false;
         if (!Protection.terrainModifiable(level, c) || colony.repairs.containsKey(c)) return false;
@@ -372,6 +373,17 @@ public final class Households {
             if (s.is(BlockTags.DOORS) || s.getBlock() instanceof BellBlock || s.getBlock() instanceof ChestBlock) return false;
         }
         return true;
+    }
+
+    /** A newborn's household: the bed of its paid-for house and a home chest beside it (03 §Births). */
+    static void createChild(ServerLevel level, Colony colony, UUID child, BlockPos bed, float greed) {
+        Household h = new Household(child);
+        h.bed = bed;
+        h.greed = greed;
+        h.founded = level.getGameTime();
+        h.lastIncomeDay = Math.floorDiv(level.getDayTime(), 24000L);
+        colony.households.put(child, h);
+        if (ColonyManager.terrainChangesAllowed(level)) placeHomeChest(level, colony, h, true);
     }
 
     // ---------------------------------------------------------------- end of a household
