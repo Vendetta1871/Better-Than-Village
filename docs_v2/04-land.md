@@ -1,0 +1,159 @@
+# 04 — Land
+
+## Two levels: territory and domain
+
+| | Territory | Domain |
+|---|---|---|
+| Belongs to | One **village** | The **country**: shared by all its villages |
+| Shape | Irregular. A noisy blob around the bell that follows what has been built. | A set of chunks (see below) |
+| Size (proposed defaults) | Starts at radius ≈ 64, grows with construction, maximum radius ≈ 160 (configurable as an area). | At generation: the village's share of the world (see below), capped at radius ≈ 512 from its bell |
+| Villagers build here | Houses with their workplaces, walls, roads, lamp posts; terraforming; demolishing illegal builds. | Only outposts, and new villages of the same country |
+| Villagers defend against | Everyone: every monster or hostile mob is killed; laws apply to the player. | Only other countries |
+| Player may | Only what the law allows ([05](05-law.md)); anything on their own plot. | Anything |
+
+- **Noise.** The territory shape noise is deterministic from the village seed, so borders stay
+  stable across reloads.
+- **Storage.** Domain ownership is stored **per chunk** (chunk → country). This makes borders
+  cheap to look up and easy to redraw when land is bought or conquered.
+
+### Domains at world generation
+
+Generated villages **split the land between them**. Their domains touch but never overlap.
+
+- **Voronoi split.** Each chunk goes to the nearest generated bell, with a little noise on the
+  borders so they do not look ruler-straight.
+- **Cap.** A chunk farther than the cap (≈ 512) from every bell belongs to no one.
+- **Laziness.** Chunks are assigned when first needed (a bell is registered, or a chunk is
+  looked up). The nearest bell is found among registered villages and structure starts from
+  vanilla's village placement, so no chunk assignment changes later when another village loads.
+
+Reuses: territory radius growth from structures, old
+[01-core §3.3](../docs/independent-villagers/01-core.md). The fixed radius becomes the noisy
+shape, and a cap is added.
+
+### Redrawing borders
+
+After generation, domains change only by agreement or force:
+- **Buying land.** One country sells border chunks to another through a treaty, paid in
+  emeralds or debt notes ([06](06-politics.md)).
+- **Conquest.** A conquered village brings its share of the domain to the winner. Peace
+  treaties can also transfer border chunks.
+- **New villages.**
+  - A new village founded on unowned land claims chunks around its bell, up to the cap, without
+    taking anyone's chunks.
+  - A new village inside the own country's domain claims nothing new.
+
+## Plots and houses for the player
+
+- **What the elder sells:**
+  - **Plots.** Land inside the territory, 17×17 by default (more sizes *(proposed)*), not on
+    existing buildings, roads or fields.
+  - **Empty houses.** Houses with no owner: the owner died, the village was conquered, or the
+    house is left over from worldgen.
+- **Deed map.** The player receives a vanilla filled map centred on the property, with red X
+  decorations outlining it, like a treasure map. Ownership lives on the server. Losing the map
+  loses nothing.
+- **Rights on a plot.** The player builds and breaks freely. Villagers do not interfere: no
+  repairs, no terraforming, no lamp posts, no roads through it.
+- **The plot stays part of the village.** The walls enclose it, and warriors defend it against
+  monsters, other countries and night agents like any other part of the territory.
+- **Money.** The price goes to the treasury.
+- **Illegal builds.** Player blocks in the territory **outside** the player's plots are illegal.
+  After the warning ([05](05-law.md)) they are demolished to the ground (see Terraforming). The
+  removed blocks go to the treasury as confiscated goods. Buying a plot that covers the build
+  before the miner arrives makes it legal.
+
+Reuses: deed flows, old [06-society §2](../docs/independent-villagers/06-society.md). Deeds
+become maps instead of paper.
+
+## Construction
+
+Every building has an **owner**: a household, the village, or a player plot.
+
+| Commissioner | What | Paid by |
+|---|---|---|
+| Parents | The child's house, with the workplace for the child's profession: a field, a pen or stable, workstations ([03 §Births](03-economy.md)) | the parents |
+| Treasury | Walls, gates, outposts, the elder's house and warehouse, repairs | taxes |
+| Treasury | Infrastructure: roads, tunnels, lamp posts, pit filling, demolishing illegal builds | taxes |
+
+- **Builders.**
+  - Masons build houses and walls.
+  - Carpenters build lamp posts.
+  - Miners terraform and demolish.
+  - Farmers till the new field; herders fence the new pen.
+- **Payment.** Each worker is paid per job at market rates. Materials are bought at the
+  gathering and charged to the commissioner.
+- **No speculative houses.** Empty houses come only from deaths, conquest and worldgen.
+
+Reuses the whole pipeline: site search, plans, the builder task, material fetching, roads and
+repair, old [05-construction §2, §3, §6](../docs/independent-villagers/05-construction.md),
+plus field and pen creation, old [04 §2.9, §4.7](../docs/independent-villagers/04-food.md).
+The triggers change: planning now starts from commissions, not from automatic expansion.
+
+## Terraforming and demolition (miner)
+
+The miner **flattens hills**, **digs tunnels**, **fills pits** and **demolishes illegal builds**
+inside the territory.
+
+- **Legal player buildings.** The only thing the miner never touches: everything on the
+  player's own plots.
+- **Illegal player builds.** Torn down to the ground, without the limits below.
+- **Natural terrain.** Changed only for a reason, so the landscape is not bulldozed:
+  - preparing a planned site, a road or a wall line;
+  - filling pits within ~4 blocks of a road, house or field, where they are dangerous.
+- **How much.** At most ~6 blocks of height change per column for a site. A road that would
+  need more becomes a **tunnel** through the hill instead.
+- **Materials.** Fill uses real blocks: the miner's own spoil, or dirt or cobblestone bought at
+  the gathering.
+
+## Layered walls
+
+- **First ring.** The first wall ring follows the territory border at the time it is built.
+- **Growth.** When the territory grows past a ring, a **new ring is built outside**. The old ring
+  is **kept**, maintained and repaired. Over time this gives defence in depth for sieges
+  ([07](07-warfare.md)).
+- **Gates.** Every ring has gates where roads cross it. Old rings keep their gates open in
+  peacetime.
+- **Player plots** are part of the village. A ring that would cross a plot goes around its
+  **outer** side, so the plot stays inside and protected.
+- **Funding.** Walls are military buildings, paid by the treasury.
+
+Reuses: ring layout, materials and gate control, old
+[05-construction §4](../docs/independent-villagers/05-construction.md). Change: rings are never
+demolished or moved; new rings are added.
+
+## Lamp posts (carpenter)
+
+Instead of loose torches, the carpenter builds **lamp posts**: a 2–3 fence column with a
+torch, or a lantern once the smith sells them. They go along roads at regular spacing, on
+squares, at gates and wherever the old darkness scan finds dark spots (old
+[03 §4](../docs/independent-villagers/03-gathering-navigation.md)). Paid by the treasury as
+infrastructure.
+
+## Expansion
+
+1. **Trigger.**
+   - The territory reaches its maximum area, and
+   - a candidate pair cannot get a plot, or adults lack houses.
+2. **Search party.** About 5 villagers by default. It always includes:
+   - a future elder (the wealthiest or best-reputed volunteer);
+   - at least one warrior;
+   - at least one farmer.
+
+   Members take their own money and goods. The treasury adds a starting grant.
+3. **Site choice.** The new territory must not overlap any existing territory and needs room to
+   grow. In order of preference:
+   1. **Inside the own country's domain.**
+   2. **On unowned land**, adjacent to the own domain if possible. The new village claims chunks
+      around itself.
+   3. **Inside a foreign domain.** The country negotiates a border change: buy the land with
+      emeralds or debt notes, or take it by war. The owner may refuse to sell even if the price
+      can be paid ([06](06-politics.md)).
+   4. **Nothing reachable or agreed.** The party waits and the village stops growing. That pressure
+      pushes the country toward a war over territory.
+4. **Founding.** The party places a bell (and the first storage, as in the old colonization) and
+   becomes a new village of the **same country**.
+
+Reuses: party travel, path recovery and founding, old
+[06-society §6](../docs/independent-villagers/06-society.md). Changes: the trigger, the party
+members, the site rule, and travel that is abstract when unloaded.

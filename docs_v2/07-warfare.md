@@ -1,0 +1,223 @@
+# 07 — Warfare
+
+## Warriors
+
+- **Pay and gear.** Warriors are paid by the treasury. Gear (weapons, armor, shields, horses,
+  potions) is treasury property, issued to warriors and returned on death or when they change
+  class.
+- **Peacetime duties:**
+  - patrol the territory and guard the gates;
+  - kill every monster or hostile mob in the territory;
+  - answer alarms;
+  - fight vanilla raids.
+
+### Shifts
+
+Warriors serve in **two shifts**:
+
+| Shift | On duty | Sleeps |
+|---|---|---|
+| Day duty | Day: patrols, gates, escorting caravans | At night, in their own bed |
+| Night watch | Night: walls, gates, rounds through the streets, watching sleeping houses | During the day |
+
+- **Split.** By default 50/50, configurable. In war, the night watch is reinforced.
+- **Risk.** The sleeping day shift is the main target of enemy saboteurs (see Night operations).
+- **Alarms.** Raise both shifts: sleepers wake up and arm.
+
+Reuses: combat, kiting, line-of-fire checks, shields, eating and retreating, patrols and gear
+rendering, old [02 §3](../docs/independent-villagers/02-integration-defense.md), plus the threat
+and alarm manager, old [02 §4](../docs/independent-villagers/02-integration-defense.md).
+
+### Classes
+
+| Class | Weapons | Role |
+|---|---|---|
+| Ranged | bow or crossbow | Walls and towers in defence; covering fire in a siege. |
+| Infantry | sword (+ shield if available) or axe | Holds gates and breaches, assaults, guards outposts. |
+| Cavalry | sword, on a horse | Field battles, pursuit, intercepting raids on outposts. |
+
+- **Switching.** A warrior switches class whenever the treasury has the gear (and a horse for
+  cavalry).
+- **Target mix.** The army aims for a class mix set by the situation:
+  - **Defending walls:** more ranged.
+  - **Assault:** more infantry.
+  - **Field campaign or pursuit:** more cavalry.
+- **Horses** come from the herder's stables. Mounted pathfinding is the riskiest technical part.
+  `warfare.cavalry` can switch it off, and cavalry then fights as infantry.
+
+## Iron golems
+
+- **Limit.** At most **one village golem** per village. Vanilla golem summoning by villagers is
+  suppressed while the village has one alive.
+- **Use.** The village golem guards the territory and can be sent on campaigns.
+- **Player golems** do not count toward the limit. The village never commands them: they are
+  never taken on campaigns or sent against the player.
+- **Upkeep and replacement** (iron) are paid by the treasury.
+
+Reuses: golem management, old [02 §3.6](../docs/independent-villagers/02-integration-defense.md),
+with the cap added.
+
+## Outposts
+
+An outpost is a small fortified camp: a palisade or low wall, a watchtower, a chest and beds.
+It is built from vanilla blocks to a code-generated plan.
+- **Own domain.** Built for border watch on the side facing a hostile neighbour or a player's
+  base.
+- **Enemy domain.** **Mandatory before every attack.** It is the staging point: supplies,
+  regrouping, rest. An attack cannot start until its outpost is finished.
+- **Destroying one.** The campaign stalls until it is rebuilt. This is the defender's main
+  counter-play.
+- **Funding.** Treasury (military construction); built by the campaign's masons or warriors.
+
+## Campaigns
+
+1. **Decision.** The ruler declares war ([06](06-politics.md)) or answers a call from an ally.
+2. **Mobilization.** Warriors of the chosen villages (and their golems) gather at the capital or
+   at a border outpost. A share always stays home as a garrison (configurable).
+3. **March.** The army travels to the enemy domain.
+4. **Outpost.** It is built in the enemy domain near the target.
+5. **Siege or battle.** See below.
+6. **End.** One of:
+   - all enemy warriors are destroyed, leading to conquest ([06](06-politics.md));
+   - a peace treaty is signed;
+   - the attackers break off because the outpost was lost repeatedly.
+
+### War weariness
+
+A side does not have to lose its whole army to ask for peace. Each country tracks **war
+weariness**. It grows with:
+- the share of its warriors lost (the main factor);
+- treasury spent on the war, and debt taken for it;
+- war duration;
+- villages lost or besieged;
+- unrest (loyalty falling in its villages).
+
+When weariness passes the elders' **tolerance**, the country asks for peace. Tolerance is
+personal: it comes from the ruling elder's greed and the country's recent history. Some elders
+give up after a few losses, others fight on. The stronger side may still refuse peace if it is
+winning.
+
+Steps 3–6 run **live** when a player is near and **abstract** otherwise
+([08](08-simulation.md)).
+
+## Sieges
+
+The attackers behave like siege mobs in "Epic Siege"-style mods:
+- **Breaching.** Infantry break wall and gate blocks, which takes time and tools.
+- **Tunnelling.** They dig under a wall ring where it stands on diggable ground.
+- **Climbing.** They pillar up or place ladders or scaffolding against walls.
+
+The defenders react:
+- archers shoot from the walls;
+- masons repair breaches during the siege, paid by the treasury;
+- healers support with potions.
+
+Layered walls ([04](04-land.md)) mean every ring is a separate siege stage.
+
+## Night operations
+
+Besides open war, villages send agents at night against **neighbouring villages of other
+countries** and against **the player**.
+
+| Operation | Goal | Targets in priority order |
+|---|---|---|
+| Theft raid | Empty a chest | Treasury, the richest household chests, the player's chests |
+| Sabotage: arson | Set fire to a building | Wooden houses, the elder's house, walls with wooden parts, the player's house |
+| Sabotage: killing | Kill a villager | **Sleeping warriors** (day shift) first, then the elder, then other sleeping adults; a sleeping player |
+
+### Who goes
+
+- **Choice of agent.** The elder sends either a **warrior** or the **poorest villager**.
+- **What the poor villager gets.** A share of the loot. It is a way out of poverty, an
+  alternative to conscription.
+- **Kit.** Flint and steel for arson, a weapon for killing; bought by the treasury.
+
+### When
+
+- **Only at night.** The agent leaves at dusk and must be back, or gone, by dawn.
+- **Which operation is allowed:**
+
+  | Against | Theft raid | Arson, killing |
+  |---|---|---|
+  | Country at peace, bad relations | yes | only as **revenge** for a caught thief |
+  | Country in hostility ([06](06-politics.md)) | yes | yes |
+  | Country at war | yes | yes |
+  | Player, bad gossip | yes | only as revenge |
+  | Player, terrible gossip or at war | yes | yes |
+
+### Getting caught
+
+- **Detection.** The night watch, or any awake villager with line of sight, can spot the agent.
+  A spotted agent is attacked.
+- **Agent caught or killed.** It is an **incident**, not an automatic war:
+  - relations with the sending country worsen;
+  - the victim may answer with **revenge**: its own arson or killing, which is allowed even in
+    peacetime;
+  - incidents add up. Enough of them push the relations into **hostility**, and repeated
+    incidents become a cause of war ([06](06-politics.md)).
+- **The player catches an agent.** The player may kill them freely. It is not an offence against
+  the agent's country, because the agent was acting against the player.
+- **Abstract mode.** With no player near, the outcome is rolled from the agent's skill against
+  the strength of the target's night watch. Stolen goods and fires are written to the ledgers
+  ([08](08-simulation.md)).
+
+## Abstract battles
+
+When no player is near, a battle is resolved by a strength model:
+- **Strength of a side** = Σ warrior power (class, gear tier, health), with modifiers for the
+  number of intact wall rings, the golem, and outposts.
+- **Attrition.** Rounds of random attrition proportional to the enemy's strength, until one
+  side breaks.
+- **Result.** Casualties and wall damage are written to the ledgers. They are applied to the
+  real entities and blocks when the chunks load ([08](08-simulation.md)).
+- **A player arrives mid-battle.** The surviving forces materialize and the battle continues
+  live.
+
+## War against the player
+
+### Player strength score
+
+The score is used to price peace and to decide who joins. It is built from vanilla statistics
+plus our own counters:
+- diamonds mined (vanilla `mined` statistic);
+- mobs killed;
+- villagers and warriors killed, and losses inflicted in past battles with this country;
+- iron golems the player built (our counter);
+- the player's current gear tier.
+
+### Finding the player's base
+
+Other mods mostly treat "home" blocks as the signal: beds, chests, doors, torches. Examples:
+- **Mob Attacks Your Base** makes beds, chests, doors and torches attract monsters.
+- **Base Raid** and **Survival Plus** start their attacks at the player's bed or spawn point.
+
+We do the same, with data we already have:
+
+1. **Candidates.** Clusters (e.g. 32×32 areas) of **player-placed home blocks** from the
+   player-block registry:
+   - beds; the respawn bed counts most;
+   - chests, barrels and shulker boxes;
+   - furnaces and crafting tables;
+   - doors.
+2. **Score.** Each cluster gets a weighted block count plus **presence**: how often the player
+   was there at night or logged out there. Presence is sampled cheaply, e.g. every few minutes.
+3. **The base** is the top cluster. Outside our registry the fallback is the player's respawn
+   point. A player with no base found is only hunted inside the country's domain.
+4. **Uses.** The base is the target of offensives and of night operations against the player.
+
+### Behaviour
+
+- **Offensive.** The country builds an **outpost** near the base and storms it with the same
+  siege behaviour as against a village.
+- **Night operations** target the base's chests, the player's house and the player asleep.
+- **Coalitions.** Other countries join based on the strength score, their relations with the
+  attacking country, and their own gossip about the player. A strong player can face a
+  coalition.
+- **Ending the war.** Surrender and peace treaties: [05](05-law.md). War weariness applies here
+  too: losing a significant part of the army to the player is enough for the country to ask for
+  peace.
+
+## Vanilla raids
+
+Unchanged. The village defends itself with warriors, the golem and its walls. Raids do not
+count as war with any country.
