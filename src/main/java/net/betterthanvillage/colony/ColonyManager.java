@@ -43,7 +43,7 @@ public final class ColonyManager {
 
     // ---------------------------------------------------------------- membership
 
-    /** Colony whose horizontal circle contains pos; nearest core wins. Null if none. */
+    /** Colony whose territory contains pos; nearest core wins. Null if none. */
     public static Colony colonyAt(ServerLevel level, BlockPos pos) {
         Colony best = null;
         long bestDist = Long.MAX_VALUE;
@@ -51,7 +51,7 @@ public final class ColonyManager {
             long dx = pos.getX() - colony.core().getX();
             long dz = pos.getZ() - colony.core().getZ();
             long d = dx * dx + dz * dz;
-            if (d <= (long) colony.radius() * colony.radius() && d < bestDist) {
+            if (d < bestDist && colony.containsXZ(pos)) {
                 bestDist = d;
                 best = colony;
             }
@@ -126,11 +126,13 @@ public final class ColonyManager {
     // ---------------------------------------------------------------- registration
 
     /** Registers a generated village bell or merges it into the nearest existing colony in range. */
-    public static void registerOrMerge(ServerLevel level, BlockPos bell, BoundingBox structureBox, boolean abandoned) {
+    public static void registerOrMerge(ServerLevel level, BlockPos bell, BoundingBox structureBox, List<BoundingBox> pieces, ChunkPos start,
+                                       boolean abandoned) {
         ColonySavedData data = data(level);
         for (Colony colony : data.colonies()) {
             if (colony.core().equals(bell)) {
-                expandFromStructure(colony, structureBox);
+                expandFromStructure(colony, pieces);
+                setSeat(level, colony, start);
                 if (abandoned && !colony.abandonedVillage) {
                     colony.abandonedVillage = true;
                 }
@@ -148,26 +150,33 @@ public final class ColonyManager {
             }
         }
         if (nearest != null) {
-            expandFromStructure(nearest, structureBox);
+            expandFromStructure(nearest, pieces);
             data.setDirty();
             return;
         }
         Colony colony = new Colony(UUID.randomUUID(), bell);
+        setSeat(level, colony, start);
         colony.lastThreatTick = Colony.NEVER;
         colony.simulatedUntil = 0;
         colony.initialDevelopment = true;
         colony.abandonedVillage = abandoned;
-        expandFromStructure(colony, structureBox);
+        expandFromStructure(colony, pieces);
         data.addColony(colony);
         BetterThanVillage.LOGGER.info("Registered generated vanilla village at {}", bell);
     }
 
-    public static void expandFromStructure(Colony colony, BoundingBox box) {
-        BlockPos core = colony.core();
-        int dx = Math.max(Math.abs(box.minX() - core.getX()), Math.abs(box.maxX() - core.getX()));
-        int dz = Math.max(Math.abs(box.minZ() - core.getZ()), Math.abs(box.maxZ() - core.getZ()));
-        int candidate = Math.max(Colony.MIN_RADIUS, (int) Math.ceil(Math.hypot(dx, dz)) + 16);
-        colony.growRadius(Math.min(512, candidate));
+    /** A generated village sits on its structure start; while it is its own country, the country is named after it. */
+    private static void setSeat(ServerLevel level, Colony colony, ChunkPos start) {
+        if (colony.seat != null) return;
+        colony.seat = start;
+        if (colony.id().equals(colony.country)) colony.country = Domain.seatCountry(level, start);
+    }
+
+    /** The generated village is what it is: its territory holds every piece, past the construction maximum if need be. */
+    public static void expandFromStructure(Colony colony, List<BoundingBox> pieces) {
+        for (BoundingBox box : pieces) {
+            colony.growRadius(Math.min(512, Territory.radiusFor(colony, box, 8)));
+        }
     }
 
     /** Creates a colony at a player/founder-placed bell (not merged). */

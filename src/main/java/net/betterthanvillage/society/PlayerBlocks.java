@@ -2,6 +2,7 @@ package net.betterthanvillage.society;
 
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
@@ -62,12 +63,12 @@ public final class PlayerBlocks {
     }
 
     /**
-     * Player blocks matter only where colonies can reach: the largest territory plus the 104-block player-build
+     * Player blocks matter only where colonies can reach: the territory at its maximum plus the 104-block player-build
      * check of colonization sites (founded up to {@link Colonization#MAX_SITE_DISTANCE} from a core).
      */
     private static boolean nearAnyColony(ServerLevel level, BlockPos pos) {
-        long range = Math.max(ColonyConfig.get().village.expansion_radius_max, Colonization.MAX_SITE_DISTANCE) + 104L;
         for (Colony colony : ColonyManager.data(level).colonies()) {
+            long range = Math.max(Math.max(colony.radius(), Territory.maxRadius(colony)), Colonization.MAX_SITE_DISTANCE) + 104L;
             long dx = pos.getX() - colony.core().getX(), dz = pos.getZ() - colony.core().getZ();
             if (dx * dx + dz * dz <= range * range) return true;
         }

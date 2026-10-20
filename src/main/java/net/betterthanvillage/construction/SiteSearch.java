@@ -3,6 +3,7 @@ package net.betterthanvillage.construction;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.LandPlot;
@@ -64,7 +65,7 @@ public final class SiteSearch {
     /** One search call; returns the site or null. Uses and advances colony.houseSiteCursor. */
     public static Site step(ServerLevel level, Colony colony, Spec spec, boolean offline) {
         if (colony.houseSiteCursor < 0) return null;
-        int r = Math.min(colony.radius(), ColonyConfig.get().village.expansion_radius_max);
+        int r = colony.radius();
         long maxIndex = (2L * r + 1) * (2L * r + 1);
         int big = Math.max(spec.w(), spec.d());
         BlockPos core = colony.core();
@@ -77,15 +78,14 @@ public final class SiteSearch {
                 int dx = o[0], dz = o[1];
                 int cheb = Math.max(Math.abs(dx), Math.abs(dz));
                 if (cheb < 8 || cheb > r - big) continue;
-                long lim = r - big - 4;
-                long dist2 = (long) dx * dx + (long) dz * dz;
-                if (dist2 > lim * lim || lim < 0) continue;
                 int rotation = rotationFacing(spec, dx, dz);
                 boolean quarter = rotation % 2 == 1;
                 int w = quarter ? spec.d() : spec.w(), d = quarter ? spec.w() : spec.d();
                 int x0 = core.getX() + dx, z0 = core.getZ() + dz;
+                // The footprint (plus 4) must lie inside the territory.
+                if (!Territory.containsBox(colony, x0, z0, x0 + w - 1, z0 + d - 1, 4)) continue;
                 if (!Terrain.loaded(level, x0 - 4, z0 - 4, x0 + w + 3, z0 + d + 3)) continue;
-                if (dist2 >= (lim - 8) * (lim - 8)) colony.runtime.put(EDGE_KEY, Boolean.TRUE);
+                if (!Territory.containsBox(colony, x0, z0, x0 + w - 1, z0 + d - 1, 12)) colony.runtime.put(EDGE_KEY, Boolean.TRUE);
                 BlockPos site = fit(level, colony, x0, z0, w, d, spec.h());
                 if (site == null) continue;
                 if (Fortifications.wallBlocksPlot(colony, x0, z0, w, d)) continue;

@@ -33,6 +33,7 @@ public final class ColonyConfig {
     public Debug debug = new Debug();
     public Work work = new Work();
     public Economy economy = new Economy();
+    public Land land = new Land();
     public int config_version = 2;
 
     public static final class Village {
@@ -41,7 +42,6 @@ public final class ColonyConfig {
         public int offline_blocks_per_tick = 8;
         public int offline_arrival_blocks_per_tick = 512;
         public int max_population_per_bell = 64;
-        public int expansion_radius_max = 256;
         public int build_delay_ticks = 10;
         public int max_constructed_houses = 48;
     }
@@ -109,6 +109,18 @@ public final class ColonyConfig {
         public int conscription_budget_days = 5;
     }
 
+    /** docs_v2/04-land.md. */
+    public static final class Land {
+        /** Territory radius of a new village (the shape's outer bound). */
+        public int territory_start_radius = 64;
+        /** Largest territory construction may grow to, in square blocks (about a radius of 160). */
+        public int territory_max_area = 80425;
+        /** Depth of the border noise as a share of the radius: the border lies between (1 - noise) and 1. */
+        public double territory_noise = 0.25;
+        /** A chunk farther than this many blocks from every generated village belongs to no country. */
+        public int domain_cap = 512;
+    }
+
     public static ColonyConfig get() {
         return instance;
     }
@@ -169,6 +181,7 @@ public final class ColonyConfig {
         if (debug == null) debug = new Debug();
         if (work == null) work = new Work();
         if (economy == null) economy = new Economy();
+        if (land == null) land = new Land();
         if (config_version < 2) {
             roles.golems_break_attacker_pillars = true;
             config_version = 2;
@@ -178,7 +191,6 @@ public final class ColonyConfig {
         village.offline_blocks_per_tick = clamp(village.offline_blocks_per_tick, 1, 32);
         village.offline_arrival_blocks_per_tick = clamp(village.offline_arrival_blocks_per_tick, 32, 1024);
         village.max_population_per_bell = clamp(village.max_population_per_bell, 2, 200);
-        village.expansion_radius_max = clamp(village.expansion_radius_max, 96, 512);
         village.build_delay_ticks = clamp(village.build_delay_ticks, 2, 100);
         village.max_constructed_houses = clamp(village.max_constructed_houses, 4, 200);
         work.minimum_break_ticks = clamp(work.minimum_break_ticks, 4, 100);
@@ -202,6 +214,10 @@ public final class ColonyConfig {
         economy.birth_house_price = clamp(economy.birth_house_price, 1, 4096);
         economy.quarry_ore_chance_scale = clamp(economy.quarry_ore_chance_scale, 0, 100);
         economy.conscription_budget_days = clamp(economy.conscription_budget_days, 1, 100);
+        land.territory_start_radius = clamp(land.territory_start_radius, 32, 256);
+        land.territory_max_area = clamp(land.territory_max_area, 8000, 800000);
+        land.territory_noise = clamp(land.territory_noise, 0, 0.6);
+        land.domain_cap = clamp(land.domain_cap, 128, 2048);
     }
 
     private static double clamp(double v, double lo, double hi) {

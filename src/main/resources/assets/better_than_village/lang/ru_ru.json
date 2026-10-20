@@ -46,6 +46,7 @@
   "commands.better_than_village.status.targets": "Цели: [%s]",
   "commands.better_than_village.status.construction": "Строительство: свободных кроватей=%s/%s целевой запас, построено домов=%s/%s, состояние=%s.",
   "commands.better_than_village.status.repairs": "Ремонт: блоков=%s, координаты=[%s]",
+  "commands.better_than_village.status.land": "Земля: радиус территории=%s (макс. %s), площадь=%s из %s",
   "commands.better_than_village.status.walls": "Стены: радиус=%s, блоков=%s, осталось=%s, пропущено=%s, следующий план через %s тиков",
   "commands.better_than_village.status.demand": "Профессии: %s / Развитие: %s / Размножение: %s; готовых родителей=%s/2 минимум. Колония тратит 24 единицы питательности любой еды из общих складов; носить именно хлеб не нужно. Нужна свободная кровать; следующая попытка через %s с.",
   "commands.better_than_village.status.survey": "Разведка: %s",

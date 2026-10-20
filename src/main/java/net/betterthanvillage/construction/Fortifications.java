@@ -7,6 +7,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.FortBlock;
 import net.betterthanvillage.colony.FortificationState;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.defense.RaidShelter;
@@ -142,10 +143,7 @@ public final class Fortifications {
                 }
             }
         } else {
-            if (desired > colony.radius() - 4) {
-                if (desired + 8 > cfg.village.expansion_radius_max) return;
-                colony.growRadius(desired + 8);
-            }
+            if (!Territory.growToHoldCircle(colony, desired, 4)) return;
             relocate(level, colony, desired);
         }
         ColonyManager.markDirty(level);
@@ -207,10 +205,7 @@ public final class Fortifications {
         if (f.radius == 0) return;
         int need = neededFor(colony, x0, z0, w, d);
         if (need <= f.radius) return;
-        if (need > colony.radius() - 4) {
-            if (need + 8 > ColonyConfig.get().village.expansion_radius_max) return;
-            colony.growRadius(need + 8);
-        }
+        if (!Territory.growToHoldCircle(colony, need, 4)) return;
         relocate(level, colony, need);
     }
 
@@ -231,7 +226,8 @@ public final class Fortifications {
         double near = Math.sqrt(nx * nx + nz * nz);
         double far = cornerDist(core, new BoundingBox(minX, 0, minZ, maxX, 0, maxZ));
         if (near > r + 1 || far < r - 1) return false;
-        return neededFor(colony, x0, z0, w, d) + 8 > ColonyConfig.get().village.expansion_radius_max;
+        int need = neededFor(colony, x0, z0, w, d);
+        return (int) Math.ceil((need + 4) / Territory.minFactor(colony)) > Territory.maxRadius(colony);
     }
 
     /** Postpones a wall job without counting a failure. */

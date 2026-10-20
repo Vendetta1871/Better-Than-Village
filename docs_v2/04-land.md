@@ -13,15 +13,25 @@
 
 - **Noise.** The territory shape noise is deterministic from the village seed, so borders stay
   stable across reloads.
+- **Implementation.** The border in each direction lies at `radius × factor(angle)`, with the
+  factor a smooth periodic noise in [0.75, 1] (config `land.territory_noise`). The radius is the
+  outer bound of the shape. A generated village starts with a territory that holds all its pieces,
+  even past the maximum. Construction grows the radius up to the maximum area
+  (`land.territory_max_area`, 80 425 ≈ π·160²).
 - **Storage.** Domain ownership is stored **per chunk** (chunk → country). This makes borders
-  cheap to look up and easy to redraw when land is bought or conquered.
+  cheap to look up and easy to redraw when land is bought or conquered. The generation split
+  (below) is deterministic, so it is computed on demand and cached; only chunks whose owner
+  differs from it (bought, conquered, claimed by a founded village) are saved.
 
 ### Domains at world generation
 
 Generated villages **split the land between them**. Their domains touch but never overlap.
 
-- **Voronoi split.** Each chunk goes to the nearest generated bell, with a little noise on the
-  borders so they do not look ruler-straight.
+- **Voronoi split.** Each chunk goes to the nearest generated village, with a little noise on the
+  borders so they do not look ruler-straight. A village is located by its structure start chunk
+  (its "seat"), not its bell: the seat is known before the village generates. A generated village
+  that has not registered yet is a country whose id is derived from its seat; on registration the
+  village takes that id as its country.
 - **Cap.** A chunk farther than the cap (≈ 512) from every bell belongs to no one.
 - **Laziness.** Chunks are assigned when first needed (a bell is registered, or a chunk is
   looked up). The nearest bell is found among registered villages and structure starts from

@@ -31,7 +31,7 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | Package | Owner | Content |
 |---|---|---|
 | `config` | core | `ColonyConfig` (01 §2) |
-| `colony` | core | `Colony` (+NBT), `ColonySavedData`, `ColonyManager` (registration, membership, world tick), `ColonyStorage` (stockpile ops), `Census`, `Professions` (fixed professions, elder, inheritance, looks), `TerrainSurvey`, `SpawnSpots`, `StoragePlacer`, `StorageScanner`, `Protection`, `SafeEditScope`, `PathBudget`, `BellScanner` |
+| `colony` | core | `Colony` (+NBT), `ColonySavedData`, `ColonyManager` (registration, membership, world tick), `ColonyStorage` (stockpile ops), `Census`, `Professions` (fixed professions, elder, inheritance, looks), `Territory` (noisy territory shape), `Domain` (per-chunk country ownership), `TerrainSurvey`, `SpawnSpots`, `StoragePlacer`, `StorageScanner`, `Protection`, `SafeEditScope`, `PathBudget`, `BellScanner` |
 | `ai` | core | `VillagerController` (mobTick logic, 02 §2.2), `ColonyBrain` (activity task lists), `ColonyTask` (base class for work tasks), `ColonyGate`/`MovementGate`, `VillageStorageSensor`, `StarterWarehouseTask`, `VillagerUtil` |
 | `ai.work` | core | `WorkTracker` (status/credit/watchdog), `BlockWorkTimer` (break timing), `SafeEdit` (safe break/place), `ToolSupply` (tool tiers, smelting, buckets) |
 | `ai.nav` | core + gather | `Nav` (standard approach 03 §5.1, core); `DoorHandler`, `AntiStuck`, `WaypointNavigator` (gather) |

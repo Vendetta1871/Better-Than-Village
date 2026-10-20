@@ -31,14 +31,17 @@ import java.util.UUID;
  * Holds both persisted state (see {@link #save}) and runtime-only caches.
  */
 public final class Colony implements VillageCapability {
-    public static final int MIN_RADIUS = 96;
     public static final long NEVER = Long.MIN_VALUE;
     public static final long ROLE_CHANGED_DEFAULT = -4611686018427387904L;
 
     // ---- identity ----
     private UUID id;
     private BlockPos core;
-    private int radius = MIN_RADIUS;
+    private int radius = net.betterthanvillage.config.ColonyConfig.get().land.territory_start_radius;
+    /** The country the village belongs to (docs_v2/06-politics.md); a generated village is its own country. */
+    public UUID country;
+    /** Start chunk of the generated village structure; null for a founded village ({@link Domain}). */
+    public net.minecraft.world.level.ChunkPos seat;
 
     // ---- threat / offline ----
     public long lastThreatTick = NEVER;
@@ -188,6 +191,7 @@ public final class Colony implements VillageCapability {
     public Colony(UUID id, BlockPos core) {
         this.id = id;
         this.core = core.immutable();
+        this.country = id;
     }
 
     // ---------------------------------------------------------------- VillageCapability
@@ -299,19 +303,14 @@ public final class Colony implements VillageCapability {
         return n;
     }
 
-    /** True within the territory circle widened by margin blocks (XZ). */
+    /** True within the territory widened by margin blocks (XZ, {@link Territory}). */
     public boolean withinXZ(BlockPos pos, int margin) {
-        long dx = pos.getX() - core.getX();
-        long dz = pos.getZ() - core.getZ();
-        long r = (long) radius + margin;
-        return dx * dx + dz * dz <= r * r;
+        return Territory.contains(this, pos, margin);
     }
 
-    /** True inside the horizontal territory circle. */
+    /** True inside the territory (XZ, {@link Territory}). */
     public boolean containsXZ(BlockPos pos) {
-        long dx = pos.getX() - core.getX();
-        long dz = pos.getZ() - core.getZ();
-        return dx * dx + dz * dz <= (long) radius * radius;
+        return Territory.contains(this, pos, 0);
     }
 
     /** True inside the axis-aligned colony box (full height). */
@@ -390,6 +389,8 @@ public final class Colony implements VillageCapability {
         tag.putInt("deep_mining_yield", deepMiningYield);
         tag.putInt("mine_stall_trips", mineStallTrips);
         tag.putInt("last_mine_route_size", lastMineRouteSize);
+        NbtHelper.putUuid(tag, "country", country);
+        if (seat != null) tag.putLong("seat", seat.toLong());
         NbtHelper.putUuid(tag, "elder", elder);
         NbtHelper.putUuid(tag, "founder", founder);
         tag.putBoolean("founder_leader_lost", founderLeaderLost);
@@ -482,7 +483,10 @@ public final class Colony implements VillageCapability {
     public static Colony load(CompoundTag tag, HolderGetter<Block> blocks) {
         UUID id = NbtHelper.uuid(tag, "id");
         Colony c = new Colony(id != null ? id : UUID.randomUUID(), BlockPos.of(tag.getLong("core")));
-        c.radius = Math.max(MIN_RADIUS, tag.contains("radius") ? tag.getInt("radius") : MIN_RADIUS);
+        if (tag.contains("radius")) c.radius = Math.max(32, tag.getInt("radius"));
+        UUID country = NbtHelper.uuid(tag, "country");
+        if (country != null) c.country = country;
+        if (tag.contains("seat")) c.seat = new net.minecraft.world.level.ChunkPos(tag.getLong("seat"));
         c.lastThreatTick = tag.contains("last_threat_tick") ? tag.getLong("last_threat_tick") : NEVER;
         c.simulatedUntil = tag.contains("simulated_until") ? tag.getLong("simulated_until") : NEVER;
         c.catchupTicks = Math.max(0, tag.getLong("catchup_ticks"));

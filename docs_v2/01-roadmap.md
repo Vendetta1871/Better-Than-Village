@@ -74,6 +74,19 @@ Scope:
 - Expansion: when the territory is at its maximum, a search party founds a new village in the
   own domain or on unowned land.
 
+Milestones:
+
+| # | Milestone | Status |
+|---|---|---|
+| 2.1 | Territory: a noisy shape seeded by the village, grown by construction up to a maximum area; every "inside the village" test uses it | done |
+| 2.2 | Domain: countries, per-chunk ownership, the lazy Voronoi split between generated villages with a cap; `/btv land` map | done |
+| 2.3 | Plots and empty houses sold by the elder as deed maps; villagers keep off player plots | |
+| 2.4 | Commissioned construction: houses only for births, treasury commissions for infrastructure, builders paid per job | |
+| 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | |
+| 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | |
+| 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | |
+| 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | |
+
 Done when: a village fills its maximum territory, builds a second wall ring and founds a daughter
 village, and an illegal player build in the territory is demolished.
 

@@ -46,6 +46,7 @@
   "commands.better_than_village.status.targets": "Targets: [%s]",
   "commands.better_than_village.status.construction": "Construction: free beds=%s/%s target reserve, houses built=%s/%s, state=%s.",
   "commands.better_than_village.status.repairs": "Repairs: blocks=%s, positions=[%s]",
+  "commands.better_than_village.status.land": "Land: territory radius=%s (max %s), area=%s of %s",
   "commands.better_than_village.status.walls": "Walls: radius=%s, blocks=%s, left=%s, skipped=%s, next plan in %s ticks",
   "commands.better_than_village.status.demand": "Professions: %s / Development: %s / Breeding: %s; ready parents=%s/2 minimum. The colony spends 24 nutrition of any food from public storages; bread is not required. A free bed is needed; next attempt in %s s.",
   "commands.better_than_village.status.survey": "Survey: %s",

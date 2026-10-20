@@ -36,6 +36,8 @@ public final class ColonySavedData extends SavedData {
     private final Map<Long, UUID> blockOwners = new HashMap<>();
     public final List<LandPlot> land = new ArrayList<>();
     public final List<LandWarning> landWarnings = new ArrayList<>();
+    /** Domain chunks whose owner differs from the generation split ({@link Domain}): chunk -> country. */
+    public final Map<Long, UUID> domainChanges = new java.util.HashMap<>();
     /** Open debts by id (docs_v2/03-economy.md §Credit and debt notes). */
     public final Map<UUID, Debt> debts = new LinkedHashMap<>();
     /** Runtime only: recent player placements, pos -> (player, tick). */
@@ -250,6 +252,14 @@ public final class ColonySavedData extends SavedData {
         ListTag debtList = new ListTag();
         debts.values().forEach(d -> debtList.add(d.save()));
         tag.put("debts", debtList);
+        ListTag domain = new ListTag();
+        domainChanges.forEach((chunk, country) -> {
+            CompoundTag e = new CompoundTag();
+            e.putLong("chunk", chunk);
+            NbtHelper.putUuid(e, "country", country);
+            domain.add(e);
+        });
+        tag.put("domain_changes", domain);
         return tag;
     }
 
@@ -290,6 +300,12 @@ public final class ColonySavedData extends SavedData {
         for (int i = 0; i < debtList.size(); i++) {
             Debt d = Debt.load(debtList.getCompound(i));
             if (d != null) data.debts.put(d.id, d);
+        }
+        ListTag domain = tag.getList("domain_changes", Tag.TAG_COMPOUND);
+        for (int i = 0; i < domain.size(); i++) {
+            CompoundTag e = domain.getCompound(i);
+            UUID country = NbtHelper.uuid(e, "country");
+            if (country != null) data.domainChanges.put(e.getLong("chunk"), country);
         }
         return data;
     }

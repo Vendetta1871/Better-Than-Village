@@ -142,6 +142,7 @@ public final class ModEvents {
         ColonyManager.clearCaches();
         RoleTools.clearCaches();
         BellScanner.clear();
+        net.betterthanvillage.colony.Domain.clear();
         PENDING_RINGS.clear();
     }
 }

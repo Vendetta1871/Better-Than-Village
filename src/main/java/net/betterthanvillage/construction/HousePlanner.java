@@ -3,6 +3,7 @@ package net.betterthanvillage.construction;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ConstructionJob;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.economy.BirthOrder;
@@ -60,8 +61,8 @@ public final class HousePlanner {
             }
             if (order != null) order.job = job.id;
             colony.jobs.add(job);
-            int reach = (int) Math.ceil(Math.sqrt(colony.core().distSqr(site.origin()))) + Math.max(site.w(), site.d()) + 4;
-            colony.growRadius(Math.min(cfg.village.expansion_radius_max, reach));
+            Territory.growToHold(colony, site.origin().getX(), site.origin().getZ(), site.origin().getX() + site.w() - 1,
+                    site.origin().getZ() + site.d() - 1, 4);
             colony.runtime.remove(FAILS_KEY);
             ColonyManager.markDirty(level);
         }
@@ -72,15 +73,12 @@ public final class HousePlanner {
 
     /**
      * A full search pass found nothing: retry with exponential backoff (200 .. 6400 ticks) and grow
-     * the colony radius only if the pass actually evaluated loaded ground at its edge.
+     * the territory (up to its maximum) only if the pass actually evaluated loaded ground at its edge.
      */
     private static void failedPass(Colony colony, long now) {
         int fails = (Integer) colony.runtime.getOrDefault(FAILS_KEY, 0) + 1;
         colony.runtime.put(FAILS_KEY, fails);
-        int max = ColonyConfig.get().village.expansion_radius_max;
-        if (SiteSearch.passReachedEdge(colony) && colony.radius() < max) {
-            colony.growRadius(Math.min(max, colony.radius() + 16));
-        }
+        if (SiteSearch.passReachedEdge(colony)) Territory.grow(colony, 16);
         colony.nextHousePlanTick = now + (200L << Math.min(fails - 1, 5));
     }
 

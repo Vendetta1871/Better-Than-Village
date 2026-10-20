@@ -61,7 +61,8 @@ public final class BellScanner {
             if (!level.isLoaded(bell) || !level.getBlockState(bell).is(Blocks.BELL)) continue;
             StructureStart start = level.structureManager().getStructureWithPieceAt(bell, StructureTags.VILLAGE);
             if (!start.isValid() || start.getPieces().isEmpty()) continue;
-            ColonyManager.registerOrMerge(level, bell, start.getBoundingBox(), isAbandoned(start));
+            ColonyManager.registerOrMerge(level, bell, start.getBoundingBox(), start.getPieces().stream().map(StructurePiece::getBoundingBox).toList(),
+                    start.getChunkPos(), isAbandoned(start));
         }
     }
 

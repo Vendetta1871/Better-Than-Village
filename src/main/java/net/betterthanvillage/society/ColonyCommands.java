@@ -41,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.UUID;
 
 /** /btv commands (01 §10, 06 §8). */
 public final class ColonyCommands {
@@ -56,6 +57,7 @@ public final class ColonyCommands {
                 .then(Commands.literal("status").requires(s -> s.hasPermission(2)).executes(ColonyCommands::status))
                 .then(Commands.literal("offers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::offers))
                 .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
+                .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land))
                 .then(film()));
     }
 
@@ -155,6 +157,51 @@ public final class ColonyCommands {
         return 1;
     }
 
+    /**
+     * Debug map of the land around the colony, 2 chunks per character: '#' its territory, '@' its bell, a letter
+     * per country owning the domain ('A' the colony's own), '.' nobody's land.
+     */
+    private static int land(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        List<UUID> countries = new ArrayList<>();
+        countries.add(c.country);
+        Map<UUID, Integer> chunks = new java.util.LinkedHashMap<>();
+        net.minecraft.world.level.ChunkPos center = new net.minecraft.world.level.ChunkPos(c.core());
+        int half = 18;
+        for (int row = -half; row <= half; row++) {
+            StringBuilder line = new StringBuilder();
+            for (int col = -half; col <= half; col++) {
+                net.minecraft.world.level.ChunkPos chunk = new net.minecraft.world.level.ChunkPos(center.x + col * 2, center.z + row * 2);
+                UUID owner = net.betterthanvillage.colony.Domain.countryAt(level, chunk);
+                if (owner != null) chunks.merge(owner, 1, Integer::sum);
+                BlockPos mid = chunk.getMiddleBlockPosition(c.core().getY());
+                char ch;
+                if (row == 0 && col == 0) ch = '@';
+                else if (c.containsXZ(mid)) ch = '#';
+                else if (owner == null) ch = '.';
+                else {
+                    if (!countries.contains(owner)) countries.add(owner);
+                    ch = (char) ('A' + Math.min(25, countries.indexOf(owner)));
+                }
+                line.append(ch);
+            }
+            ok(source, Component.literal(line.toString()));
+        }
+        StringJoiner legend = new StringJoiner(", ");
+        for (int i = 0; i < countries.size(); i++) {
+            legend.add((char) ('A' + Math.min(25, i)) + "=" + countries.get(i).toString().substring(0, 8) + " (" + chunks.getOrDefault(countries.get(i), 0) * 4 + " chunks)");
+        }
+        ok(source, Component.literal("Countries: " + legend + "; territory radius=" + c.radius() + " max=" + net.betterthanvillage.colony.Territory.maxRadius(c)
+                + " seat=" + (c.seat == null ? "-" : c.seat.toString())));
+        return 1;
+    }
+
     static List<Component> statusLines(ServerLevel level, Colony c) {
         long now = level.getGameTime();
         List<Villager> members = ColonyManager.members(level, c);
@@ -236,6 +283,8 @@ public final class ColonyCommands {
             repairs.add(pos.toShortString());
         }
         out.add(Msg.command("status.repairs", c.repairs.size(), repairs.toString()));
+        out.add(Msg.command("status.land", c.radius(), net.betterthanvillage.colony.Territory.maxRadius(c),
+                net.betterthanvillage.colony.Territory.area(c), ColonyConfig.get().land.territory_max_area));
         out.add(Msg.command("status.walls", c.fortifications.radius, c.fortifications.managed.size(), c.fortifications.pending.size(),
                 c.fortifications.skipped, Math.max(0, c.fortifications.nextPlan - now)));
         List<String> gate = Census.populationGate(level, c);
