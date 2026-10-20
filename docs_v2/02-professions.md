@@ -176,11 +176,23 @@ They do not starve to death. Instead they:
 3. are the first members of the next search party: poverty pushes colonization
    ([04](04-land.md));
 4. are never part of a candidate pair for a birth.
-- **Inheritance.** A child gets the profession of one parent, 50/50 by default. It is chosen
-  when the parents commission the house, before the birth, because the house comes with the
-  workplace for that profession ([03 §Births](03-economy.md)).
-  A config option instead favours the profession with the higher market demand. If one parent
-  is the elder, the child gets the other parent's profession.
+- **Inheritance.** The child's profession is chosen when the parents commission the house,
+  before the birth, because the house comes with the workplace for that profession
+  ([03 §Births](03-economy.md)). The village wants a share of each trade (about a quarter
+  farmers, a sixth warriors, one carpenter, miner and mason per eight adults; herders, smiths,
+  healers and librarians in bigger villages), and a farmer more while anyone goes hungry.
+  - If a parent's trade is one the village lacks (or the village lacks nothing), the child
+    inherits it, 50/50 between the parents. The elder office is never inherited.
+  - Otherwise the child takes up the trade the village lacks most, as the **first of its line**.
+- **Hereditary craft.** A villager born into its trade (and every villager of a generated
+  village) is a **master**. The first of a line is not:
+  - it works 1.5 times slower;
+  - it knows only the basic workshop recipes (no iron tools, shears, buckets, bows, arrows,
+    books or potions);
+  - as a miner it finds ore in stone half as often;
+  - its goods sell for 85 % of the price.
+
+  Its children in the same trade are masters.
 - **Personality.** At birth, a child gets a greed trait `g` in roughly ±0.3 (see 03). It is
   drawn around the average of the parents' traits.
 

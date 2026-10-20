@@ -84,6 +84,8 @@ Every building has an **owner**: a household, the village, or a player plot.
 - **Payment.** Each worker is paid per job at market rates. Materials are bought at the
   gathering and charged to the commissioner.
 - **No speculative houses.** Empty houses come only from deaths, conquest and worldgen.
+- **Reachable sites only.** A site is accepted only if a villager standing by the bell can walk
+  to its door; otherwise the search moves on (implemented in phase 1).
 
 Reuses the whole pipeline: site search, plans, the builder task, material fetching, roads and
 repair, old [05-construction §2, §3, §6](../docs/independent-villagers/05-construction.md),
@@ -105,6 +107,8 @@ inside the territory.
   need more becomes a **tunnel** through the hill instead.
 - **Materials.** Fill uses real blocks: the miner's own spoil, or dirt or cobblestone bought at
   the gathering.
+- **Unreachable houses.** A house, bed or chest villagers cannot walk to (generated villages
+  have some on hillsides) gets a path cut or built to it: steps, a ramp or a tunnel.
 
 ## Layered walls
 

@@ -25,6 +25,8 @@ public final class BirthOrder {
     public UUID job;
     public long placedDay;
     public boolean workplaceDone;
+    /** The child's generations in its trade (0: first of its line). */
+    public int lineage;
 
     public BirthOrder(UUID id) {
         this.id = id;
@@ -43,6 +45,7 @@ public final class BirthOrder {
         NbtHelper.putUuid(tag, "job", job);
         tag.putLong("placed_day", placedDay);
         tag.putBoolean("workplace_done", workplaceDone);
+        tag.putInt("lineage", lineage);
         return tag;
     }
 
@@ -62,6 +65,7 @@ public final class BirthOrder {
         o.job = NbtHelper.uuid(tag, "job");
         o.placedDay = tag.getLong("placed_day");
         o.workplaceDone = tag.getBoolean("workplace_done");
+        o.lineage = NbtHelper.clamp(tag.getInt("lineage"), 0, 9);
         return o;
     }
 }

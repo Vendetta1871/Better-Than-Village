@@ -19,9 +19,10 @@ public final class Quarry {
     }
 
     /** The bonus ore for breaking this stone block, or EMPTY. */
-    public static ItemStack bonus(ServerLevel level, BlockPos pos, BlockState state, RandomSource random) {
+    public static ItemStack bonus(ServerLevel level, BlockPos pos, BlockState state, RandomSource random, boolean master) {
         if (!state.is(BlockTags.BASE_STONE_OVERWORLD)) return ItemStack.EMPTY;
-        double scale = ColonyConfig.get().economy.quarry_ore_chance_scale;
+        // A first-generation miner knows less of where ore hides (Skill).
+        double scale = ColonyConfig.get().economy.quarry_ore_chance_scale * (master ? 1.0 : 0.5);
         if (scale <= 0) return ItemStack.EMPTY;
         int y = pos.getY();
         double roll = random.nextDouble() / scale;

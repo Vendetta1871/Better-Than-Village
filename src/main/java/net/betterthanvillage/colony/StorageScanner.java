@@ -40,12 +40,12 @@ public final class StorageScanner {
             }
         }
         if (colony.scanCursor >= TOTAL) {
+            // The treasury is only the village's own chests; other chests stay loose (docs_v2/03 §Treasury).
             colony.storages.clear();
-            colony.storages.addAll(colony.scanPending);
-            for (BlockPos managed : colony.managedStorages.keySet()) {
-                if (!colony.storages.contains(managed)) {
-                    colony.storages.add(managed);
-                }
+            colony.storages.addAll(colony.managedStorages.keySet());
+            colony.looseChests.clear();
+            for (BlockPos found : colony.scanPending) {
+                if (!colony.managedStorages.containsKey(found)) colony.looseChests.add(found);
             }
             colony.scanPending.clear();
             colony.scanCursor = -1;

@@ -73,8 +73,11 @@ public final class Conscription {
         for (Household h : colony.households.values()) {
             if (!colony.conscripts.containsKey(h.owner)) working.merge(colony.tradeOf(h.owner), 1, Integer::sum);
         }
+        boolean hungry = colony.households.values().stream().anyMatch(x -> x.hungryDays > 0);
         for (Household h : idle) {
             ColonyRole trade = colony.tradeOf(h.owner);
+            // Farmers are never taken while anyone goes hungry.
+            if (hungry && trade == ColonyRole.FARMER) continue;
             // The last holder of a trade keeps it, so the village never loses a trade to the army.
             if (working.getOrDefault(trade, 0) <= 1) continue;
             if ((long) (warriors + 1) * wage * days <= treasury) {

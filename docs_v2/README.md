@@ -72,13 +72,14 @@ but never join a country.
 | Domain | The land a country controls. At generation it is split between villages so that domains touch but never overlap. The player is free here; it is defended only against other countries. |
 | Household | One adult villager with their house, home chest(s), money and goods. |
 | Home chest | The chest(s) inside a villager's house. They hold money, food, tools and goods for sale. |
-| Treasury | The village stock: the warehouse the village placed by the bell and every village chest that is not a home chest. It holds tax money and the in-kind levy. |
+| Treasury | The chests in the elder's house. It holds tax money and the in-kind levy. |
 | Gathering | The morning or evening market by the bell, where villagers trade with each other. |
 | Plot | Land inside the territory that the player has bought. The player builds freely on it. |
 | Deed map | A vanilla filled map that marks a bought plot or house with red X markers. It works as a receipt; ownership is stored on the server. |
 | Treaty book | A vanilla written book with the terms of a peace treaty. It is a receipt and collectible only. |
 | Debt note | A vanilla written book signed by a debtor, kept by the creditor. The debt itself is stored on the server. Notes the player holds are bearer instruments: the original book is needed to collect. |
 | Hostility | Relations between countries that are terrible but not yet war. Sabotage is allowed. |
+| First of its line | A villager in a trade its parents did not practise. It works slower and knows fewer recipes than a master born into the trade. |
 | Conscript | An idle adult serving in the army for a while. They keep their trade. |
 | Night operation | A covert night mission against another country or the player: a theft raid or sabotage. |
 | Illegal build | Player blocks in a village territory outside the player's own plots. Villagers demolish them. |

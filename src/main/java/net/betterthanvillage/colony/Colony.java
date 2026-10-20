@@ -146,6 +146,11 @@ public final class Colony implements VillageCapability {
     public final Map<UUID, Long> conscripts = new LinkedHashMap<>();
     /** Set once the generated village got its households and starting capital. */
     public boolean householdsSettled;
+    /** The bed the treasury hall is built around, and the elder it belonged to (the hall moves only with a new elder). */
+    public BlockPos hallBed;
+    public UUID hallElder;
+    /** Set once the contents of loose village chests were taken into the treasury. */
+    public boolean looseAbsorbed;
     /** Window index (day * 2 + window) of the last cleared gathering. */
     public long lastGathering = Long.MIN_VALUE;
     /** Market index per goods family (docs_v2/03-economy.md §Prices). */
@@ -155,8 +160,10 @@ public final class Colony implements VillageCapability {
     public final List<ConstructionJob> jobs = new ArrayList<>();
 
     // ---- runtime only ----
-    /** Storage list rebuilt by the scan (scanned containers first, then managed storages). */
+    /** The treasury: the village's own chests (managed storages), rebuilt by the scan. */
     public final List<BlockPos> storages = new ArrayList<>();
+    /** Village chests found by the scan that are neither treasury nor home chests (house loot, market stalls). */
+    public final List<BlockPos> looseChests = new ArrayList<>();
     public int scanCursor = -1;
     public final List<BlockPos> scanPending = new ArrayList<>();
     public long lastScanFinish = NEVER;
@@ -453,6 +460,9 @@ public final class Colony implements VillageCapability {
         households.values().forEach(h -> householdList.add(h.save()));
         tag.put("households", householdList);
         tag.putBoolean("households_settled", householdsSettled);
+        tag.putBoolean("loose_absorbed", looseAbsorbed);
+        if (hallBed != null) tag.putLong("hall_bed", hallBed.asLong());
+        NbtHelper.putUuid(tag, "hall_elder", hallElder);
         tag.putLong("last_gathering", lastGathering);
         CompoundTag conscriptTag = new CompoundTag();
         conscripts.forEach((id, since) -> conscriptTag.putLong(id.toString(), since));
@@ -619,6 +629,9 @@ public final class Colony implements VillageCapability {
             if (h != null) c.households.put(h.owner, h);
         }
         c.householdsSettled = tag.getBoolean("households_settled");
+        c.looseAbsorbed = tag.getBoolean("loose_absorbed");
+        c.hallBed = tag.contains("hall_bed") ? BlockPos.of(tag.getLong("hall_bed")) : null;
+        c.hallElder = NbtHelper.uuid(tag, "hall_elder");
         c.lastGathering = tag.contains("last_gathering") ? tag.getLong("last_gathering") : Long.MIN_VALUE;
         ListTag orders = tag.getList("birth_orders", Tag.TAG_COMPOUND);
         for (int i = 0; i < orders.size(); i++) {

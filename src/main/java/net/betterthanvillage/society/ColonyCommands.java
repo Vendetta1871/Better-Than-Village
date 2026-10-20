@@ -285,7 +285,7 @@ public final class ColonyCommands {
             int food = 0;
             for (ColonyStorage.Slot slot : ColonyStorage.usable(level, h)) food += ColonyStorage.foodValue(slot.container());
 list.add(c.tradeOf(h.owner).serializedName() + (c.conscripts.containsKey(h.owner) ? "(conscript)" : "")
-                    + (h.idlePoor ? "(idle poor)" : "") + (h.inDefault ? "(in default)" : "") + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
+                    + (h.lineage == 0 ? "(first of line)" : "") + (h.idlePoor ? "(idle poor)" : "") + (h.inDefault ? "(in default)" : "") + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
                     + " chests=" + h.chests.size() + " em=" + e + " items=" + items + " food=" + food + " income=" + h.income
                     + " hungry=" + h.hungryDays + String.format(" tax=%.1f", h.taxDue) + " owed=" + h.wagesOwed + " labor=" + h.labor
                     + String.format(" g=%.2f", h.greed));

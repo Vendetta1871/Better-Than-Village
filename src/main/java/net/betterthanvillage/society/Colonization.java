@@ -525,7 +525,7 @@ public final class Colonization {
             if (moved) {
                 colony.roles.remove(id);
                 colony.pendingProfessions.remove(id);
-                Households.dissolve(colony, id);
+                Households.dissolve(level, colony, id);
             } else {
                 // The next census gives the held trade back.
                 colony.setRole(id, ColonyRole.CITIZEN, now);

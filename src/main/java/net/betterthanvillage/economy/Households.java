@@ -144,6 +144,7 @@ public final class Households {
             h.chests.removeIf(pos -> level.isLoaded(pos) && !isContainer(level, pos));
         }
         if (settling) {
+            houseTheElder(level, colony, adults);
             handOutStartingCapital(level, colony, created);
             colony.householdsSettled = true;
         }
@@ -271,7 +272,7 @@ public final class Households {
     private static void claimHouseChest(ServerLevel level, Colony colony, Household h) {
         BlockPos best = null;
         double bestD = Double.MAX_VALUE;
-        for (BlockPos pos : colony.storages) {
+        for (BlockPos pos : colony.looseChests) {
             if (colony.managedStorages.containsKey(pos) || !level.isLoaded(pos)) continue;
             if (Math.abs(pos.getX() - h.bed.getX()) > HOUSE_XZ || Math.abs(pos.getZ() - h.bed.getZ()) > HOUSE_XZ
                     || Math.abs(pos.getY() - h.bed.getY()) > HOUSE_Y) continue;
@@ -291,6 +292,7 @@ public final class Households {
     private static void claim(Colony colony, Household h, BlockPos pos) {
         if (!h.chests.contains(pos)) h.chests.add(pos);
         colony.storages.remove(pos);
+        colony.looseChests.remove(pos);
     }
 
     /**
@@ -398,8 +400,9 @@ public final class Households {
     }
 
     /** A newborn's household: the bed of its paid-for house and a home chest beside it (03 §Births). */
-    static void createChild(ServerLevel level, Colony colony, UUID child, BlockPos bed, float greed) {
+    static void createChild(ServerLevel level, Colony colony, UUID child, BlockPos bed, float greed, int lineage) {
         Household h = new Household(child);
+        h.lineage = lineage;
         h.bed = bed;
         h.greed = greed;
         h.founded = level.getGameTime();
@@ -408,16 +411,67 @@ public final class Households {
         if (ColonyManager.terrainChangesAllowed(level)) placeHomeChest(level, colony, h, true);
     }
 
+    /**
+     * The workplace bought with the child's house includes the basic tools and inputs of its trade; its first
+     * days of food come from the treasury's stock (03 §Births).
+     */
+    static void furnishChild(ServerLevel level, Colony colony, UUID child, ColonyRole trade) {
+        Household h = colony.households.get(child);
+        if (h == null || !h.hasChest()) return;
+        List<ColonyStorage.Slot> home = ColonyStorage.usable(level, h);
+        for (ItemStack stack : startingKit(trade)) {
+            if (stack.is(Items.BREAD)) {
+                List<ItemStack> food = Chests.take(ColonyStorage.treasury(level, colony), ColonyStorage::isFood, 3);
+                Chests.put(home, food);
+            } else {
+                Chests.put(home, List.of(stack));
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- end of a household
 
-    /** A villager left for good: its home chests pass to the village (treasury), the household ends. */
-    public static boolean dissolve(Colony colony, UUID villager) {
+    /**
+     * A villager left for good: what its home chests hold passes to the treasury, the chests stay in the house for
+     * the next household there, and the household ends.
+     */
+    public static boolean dissolve(ServerLevel level, Colony colony, UUID villager) {
         Household h = colony.households.remove(villager);
         if (h == null) return false;
+        List<ColonyStorage.Slot> treasury = ColonyStorage.treasury(level, colony);
         for (BlockPos pos : h.chests) {
-            colony.managedStorages.putIfAbsent(pos, StorageKind.GENERAL);
-            if (!colony.storages.contains(pos)) colony.storages.add(pos);
+            Container c = ColonyStorage.container(level, pos);
+            if (c != null) TreasuryHall.empty(c, treasury);
+            if (!colony.looseChests.contains(pos)) colony.looseChests.add(pos);
         }
         return true;
+    }
+
+    /**
+     * Settlement (03 §Households): the elder lives in a house, since the treasury is kept there. A homeless elder
+     * takes the bed of another household, which looks for a new bed itself.
+     */
+    private static void houseTheElder(ServerLevel level, Colony colony, List<Villager> adults) {
+        Household elder = colony.elder == null ? null : colony.households.get(colony.elder);
+        if (elder == null || elder.bed != null) return;
+        Villager elderV = null, otherV = null;
+        Household other = null;
+        for (Villager v : adults) {
+            if (v.getUUID().equals(colony.elder)) elderV = v;
+        }
+        for (Villager v : adults) {
+            Household h = colony.households.get(v.getUUID());
+            if (h != null && h != elder && h.bed != null) {
+                other = h;
+                otherV = v;
+                break;
+            }
+        }
+        if (elderV == null || other == null) return;
+        GlobalPos home = GlobalPos.of(level.dimension(), other.bed);
+        otherV.getBrain().eraseMemory(MemoryModuleType.HOME);
+        elderV.getBrain().setMemory(MemoryModuleType.HOME, home);
+        elder.bed = other.bed;
+        other.bed = null;
     }
 }

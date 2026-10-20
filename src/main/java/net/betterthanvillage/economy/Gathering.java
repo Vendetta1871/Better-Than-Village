@@ -165,7 +165,8 @@ public final class Gathering {
             if (slots.isEmpty()) continue;
             int credit = Credit.available(level, colony, h, goodsValue(colony, slots));
             ColonyRole trade = colony.tradeOf(id);
-            parties.add(new Market.Party(id, trade, slots, v, h.greed, Needs.household(trade)).withCredit(credit));
+            parties.add(new Market.Party(id, trade, slots, v, h.greed, Needs.household(trade)).withCredit(credit)
+                    .withQuality(Skill.quality(colony, id)));
         }
         Market.Lender lender = (seller, buyer, emeralds) -> {
             Debt.Party creditor = seller.id() == null ? Debt.Party.treasury(colony.id()) : Debt.Party.household(seller.id(), colony.id());

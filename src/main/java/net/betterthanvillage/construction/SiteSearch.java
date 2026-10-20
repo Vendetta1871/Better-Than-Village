@@ -237,9 +237,16 @@ public final class SiteSearch {
         return false;
     }
 
-    /** Reachability test: the builder nearest to the core can path to one of the door points. */
+    /**
+     * Reachability test: a villager standing by the bell (else the builder nearest to it) can path to one of the
+     * door points, so everyone who gathers at the bell can walk home. Unreachable sites are skipped; making them
+     * reachable is the miner's terraforming (docs_v2/04-land.md).
+     */
     static boolean reachable(ServerLevel level, Colony colony, int x0, int z0, int w, int d) {
-        List<Villager> builders = builders(level, colony);
+        BlockPos c = colony.core();
+        List<Villager> builders = level.getEntitiesOfClass(Villager.class, new AABB(c).inflate(16, 8, 16),
+                v -> v.isAlive() && !v.isBaby() && ColonyManager.colonyOf(level, v) == colony && v.onGround());
+        if (builders.isEmpty()) builders = builders(level, colony);
         if (builders.isEmpty()) return false;
         Set<BlockPos> doors = new LinkedHashSet<>();
         for (int[] o : Roads.doorOffsets(w, d)) {

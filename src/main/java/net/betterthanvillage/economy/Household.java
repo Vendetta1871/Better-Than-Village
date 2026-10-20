@@ -45,6 +45,8 @@ public final class Household {
     public double incomeAvg;
     /** Still in default after the elder's confiscation: first to be conscripted. */
     public boolean inDefault;
+    /** Generations in its trade: 0 for the first of its line (Skill), at least 1 for a master. */
+    public int lineage = 1;
     /** Idle and the treasury cannot afford to conscript it (02 §When the army is full). */
     public boolean idlePoor;
 
@@ -79,6 +81,7 @@ public final class Household {
         tag.putDouble("income_avg", incomeAvg);
         tag.putBoolean("in_default", inDefault);
         tag.putBoolean("idle_poor", idlePoor);
+        tag.putInt("lineage", lineage);
         return tag;
     }
 
@@ -111,6 +114,7 @@ public final class Household {
         h.incomeAvg = Double.isFinite(avg) ? Math.max(0, Math.min(10_000, avg)) : 0;
         h.inDefault = tag.getBoolean("in_default");
         h.idlePoor = tag.getBoolean("idle_poor");
+        h.lineage = tag.contains("lineage") ? NbtHelper.clamp(tag.getInt("lineage"), 0, 9) : 1;
         return h;
     }
 }

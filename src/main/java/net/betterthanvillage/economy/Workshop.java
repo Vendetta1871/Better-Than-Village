@@ -29,7 +29,8 @@ public final class Workshop {
      * One recipe; the output is computed from the consumed stacks (planks follow the log's wood type).
      * product tells which held items count against the target.
      */
-    public record Recipe(String name, List<Input> inputs, Function<List<ItemStack>, ItemStack> output, Predicate<ItemStack> product, int target) {
+    public record Recipe(String name, List<Input> inputs, Function<List<ItemStack>, ItemStack> output, Predicate<ItemStack> product, int target,
+                         boolean master) {
     }
 
     private static final Predicate<ItemStack> LOGS = s -> s.is(ItemTags.LOGS);
@@ -55,11 +56,16 @@ public final class Workshop {
     }
 
     private static Recipe r(String name, Function<List<ItemStack>, ItemStack> output, Predicate<ItemStack> product, int target, Input... inputs) {
-        return new Recipe(name, List.of(inputs), output, product, target);
+        return new Recipe(name, List.of(inputs), output, product, target, false);
     }
 
     private static Recipe r(String name, Item item, int count, int target, Input... inputs) {
         return r(name, out(item, count), s -> s.is(item), target, inputs);
+    }
+
+    /** A recipe only masters of the trade know (Skill). */
+    private static Recipe master(Recipe r) {
+        return new Recipe(r.name(), r.inputs(), r.output(), r.product(), r.target(), true);
     }
 
     /** Planks of the consumed log's wood ("oak_log" -> "oak_planks"), oak if unknown. */
@@ -84,8 +90,8 @@ public final class Workshop {
                 list.add(r("fence", Items.OAK_FENCE, 3, 9, in(PLANKS, 4), in(STICK, 2)));
                 list.add(r("chest", Items.CHEST, 1, 2, in(PLANKS, 8)));
                 list.add(r("bed", Items.WHITE_BED, 1, 2, in(PLANKS, 3), in(s -> s.is(ItemTags.WOOL), 3)));
-                list.add(r("bow", Items.BOW, 1, 2, in(STICK, 3), in(Items.STRING, 3)));
-                list.add(r("arrows", Items.ARROW, 4, 32, in(Items.FLINT, 1), in(STICK, 1), in(Items.FEATHER, 1)));
+                list.add(master(r("bow", Items.BOW, 1, 2, in(STICK, 3), in(Items.STRING, 3))));
+                list.add(master(r("arrows", Items.ARROW, 4, 32, in(Items.FLINT, 1), in(STICK, 1), in(Items.FEATHER, 1))));
             }
             case SMITH -> {
                 list.add(r("smelt iron", Items.IRON_INGOT, 4, 24, in(Items.RAW_IRON, 4), in(FUEL, 1)));
@@ -96,23 +102,23 @@ public final class Workshop {
                 list.add(r("stone axe", Items.STONE_AXE, 1, 2, in(COBBLE, 3), in(STICK, 2)));
                 list.add(r("stone hoe", Items.STONE_HOE, 1, 1, in(COBBLE, 2), in(STICK, 2)));
                 list.add(r("stone sword", Items.STONE_SWORD, 1, 1, in(COBBLE, 2), in(STICK, 1)));
-                list.add(r("shears", Items.SHEARS, 1, 1, in(IRON, 2)));
-                list.add(r("bucket", Items.BUCKET, 1, 1, in(IRON, 3)));
-                list.add(r("iron pickaxe", Items.IRON_PICKAXE, 1, 1, in(IRON, 3), in(STICK, 2)));
-                list.add(r("iron axe", Items.IRON_AXE, 1, 1, in(IRON, 3), in(STICK, 2)));
-                list.add(r("iron sword", Items.IRON_SWORD, 1, 1, in(IRON, 2), in(STICK, 1)));
+                list.add(master(r("shears", Items.SHEARS, 1, 1, in(IRON, 2))));
+                list.add(master(r("bucket", Items.BUCKET, 1, 1, in(IRON, 3))));
+                list.add(master(r("iron pickaxe", Items.IRON_PICKAXE, 1, 1, in(IRON, 3), in(STICK, 2))));
+                list.add(master(r("iron axe", Items.IRON_AXE, 1, 1, in(IRON, 3), in(STICK, 2))));
+                list.add(master(r("iron sword", Items.IRON_SWORD, 1, 1, in(IRON, 2), in(STICK, 1))));
             }
             case LIBRARIAN -> {
                 list.add(r("paper", Items.PAPER, 3, 24, in(Items.SUGAR_CANE, 3)));
-                list.add(r("book", Items.BOOK, 1, 6, in(Items.PAPER, 3), in(Items.LEATHER, 1)));
+                list.add(master(r("book", Items.BOOK, 1, 6, in(Items.PAPER, 3), in(Items.LEATHER, 1))));
             }
             case HEALER -> {
                 list.add(r("bottles", Items.GLASS_BOTTLE, 3, 6, in(Items.GLASS, 3)));
                 list.add(r("nuggets", Items.GOLD_NUGGET, 9, 9, in(Items.GOLD_INGOT, 1)));
-                list.add(r("glistering melon", Items.GLISTERING_MELON_SLICE, 1, 2, in(Items.MELON_SLICE, 1), in(Items.GOLD_NUGGET, 8)));
+                list.add(master(r("glistering melon", Items.GLISTERING_MELON_SLICE, 1, 2, in(Items.MELON_SLICE, 1), in(Items.GOLD_NUGGET, 8))));
                 // Brewed without Nether ingredients (deliberate simplification).
-                list.add(r("healing potions", used -> PotionContents.createItemStack(Items.POTION, Potions.HEALING).copyWithCount(3),
-                        s -> s.is(Items.POTION), 6, in(Items.GLASS_BOTTLE, 3), in(Items.GLISTERING_MELON_SLICE, 1)));
+                list.add(master(r("healing potions", used -> PotionContents.createItemStack(Items.POTION, Potions.HEALING).copyWithCount(3),
+                        s -> s.is(Items.POTION), 6, in(Items.GLASS_BOTTLE, 3), in(Items.GLISTERING_MELON_SLICE, 1))));
             }
             default -> {
             }
@@ -121,8 +127,9 @@ public final class Workshop {
     }
 
     /** The first recipe the chests can run now (inputs present, product under target), or null. */
-    public static Recipe ready(List<Recipe> recipes, List<ColonyStorage.Slot> slots) {
+    public static Recipe ready(List<Recipe> recipes, List<ColonyStorage.Slot> slots, boolean master) {
         for (Recipe r : recipes) {
+            if (r.master() && !master) continue;
             if (Chests.count(slots, r.product()) >= r.target()) continue;
             boolean ok = true;
             for (Input in : r.inputs()) {

@@ -78,13 +78,15 @@ public final class ColonyConfig {
         /** Share of the starting emeralds that goes to the treasury. */
         public double treasury_share = 0.3;
         /** Money tax: share of a household's income since the last collection. */
-        public double tax_rate = 0.10;
+        public double tax_rate = 0.15;
         /** Levy in kind: share of produced goods. */
-        public double levy_rate = 0.05;
+        public double levy_rate = 0.10;
         /** Emeralds per day the treasury pays the elder. */
         public int elder_salary = 1;
         /** Emeralds per day the treasury pays each warrior. */
         public int warrior_wage = 1;
+        /** The treasury owes a warrior at most this many days of unpaid wages. */
+        public int max_owed_wage_days = 5;
         /** Units of public work (blocks placed, repaired, ...) paid with one emerald. */
         public int labor_units_per_emerald = 32;
         /** Credit any household gets, before income and goods count. */
@@ -190,6 +192,7 @@ public final class ColonyConfig {
         economy.elder_salary = clamp(economy.elder_salary, 0, 64);
         economy.warrior_wage = clamp(economy.warrior_wage, 0, 64);
         economy.labor_units_per_emerald = clamp(economy.labor_units_per_emerald, 1, 4096);
+        economy.max_owed_wage_days = clamp(economy.max_owed_wage_days, 0, 100);
         economy.credit_base = clamp(economy.credit_base, 0, 1000);
         economy.credit_income_days = clamp(economy.credit_income_days, 0, 100);
         economy.village_debt_cap = clamp(economy.village_debt_cap, 0, 100);

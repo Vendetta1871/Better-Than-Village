@@ -87,7 +87,7 @@ public final class WorkTracker {
         Household h = StockScope.household(colony);
         if (h != null) {
             // Cheap bulk beyond what can ever sell is left as spoil instead of filling the home chest.
-            if (Treasury.isBulk(stack) && ColonyStorage.count(level, colony, s -> s.is(item)) >= Treasury.BULK_CAP) {
+            if (Treasury.isBulk(stack) && ColonyStorage.count(level, colony, s -> s.is(item)) >= Treasury.bulkCap(stack)) {
                 stack.setCount(0);
                 return before;
             }

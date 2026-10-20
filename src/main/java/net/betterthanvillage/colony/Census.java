@@ -64,7 +64,7 @@ public final class Census {
     public static void afterCensus(ServerLevel level, Colony colony) {
         if (ColonyManager.terrainChangesAllowed(level)) {
             repairManagedPairs(level, colony);
-            net.betterthanvillage.economy.Treasury.expand(level, colony);
+            net.betterthanvillage.economy.TreasuryHall.ensure(level, colony);
         }
     }
 

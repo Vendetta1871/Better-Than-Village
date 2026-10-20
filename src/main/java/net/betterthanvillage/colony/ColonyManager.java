@@ -225,7 +225,7 @@ public final class ColonyManager {
         for (Colony colony : data(level).colonies()) {
             changed |= colony.roles.remove(id) != null;
             changed |= colony.pendingProfessions.remove(id) != null;
-            changed |= Households.dissolve(colony, id);
+            changed |= Households.dissolve(level, colony, id);
             if (id.equals(colony.elder)) {
                 colony.elder = null;
                 changed = true;

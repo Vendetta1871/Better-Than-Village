@@ -43,7 +43,8 @@ public final class BlockWorkTimer {
             this.target = pos.immutable();
             this.state = current;
             this.start = now;
-            this.duration = Math.max(1, breakTicks(level, pos, current, actor.getMainHandItem()));
+            this.duration = Math.max(1, (int) Math.round(breakTicks(level, pos, current, actor.getMainHandItem())
+                    * net.betterthanvillage.economy.Skill.workFactor(actor)));
         }
         this.actor = actor;
         BUSY_UNTIL.put(actor, now + 20);
@@ -70,7 +71,7 @@ public final class BlockWorkTimer {
             this.target = pos.immutable();
             this.state = null;
             this.start = now;
-            this.duration = Math.max(1, ticks);
+            this.duration = Math.max(1, (int) Math.round(ticks * net.betterthanvillage.economy.Skill.workFactor(actor)));
         }
         this.actor = actor;
         if ((now - start) % 6 == 0) {

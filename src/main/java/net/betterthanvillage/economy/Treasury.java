@@ -25,9 +25,17 @@ public final class Treasury {
     /** A household keeps at most this much of one kind of cheap bulk (stone, gravel, sand). */
     public static final int BULK_CAP = 256;
 
-    /** Cheap bulk: tradable goods worth less than the levy threshold. */
+    /** Cheap bulk: tradable goods worth less than the levy threshold, or stone, dirt and gravel nobody trades. */
     public static boolean isBulk(ItemStack stack) {
-        return Values.tradable(stack) && Values.base(stack) < LEVY_MIN_VALUE;
+        if (Values.tradable(stack)) return Values.base(stack) < LEVY_MIN_VALUE;
+        return stack.is(net.minecraft.tags.ItemTags.STONE_CRAFTING_MATERIALS) || stack.is(net.minecraft.tags.ItemTags.DIRT)
+                || stack.is(Items.DIORITE) || stack.is(Items.GRANITE) || stack.is(Items.ANDESITE) || stack.is(Items.TUFF)
+                || stack.is(Items.GRAVEL) || stack.is(Items.CALCITE) || stack.is(Items.NETHERRACK);
+    }
+
+    /** How much of one kind of bulk a household keeps: what nobody trades only a stack. */
+    public static int bulkCap(ItemStack stack) {
+        return Values.tradable(stack) ? BULK_CAP : 64;
     }
 
     /** The treasury adds a chest when fewer slots than this are free. */
@@ -102,14 +110,24 @@ public final class Treasury {
 
     // ---------------------------------------------------------------- wages
 
-    /** Morning: salary, wages and public labour pay, plus anything still owed from earlier days. */
+    /**
+     * Morning: warriors' wages first (owed when unpaid, up to a few days), public labour pay, and the elder's
+     * salary last, only out of what the treasury has beyond a few days of the army's wages.
+     */
     public static void payWages(ServerLevel level, Colony colony) {
         List<ColonyStorage.Slot> treasury = ColonyStorage.treasury(level, colony);
-        for (Household h : colony.households.values()) {
+        List<Household> order = new java.util.ArrayList<>(colony.households.values());
+        order.sort(java.util.Comparator.comparingInt(h -> colony.roleOf(h.owner) == ColonyRole.ELDER ? 1 : 0));
+        int armyReserve = dailyWageBill(colony) * 3;
+        for (Household h : order) {
             ColonyRole role = colony.roleOf(h.owner);
             int due = h.wagesOwed;
-            if (role == ColonyRole.ELDER) due += cfg().elder_salary;
-            if (role == ColonyRole.WARRIOR) due += cfg().warrior_wage;
+            if (role == ColonyRole.ELDER) {
+                int spare = Chests.count(treasury, s -> s.is(Items.EMERALD)) - armyReserve;
+                // The elder takes a salary only from a treasury that can still pay its army; an unpaid salary lapses.
+                if (spare >= cfg().elder_salary) due += cfg().elder_salary;
+            }
+            if (role == ColonyRole.WARRIOR) due = Math.min(due + cfg().warrior_wage, cfg().warrior_wage * Math.max(1, cfg().max_owed_wage_days));
             int units = cfg().labor_units_per_emerald;
             boolean earned = role == ColonyRole.ELDER;
             if (h.labor >= units) {

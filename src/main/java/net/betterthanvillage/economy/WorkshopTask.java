@@ -49,7 +49,7 @@ public final class WorkshopTask extends ColonyTask {
         if (role == ColonyRole.CARPENTER && VillagerUtil.isRunning(v, LumberjackTask.class)) return false;
         Household h = colony.households.get(v.getUUID());
         if (h == null || !h.hasChest()) return false;
-        return Workshop.ready(Workshop.recipes(role), ColonyStorage.usable(level, h)) != null;
+        return Workshop.ready(Workshop.recipes(role), ColonyStorage.usable(level, h), Skill.master(colony, v.getUUID())) != null;
     }
 
     @Override
@@ -83,9 +83,9 @@ public final class WorkshopTask extends ColonyTask {
         v.getNavigation().stop();
         v.getLookControl().setLookAt(chest.getX() + 0.5, chest.getY() + 0.5, chest.getZ() + 0.5);
         if (now < nextBatch) return;
-        nextBatch = now + BATCH_TICKS;
+        nextBatch = now + (long) (BATCH_TICKS * Skill.workFactor(v));
         List<ColonyStorage.Slot> slots = ColonyStorage.usable(level, h);
-        Workshop.Recipe recipe = Workshop.ready(Workshop.recipes(colony.roleOf(v.getUUID())), slots);
+        Workshop.Recipe recipe = Workshop.ready(Workshop.recipes(colony.roleOf(v.getUUID())), slots, Skill.master(colony, v.getUUID()));
         if (recipe == null) {
             done = true;
             return;

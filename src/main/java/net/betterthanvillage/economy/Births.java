@@ -116,8 +116,9 @@ public final class Births {
                     o.parentB = b.owner;
                     o.paidA = movedA;
                     o.paidB = movedB;
-                    ColonyRole inherited = Professions.inherit(colony, a.owner, b.owner, level.random);
-                    o.profession = inherited != null ? inherited : ColonyRole.FARMER;
+                    Choice choice = chooseProfession(colony, adults, a.owner, b.owner, level.random);
+                    o.profession = choice.role();
+                    o.lineage = choice.lineage();
                     o.greed = Math.max(-0.3f, Math.min(0.3f, (a.greed + b.greed) / 2 + (level.random.nextFloat() - 0.5f) * 0.1f));
                     place(level, colony, o, today);
                     return;
@@ -139,7 +140,8 @@ public final class Births {
         if (Chests.count(treasury, s -> s.is(Items.EMERALD)) < price) return;
         BirthOrder o = new BirthOrder(UUID.randomUUID());
         o.paidTreasury = price;
-        o.profession = missing != null ? missing : ColonyRole.FARMER;
+        o.profession = missing != null ? missing : chooseProfession(colony, adults, null, null, level.random).role();
+        o.lineage = 0;
         o.greed = (level.random.nextFloat() * 2f - 1f) * 0.3f;
         // The emeralds stay in the treasury, which builds the house as public work.
         place(level, colony, o, today);
@@ -174,6 +176,66 @@ public final class Births {
         return null;
     }
 
+    // ---------------------------------------------------------------- profession of the child
+
+    /** The child's trade and its generations in it. */
+    record Choice(ColonyRole role, int lineage) {
+    }
+
+    /** How many villagers of a trade a village of this many adults wants (02 §Inheritance). */
+    static int desired(ColonyRole role, int adults) {
+        return switch (role) {
+            case FARMER -> Math.max(1, (adults + 3) / 4);
+            case WARRIOR -> Math.max(1, adults / 6);
+            case CARPENTER, MINER, MASON -> Math.max(1, adults / 8);
+            case HERDER -> adults >= 6 ? Math.max(1, adults / 8) : 0;
+            case SMITH -> adults >= 8 ? Math.max(1, adults / 10) : 0;
+            case HEALER, LIBRARIAN -> adults >= 10 ? adults / 12 : 0;
+            default -> 0;
+        };
+    }
+
+    /**
+     * The child's trade (02 §Inheritance): the trade the village lacks most. A parent's trade is kept when the
+     * village needs it (or needs nothing): the child is then a master, one generation more than that parent.
+     * Otherwise the child takes the missing trade as the first of its line.
+     */
+    static Choice chooseProfession(Colony colony, List<Villager> adults, UUID a, UUID b, net.minecraft.util.RandomSource random) {
+        java.util.EnumMap<ColonyRole, Integer> deficit = new java.util.EnumMap<>(ColonyRole.class);
+        for (ColonyRole r : ColonyRole.TRADES) deficit.put(r, desired(r, adults.size()));
+        for (Villager v : adults) deficit.computeIfPresent(colony.tradeOf(v.getUUID()), (r, n) -> n - 1);
+        for (ColonyRole r : colony.pendingProfessions.values()) deficit.computeIfPresent(r, (k, n) -> n - 1);
+        for (BirthOrder o : colony.birthOrders) deficit.computeIfPresent(o.profession, (k, n) -> n - 1);
+        for (Household h : colony.households.values()) {
+            if (h.hungryDays > 0) {
+                deficit.merge(ColonyRole.FARMER, 1, Integer::sum);
+                break;
+            }
+        }
+        ColonyRole best = null;
+        for (ColonyRole r : ColonyRole.STARTER_ORDER) {
+            if (best == null || deficit.get(r) > deficit.get(best)) best = r;
+        }
+        ColonyRole ta = parentTrade(colony, a), tb = parentTrade(colony, b);
+        ColonyRole inherited = null;
+        if (deficit.get(best) <= 0) {
+            inherited = ta == null ? tb : tb == null ? ta : (random.nextBoolean() ? ta : tb);
+        } else {
+            int da = ta == null ? Integer.MIN_VALUE : deficit.get(ta), db = tb == null ? Integer.MIN_VALUE : deficit.get(tb);
+            if (Math.max(da, db) > 0) inherited = da >= db ? ta : tb;
+        }
+        if (inherited == null) return new Choice(best, 0);
+        UUID parent = inherited == ta ? a : b;
+        Household ph = parent == null ? null : colony.households.get(parent);
+        return new Choice(inherited, Math.min(9, (ph == null ? 0 : ph.lineage) + 1));
+    }
+
+    private static ColonyRole parentTrade(Colony colony, UUID parent) {
+        if (parent == null) return null;
+        ColonyRole r = colony.tradeOf(parent);
+        return ColonyRole.TRADES.contains(r) ? r : null;
+    }
+
     // ---------------------------------------------------------------- birth
 
     /** The house stands: its workplace is set up, the child is born by its bed and gets its household. */
@@ -203,7 +265,8 @@ public final class Births {
             }
         }
         colony.pendingProfessions.put(baby.getUUID(), o.profession);
-        Households.createChild(level, colony, baby.getUUID(), bed, o.greed);
+        Households.createChild(level, colony, baby.getUUID(), bed, o.greed, o.lineage);
+        Households.furnishChild(level, colony, baby.getUUID(), o.profession);
         for (UUID parent : new UUID[]{o.parentA, o.parentB}) {
             if (parent != null && level.getEntity(parent) instanceof Villager p) p.setAge(6000);
         }

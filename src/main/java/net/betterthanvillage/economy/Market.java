@@ -44,6 +44,8 @@ public final class Market {
         /** The villager that trades for the party (gossip, reputation); null for an absent elder. */
         final Villager villager;
         final float greed;
+        /** Price factor of the party's goods (first-generation craftsmen sell for less). */
+        double quality = 1.0;
         final EnumMap<Family, Integer> reserve;
         int cash;
         /** Emeralds the party may still buy on credit at this gathering. */
@@ -64,6 +66,11 @@ public final class Market {
 
         boolean treasury() {
             return id == null;
+        }
+
+        public Party withQuality(double quality) {
+            this.quality = quality;
+            return this;
         }
 
         public Party withCredit(int credit) {
@@ -197,7 +204,7 @@ public final class Market {
                 int units = Values.units(sample, f);
                 int qty = Math.min(items.get(item), sellable / units);
                 if (qty <= 0) continue;
-                double price = Values.base(sample) * index(colony, f) * (1 + p.greed);
+                double price = Values.base(sample) * index(colony, f) * (1 + p.greed) * p.quality;
                 asks.add(new Ask(p, item, f, units, price, qty));
                 sellable -= qty * units;
                 report.supply.merge(f, qty * units, Integer::sum);

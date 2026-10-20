@@ -229,7 +229,8 @@ public final class Trading {
                 int units = Values.units(sample, f);
                 int qty = Math.min(items.get(item), sellable / units);
                 if (qty <= 0) continue;
-                double unit = Values.base(sample) * Market.index(colony, f) * (1 + h.greed) * rep * hero;
+                double unit = Values.base(sample) * Market.index(colony, f) * (1 + h.greed) * rep * hero
+                        * net.betterthanvillage.economy.Skill.quality(colony, h.owner);
                 int batch = Math.max(1, (int) Math.ceil(1.0 / unit));
                 if (batch > qty || batch > sample.getMaxStackSize()) continue;
                 int price = Math.max(1, (int) Math.round(batch * unit));

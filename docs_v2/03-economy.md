@@ -154,18 +154,24 @@ colony storage to the villager's own chest.
 
 ## Taxes and treasury
 
-- **Treasury.** The village stock: the warehouse the village placed by the bell and every
-  village chest that is not a home chest.
+- **Treasury.** The chests in the elder's house. A new village keeps its first warehouse by the
+  bell until the elder has a house (a homeless elder gets a bed first); then the treasury moves
+  in, one chest at a time, and street chests are taken down. A new elder means the treasury
+  moves to the new elder's house. A full treasury adds a chest in the house. Other village
+  chests are not the treasury: what the loose ones hold is taken into it once, at settlement.
 - **Collection.** The elder collects taxes at the evening gathering:
-  - **money tax**: a % of each household's income since the last collection (default 10 %);
-  - **levy in kind**: a % of produced goods (default 5 %), for example food and building
+  - **money tax**: a % of each household's income since the last collection (default 15 %);
+  - **levy in kind**: a % of produced goods (default 10 %; cheap bulk such as stone and sand is
+    exempt), for example food and building
     materials. It is taken when the worker delivers the goods home, so it never taxes the same
     stock twice.
 - **Unpaid tax.** Becomes debt, and the gossip about the villager worsens. After a long time,
   goods are confiscated at market value.
-- **What the treasury pays for:**
-  - the elder's salary;
-  - warriors' wages;
+- **What the treasury pays for** (every morning, in this order):
+  - warriors' wages (default 1 emerald a day); unpaid wages are owed, at most 5 days' worth;
+  - public work (default 1 emerald per 32 blocks of labour);
+  - the elder's salary (default 1 a day), only out of what is left beyond three days of the
+    army's wages; an unpaid salary lapses;
   - army gear, horses and potions;
   - repairs of damaged buildings;
   - military construction: walls, gates, outposts, upkeep of the village golem;
