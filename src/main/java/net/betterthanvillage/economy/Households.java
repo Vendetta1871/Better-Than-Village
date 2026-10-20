@@ -144,7 +144,7 @@ public final class Households {
             if (!h.hasChest() && terrain && placed < 2 && placeHomeChest(level, colony, h, settling)) {
                 placed++;
             }
-            payPendingCapital(level, h);
+            payPendingCapital(level, colony, h);
         }
         ColonyManager.markDirty(level);
     }
@@ -164,8 +164,9 @@ public final class Households {
     // ---------------------------------------------------------------- starting capital
 
     /**
-     * Emeralds created once when a generated village is settled ("the world existed before the player"):
-     * each household gets its profession's base with +-25 % noise, the treasury about a fifth of the total.
+     * Emeralds and starting kits created once when a generated village is settled ("the world existed before the
+     * player"): each household gets its profession's base with +-25 % noise and the tools and food of its trade,
+     * the treasury about a fifth of the emeralds.
      */
     private static void handOutStartingCapital(ServerLevel level, Colony colony, List<Household> created) {
         ColonyConfig.Economy cfg = ColonyConfig.get().economy;
@@ -174,6 +175,7 @@ public final class Households {
             ColonyRole role = colony.roleOf(h.owner);
             double noise = 0.75 + level.random.nextDouble() * 0.5;
             h.pendingCapital = (int) Math.round(baseCapital(role) * noise * cfg.starting_capital_scale);
+            h.pendingKit = true;
             total += h.pendingCapital;
         }
         int treasury = (int) Math.round(total * cfg.treasury_share / Math.max(0.05, 1 - cfg.treasury_share));
@@ -199,14 +201,51 @@ public final class Households {
         };
     }
 
-    private static void payPendingCapital(ServerLevel level, Household h) {
-        if (h.pendingCapital <= 0 || !h.hasChest()) return;
+    /** Tools, inputs and a few days of food a household of this trade starts with. */
+    static List<ItemStack> startingKit(ColonyRole role) {
+        List<ItemStack> kit = new ArrayList<>();
+        kit.add(new ItemStack(Items.BREAD, 6));
+        switch (role) {
+            case FARMER -> {
+                kit.add(new ItemStack(Items.STONE_HOE));
+                kit.add(new ItemStack(Items.WHEAT_SEEDS, 16));
+            }
+            case HERDER -> {
+                kit.add(new ItemStack(Items.SHEARS));
+                kit.add(new ItemStack(Items.BUCKET));
+                kit.add(new ItemStack(Items.FISHING_ROD));
+                kit.add(new ItemStack(Items.WHEAT, 16));
+            }
+            case CARPENTER -> {
+                kit.add(new ItemStack(Items.STONE_AXE));
+                kit.add(new ItemStack(Items.OAK_SAPLING, 4));
+            }
+            case MINER -> {
+                kit.add(new ItemStack(Items.STONE_PICKAXE));
+                kit.add(new ItemStack(Items.TORCH, 16));
+            }
+            default -> {
+            }
+        }
+        return kit;
+    }
+
+    private static void payPendingCapital(ServerLevel level, Colony colony, Household h) {
+        if ((h.pendingCapital <= 0 && !h.pendingKit) || !h.hasChest()) return;
         Container c = ColonyStorage.container(level, h.chests.get(0));
         if (c == null) return;
-        ItemStack stack = new ItemStack(Items.EMERALD, Math.min(64, h.pendingCapital));
-        int before = stack.getCount();
-        ColonyStorage.insert(c, stack);
-        h.pendingCapital -= before - stack.getCount();
+        if (h.pendingCapital > 0) {
+            ItemStack stack = new ItemStack(Items.EMERALD, Math.min(64, h.pendingCapital));
+            int before = stack.getCount();
+            ColonyStorage.insert(c, stack);
+            h.pendingCapital -= before - stack.getCount();
+        }
+        if (h.pendingKit) {
+            h.pendingKit = false;
+            for (ItemStack stack : startingKit(colony.roleOf(h.owner))) {
+                ColonyStorage.insert(c, stack);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- home chests

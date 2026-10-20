@@ -47,10 +47,6 @@ public final class Census {
         colony.lastPopulation = members.size();
         colony.lastBeds = countBeds(level, colony);
         colony.lastCensusTick = now;
-        long t = Math.floorMod(level.getDayTime(), 24000L);
-        if (t >= 9000 && t < 12000) {
-            eveningHandout(level, colony, members);
-        }
         ColonyStorage.recount(level, colony);
         TerrainSurvey.step(level, colony);
         Professions.assign(level, colony, adults);
@@ -69,7 +65,6 @@ public final class Census {
     public static void afterCensus(ServerLevel level, Colony colony) {
         if (ColonyManager.terrainChangesAllowed(level)) {
             repairManagedPairs(level, colony);
-            placeHouseStorage(level, colony);
         }
     }
 
@@ -153,44 +148,6 @@ public final class Census {
             }
         }
         return unknown ? Math.max(total, colony.lastBeds) : total;
-    }
-
-    // ---------------------------------------------------------------- evening food
-
-    private static void eveningHandout(ServerLevel level, Colony colony, List<Villager> members) {
-        for (Villager v : members) {
-            SimpleContainer inv = v.getInventory();
-            boolean hasFood = false;
-            for (int i = 0; i < inv.getContainerSize(); i++) {
-                if (ColonyStorage.isFood(inv.getItem(i))) {
-                    hasFood = true;
-                    break;
-                }
-            }
-            int target = (!v.isBaby() && v.getAge() == 0) ? 12 : hasFood ? 0 : 1;
-            int value = ColonyStorage.foodValue(inv);
-            for (int k = 0; k < 12 && value < target; k++) {
-                ItemStack food = ColonyStorage.withdrawOne(level, colony, ColonyStorage::isFood);
-                if (food.isEmpty()) break;
-                value += ColonyStorage.foodValue(food);
-                ItemStack rest = inv.addItem(food);
-                if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
-            }
-            if (!hasFoodNow(inv)) {
-                ItemStack food = ColonyStorage.withdrawOne(level, colony, ColonyStorage::isFood);
-                if (!food.isEmpty()) {
-                    ItemStack rest = inv.addItem(food);
-                    if (!rest.isEmpty()) ColonyStorage.deposit(level, colony, rest);
-                }
-            }
-        }
-    }
-
-    private static boolean hasFoodNow(Container inv) {
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            if (ColonyStorage.isFood(inv.getItem(i))) return true;
-        }
-        return false;
     }
 
     // ---------------------------------------------------------------- elder
@@ -327,70 +284,5 @@ public final class Census {
             if (!level.isLoaded(n) || !level.getBlockState(n).getCollisionShape(level, n).isEmpty()) return true;
         }
         return false;
-    }
-
-    /** At most one house storage per pass, for completed colony-owned houses without one. */
-    private static void placeHouseStorage(ServerLevel level, Colony colony) {
-        int index = 0;
-        for (ConstructionJob job : colony.jobs) {
-            if (!job.isComplete() || job.owner != null) continue;
-            int houseIndex = index++;
-            BoundingBox box = job.box();
-            BoundingBox near = new BoundingBox(box.minX() - 2, box.minY() - 1, box.minZ() - 2, box.maxX() + 2, box.maxY() + 2, box.maxZ() + 2);
-            boolean has = false;
-            for (BlockPos pos : colony.managedStorages.keySet()) {
-                if (near.isInside(pos)) {
-                    has = true;
-                    break;
-                }
-            }
-            if (has) continue;
-            BlockPos site = interiorSpot(level, box);
-            if (site == null) site = ringSpot(level, colony, box);
-            if (site == null) continue;
-            if (!ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 4)) return;
-            StoragePlacer.placeDoubleChest(level, colony, site, StorageKind.forHouse(houseIndex));
-            return;
-        }
-    }
-
-    private static BlockPos interiorSpot(ServerLevel level, BoundingBox box) {
-        for (int y = box.minY() + 1; y <= box.maxY() - 1; y++) {
-            for (int x = box.minX(); x <= box.maxX() - 1; x++) {
-                for (int z = box.minZ(); z <= box.maxZ(); z++) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (!box.isInside(pos.east())) continue;
-                    if (!StoragePlacer.canPlace(level, pos)) continue;
-                    if (adjacentToCollision(level, pos) || adjacentToCollision(level, pos.east())) {
-                        return pos;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private static boolean adjacentToCollision(ServerLevel level, BlockPos pos) {
-        for (Direction d : Direction.values()) {
-            BlockPos n = pos.relative(d);
-            if (!level.isLoaded(n)) continue;
-            if (!level.getBlockState(n).getCollisionShape(level, n).isEmpty()) return true;
-        }
-        return false;
-    }
-
-    private static BlockPos ringSpot(ServerLevel level, Colony colony, BoundingBox box) {
-        for (int d = 1; d <= 2; d++) {
-            for (int x = box.minX() - d; x <= box.maxX() + d; x++) {
-                for (int z = box.minZ() - d; z <= box.maxZ() + d; z++) {
-                    boolean onRing = x == box.minX() - d || x == box.maxX() + d || z == box.minZ() - d || z == box.maxZ() + d;
-                    if (!onRing || !level.hasChunk(x >> 4, z >> 4)) continue;
-                    int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (StoragePlacer.validSite(level, colony, pos)) return pos;
-                }
-            }
-        }
-        return null;
     }
 }

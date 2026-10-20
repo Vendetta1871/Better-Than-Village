@@ -3,6 +3,7 @@ package net.betterthanvillage.mixin;
 import com.google.common.collect.ImmutableList;
 import net.betterthanvillage.ai.ColonyBrain;
 import net.betterthanvillage.ai.VillagerController;
+import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.registry.ModRegistries;
 import net.betterthanvillage.society.Trading;
 import net.minecraft.server.level.ServerLevel;
@@ -52,6 +53,7 @@ public abstract class VillagerMixin {
     private void btv$preTick(CallbackInfo ci) {
         Villager self = (Villager) (Object) this;
         if (self.level() instanceof ServerLevel level) {
+            StockScope.enterVillager(self);
             VillagerController.preTick(level, self);
         }
     }
@@ -60,7 +62,11 @@ public abstract class VillagerMixin {
     private void btv$tick(CallbackInfo ci) {
         Villager self = (Villager) (Object) this;
         if (self.level() instanceof ServerLevel level) {
-            VillagerController.tick(level, self);
+            try {
+                VillagerController.tick(level, self);
+            } finally {
+                StockScope.exit();
+            }
         }
     }
 

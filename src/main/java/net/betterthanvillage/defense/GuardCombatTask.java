@@ -63,6 +63,11 @@ public final class GuardCombatTask extends ColonyTask {
     }
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.isTrading() || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) return false;
         this.colony = colony;

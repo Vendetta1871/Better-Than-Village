@@ -32,6 +32,14 @@ public abstract class ColonyTask extends Behavior<Villager> {
 
     protected abstract boolean shouldRun(ServerLevel level, Villager v, Colony colony);
 
+    /**
+     * True if this task does public work for the villager, so its storage operations use the treasury instead of
+     * the villager's household stock (see {@code StockScope}).
+     */
+    public boolean publicWork(Villager v) {
+        return false;
+    }
+
     @Override
     protected boolean checkExtraStartConditions(ServerLevel level, Villager v) {
         Colony colony = colony(level, v);

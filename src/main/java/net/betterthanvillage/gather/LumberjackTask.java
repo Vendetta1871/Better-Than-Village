@@ -86,6 +86,12 @@ public final class LumberjackTask extends ColonyTask {
                 || (role == ColonyRole.MASON && !colony.needsStarterWarehouse() && colony.storages.isEmpty());
     }
 
+    /** A mason only fells trees to found the village stock (no storage yet), which is public work. */
+    @Override
+    public boolean publicWork(Villager v) {
+        return v.getBrain().getMemory(ModRegistries.COLONY_ROLE.get()).orElse(ColonyRole.CITIZEN) == ColonyRole.MASON;
+    }
+
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.getTradingPlayer() != null || !ColonyManager.terrainChangesAllowed(level) || !assigned(colony, v)) {
@@ -121,7 +127,7 @@ public final class LumberjackTask extends ColonyTask {
     protected void start(ServerLevel level, Villager v, long time) {
         nextAction = time;
         Colony colony = colony(level, v);
-        needsAxe = !v.getMainHandItem().is(ItemTags.AXES) && colony != null && !colony.storages.isEmpty();
+        needsAxe = !v.getMainHandItem().is(ItemTags.AXES) && colony != null && colony.hasStorage();
     }
 
     @Override
@@ -211,7 +217,7 @@ public final class LumberjackTask extends ColonyTask {
                 v.swing(InteractionHand.MAIN_HAND);
                 if (GatherUtil.wearTool(v, ItemTags.AXES, 1)) {
                     // Axe broke: fetch a new one from storage before the next log.
-                    needsAxe = !colony.storages.isEmpty();
+                    needsAxe = colony.hasStorage();
                 }
             }
             // A refused break (entity on top, falling block above) skips the log instead of retrying every tick.
@@ -236,7 +242,7 @@ public final class LumberjackTask extends ColonyTask {
 
     private void deliver(ServerLevel level, Colony colony, Villager v, long now) {
         // A new WOOD chest only when the usable storages are really full, never because the nearest one is blacklisted.
-        boolean full = colony.storages.isEmpty()
+        boolean full = !colony.hasStorage()
                 || (!ColonyStorage.usable(level, colony).isEmpty() && ColonyStorage.emptySlots(level, colony) <= 4);
         BlockPos target;
         if (full) {

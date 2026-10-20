@@ -238,8 +238,9 @@ public final class Colony implements VillageCapability {
         radius = Math.max(radius, candidate);
     }
 
+    /** True if the stock in scope (the scoped household's home chests, else the treasury) has a storage. */
     public boolean hasStorage() {
-        return !storages.isEmpty();
+        return ColonyStorage.hasStock(this);
     }
 
     public boolean recentThreat(long now, long window) {

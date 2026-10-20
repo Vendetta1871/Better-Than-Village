@@ -7,6 +7,7 @@ import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.construction.HousePlanner;
 import net.betterthanvillage.defense.ThreatManager;
 import net.betterthanvillage.economy.Households;
+import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.society.Colonization;
 import net.betterthanvillage.society.FilmMode;
 import net.betterthanvillage.society.LandNotices;
@@ -256,6 +257,8 @@ public final class ColonyManager {
     // ---------------------------------------------------------------- world tick
 
     public static void tickLevel(ServerLevel level) {
+        // Village steps always use the treasury; a villager step that threw must not leak its scope.
+        StockScope.exit();
         long now = level.getGameTime();
         ColonySavedData data = data(level);
         if (now % 20 == 0) {

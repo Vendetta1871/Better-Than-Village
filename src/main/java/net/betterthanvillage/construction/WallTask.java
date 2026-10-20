@@ -44,6 +44,11 @@ public final class WallTask extends ColonyTask {
     }
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         // repairs come first (isWallBuilder already yields no wall builder while a repair is actionable; kept explicit)
         return !v.isSleeping() && !v.isTrading() && colony.roleOf(v.getUUID()) == ColonyRole.MASON

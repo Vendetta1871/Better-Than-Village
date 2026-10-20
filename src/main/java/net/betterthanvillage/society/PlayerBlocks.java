@@ -215,12 +215,13 @@ public final class PlayerBlocks {
         return session;
     }
 
-    /** Session for a chest menu showing a colony storage (managed or scanned, either half of a double chest). */
+    /** Session for a chest menu showing a colony storage or a home chest (either half of a double chest). */
     private static TheftState openSession(ServerLevel level, ChestMenu menu) {
         Container container = menu.getContainer();
         for (Colony colony : ColonyManager.data(level).colonies()) {
             Set<BlockPos> positions = new LinkedHashSet<>(colony.storages);
             positions.addAll(colony.managedStorages.keySet());
+            colony.households.values().forEach(h -> positions.addAll(h.chests));
             for (BlockPos pos : positions) {
                 if (!level.isLoaded(pos)) continue;
                 BlockEntity be = level.getBlockEntity(pos);

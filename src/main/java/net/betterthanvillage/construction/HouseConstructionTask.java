@@ -91,6 +91,11 @@ public final class HouseConstructionTask extends ColonyTask {
     // ---------------------------------------------------------------- start / keep running
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         long now = level.getGameTime();
         if (v.isSleeping() || v.isTrading() || now < cooldownUntil) return false;

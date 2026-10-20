@@ -22,6 +22,8 @@ public final class Household {
     public float greed;
     /** Starting emeralds still to be put into the first home chest. */
     public int pendingCapital;
+    /** The starting kit (tools and food of the trade) is still to be put into the first home chest. */
+    public boolean pendingKit;
     public long founded;
 
     public Household(UUID owner) {
@@ -41,6 +43,7 @@ public final class Household {
         tag.putLongArray("chests", NbtHelper.packPositions(chests));
         tag.putFloat("greed", greed);
         tag.putInt("pending_capital", pendingCapital);
+        tag.putBoolean("pending_kit", pendingKit);
         tag.putLong("founded", founded);
         return tag;
     }
@@ -56,6 +59,7 @@ public final class Household {
         float greed = tag.getFloat("greed");
         h.greed = Float.isFinite(greed) ? Math.max(-0.5f, Math.min(0.5f, greed)) : 0f;
         h.pendingCapital = NbtHelper.clamp(tag.getInt("pending_capital"), 0, 4096);
+        h.pendingKit = tag.getBoolean("pending_kit");
         h.founded = tag.getLong("founded");
         return h;
     }

@@ -51,6 +51,11 @@ public final class HouseRepairTask extends ColonyTask {
     }
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         return !v.isSleeping() && !v.isTrading() && colony.roleOf(v.getUUID()) == ColonyRole.MASON && HousePlanner.established(level, colony)
                 && ColonyManager.terrainChangesAllowed(level) && Damage.hasActionableRepair(level, colony);

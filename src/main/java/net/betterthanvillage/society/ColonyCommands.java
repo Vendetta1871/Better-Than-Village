@@ -199,8 +199,11 @@ public final class ColonyCommands {
             int e = Households.emeralds(level, h);
             emeralds += e;
             pending += h.pendingCapital;
+            int items = ColonyStorage.count(ColonyStorage.usable(level, h), s -> !s.is(Items.EMERALD));
+            int food = 0;
+            for (ColonyStorage.Slot slot : ColonyStorage.usable(level, h)) food += ColonyStorage.foodValue(slot.container());
             list.add(c.roleOf(h.owner).serializedName() + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
-                    + " chests=" + h.chests.size() + " em=" + e + String.format(" g=%.2f", h.greed));
+                    + " chests=" + h.chests.size() + " em=" + e + " items=" + items + " food=" + food + String.format(" g=%.2f", h.greed));
         }
         return Msg.command("status.households", c.households.size(), homeless, chestless, emeralds, pending, list.toString());
     }

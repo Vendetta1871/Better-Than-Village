@@ -34,6 +34,11 @@ public final class StarterWarehouseTask extends ColonyTask {
     }
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         return colony.roleOf(v.getUUID()) == ColonyRole.MASON && ColonyManager.terrainChangesAllowed(level) && colony.needsStarterWarehouse();
     }

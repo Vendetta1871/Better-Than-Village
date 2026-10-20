@@ -12,6 +12,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.defense.GuardPatrol;
+import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.defense.GuardShield;
 import net.betterthanvillage.defense.RaidShelter;
 import net.betterthanvillage.defense.RaidShelterTask;
@@ -94,7 +95,7 @@ public final class VillagerController {
         Colony positional = ColonyManager.colonyAt(level, v.blockPosition());
         if (positional != null && positional.id().equals(colony.id())) {
             colony.lastMemberTick = now;
-            OfflineSim.bookkeeping(level, colony);
+            StockScope.treasury(() -> OfflineSim.bookkeeping(level, colony));
         }
         ItemPickup.tick(level, colony, v);
         StarterWarehouseTask.clearStaleDisplay(v);
@@ -156,8 +157,10 @@ public final class VillagerController {
         if (LandNotices.elderWalk(level, v, colony)) {
             return;
         }
-        NightLighting.tick(level, colony, v);
-        RoleTools.tick(level, colony, v, role);
+        StockScope.treasury(() -> NightLighting.tick(level, colony, v));
+        // Warriors' gear is treasury property (07 §Warriors); other tools belong to the household.
+        if (role == ColonyRole.WARRIOR) StockScope.treasury(() -> RoleTools.tick(level, colony, v, role));
+        else RoleTools.tick(level, colony, v, role);
         WorkTracker.watchdog(level, colony, v);
         AntiStuck.monitor(level, colony, v);
         boolean forcedIdle = AntiStuck.isForcedIdle(v, now);
@@ -176,7 +179,8 @@ public final class VillagerController {
                 case MASON -> colony.needsStarterWarehouse() || colony.storages.isEmpty() || colony.hasActiveConstruction()
                         || !colony.roadQueue.isEmpty() || !colony.repairs.isEmpty() || Fortifications.hasPendingWall(colony);
                 case CARPENTER -> true;
-                case MINER, FARMER, HERDER, WARRIOR -> !colony.storages.isEmpty();
+                case MINER, FARMER, HERDER -> colony.hasStorage();
+                case WARRIOR -> !colony.storages.isEmpty();
                 default -> false;
             };
         }

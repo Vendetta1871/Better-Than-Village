@@ -1,5 +1,7 @@
 package net.betterthanvillage.colony;
 
+import net.betterthanvillage.economy.Household;
+import net.betterthanvillage.economy.StockScope;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerLevel;
@@ -19,7 +21,11 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
-/** Colony stockpile operations over all usable storages (storage-list order, then slot order). */
+/**
+ * Stock operations over the usable storages in scope (storage-list order, then slot order). The scope
+ * ({@link StockScope}) is the treasury (the village stock) or, during a villager's AI step, its household's home
+ * chests.
+ */
 public final class ColonyStorage {
     private ColonyStorage() {
     }
@@ -85,10 +91,30 @@ public final class ColonyStorage {
     public record Slot(BlockPos pos, Container container) {
     }
 
+    /** Positions of the stock in scope: the scoped household's home chests, else the treasury. */
+    public static List<BlockPos> stockPositions(Colony colony) {
+        Household h = StockScope.household(colony);
+        return h != null ? h.chests : colony.storages;
+    }
+
+    /** True if the stock in scope has a storage (the scoped household has a home chest, or the treasury one). */
+    public static boolean hasStock(Colony colony) {
+        return !stockPositions(colony).isEmpty();
+    }
+
     /** Usable storage containers in storage-list order. */
     public static List<Slot> usable(ServerLevel level, Colony colony) {
+        return slots(level, stockPositions(colony));
+    }
+
+    /** Usable containers of a household's home chests. */
+    public static List<Slot> usable(ServerLevel level, Household household) {
+        return slots(level, household.chests);
+    }
+
+    private static List<Slot> slots(ServerLevel level, List<BlockPos> positions) {
         List<Slot> out = new ArrayList<>();
-        for (BlockPos pos : colony.storages) {
+        for (BlockPos pos : positions) {
             if (!isUsable(level, pos)) continue;
             Container c = container(level, pos);
             if (c != null) {
@@ -98,8 +124,11 @@ public final class ColonyStorage {
         return out;
     }
 
-    /** Usable storages accessible to a role: own kind plus GENERAL (all kinds when allKinds). */
+    /** Usable storages accessible to a role: own kind plus GENERAL (all kinds when allKinds); a household's are all its own. */
     public static List<Slot> usableFor(ServerLevel level, Colony colony, ColonyRole role, boolean allKinds) {
+        if (StockScope.household(colony) != null) {
+            return usable(level, colony);
+        }
         List<Slot> out = new ArrayList<>();
         StorageKind own = role.ownKind();
         for (Slot slot : usable(level, colony)) {
@@ -396,7 +425,7 @@ public final class ColonyStorage {
     public static BlockPos nearest(ServerLevel level, Colony colony, BlockPos from) {
         BlockPos best = null;
         double bestD = Double.MAX_VALUE;
-        for (BlockPos pos : colony.storages) {
+        for (BlockPos pos : stockPositions(colony)) {
             if (!isUsable(level, pos) || container(level, pos) == null) continue;
             double d = pos.distSqr(from);
             if (d < bestD) {
@@ -416,7 +445,7 @@ public final class ColonyStorage {
         BlockPos best = null;
         int bestRank = Integer.MAX_VALUE;
         double bestD = Double.MAX_VALUE;
-        for (BlockPos pos : colony.storages) {
+        for (BlockPos pos : stockPositions(colony)) {
             if (!filter.test(pos) || !isUsable(level, pos) || container(level, pos) == null) continue;
             int rank = kindOf(colony, pos).rankFor(kind);
             double d = pos.distSqr(from);
@@ -457,9 +486,19 @@ public final class ColonyStorage {
 
     // ---------------------------------------------------------------- counters
 
+    /** All village stock: the treasury and every household's home chests. */
+    public static List<Slot> villageStock(ServerLevel level, Colony colony) {
+        List<Slot> out = slots(level, colony.storages);
+        for (Household h : colony.households.values()) {
+            out.addAll(slots(level, h.chests));
+        }
+        return out;
+    }
+
+    /** Recounts the village-wide stock counters (treasury and households, whatever the scope). */
     public static void recount(ServerLevel level, Colony colony) {
         int food = 0, logs = 0, stone = 0, saplings = 0, iron = 0, diamonds = 0;
-        for (Slot slot : usable(level, colony)) {
+        for (Slot slot : villageStock(level, colony)) {
             Container c = slot.container();
             for (int i = 0; i < c.getContainerSize(); i++) {
                 ItemStack s = c.getItem(i);

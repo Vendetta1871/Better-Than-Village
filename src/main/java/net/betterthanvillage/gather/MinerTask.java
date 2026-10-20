@@ -151,7 +151,7 @@ public final class MinerTask extends ColonyTask {
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         return !v.isSleeping() && v.getTradingPlayer() == null && serverNow(level) >= cooldownUntil
                 && Math.floorMod(level.getDayTime(), 24000L) < 7800 && ColonyManager.terrainChangesAllowed(level)
-                && colony.roleOf(v.getUUID()) == ColonyRole.MINER && !colony.storages.isEmpty();
+                && colony.roleOf(v.getUUID()) == ColonyRole.MINER && colony.hasStorage();
     }
 
     @Override

@@ -2,6 +2,7 @@ package net.betterthanvillage.ai;
 
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
+import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -23,7 +24,7 @@ public final class VillageStorageSensor extends Sensor<Villager> {
         BlockPos best = null;
         if (colony != null) {
             double bestD = Double.MAX_VALUE;
-            for (BlockPos pos : colony.storages) {
+            for (BlockPos pos : ColonyStorage.stockPositions(colony)) {
                 if (!level.isLoaded(pos)) continue;
                 double d = pos.distToCenterSqr(villager.position());
                 if (d < bestD) {

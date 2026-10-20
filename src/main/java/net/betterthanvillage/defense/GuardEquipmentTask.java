@@ -54,6 +54,11 @@ public final class GuardEquipmentTask extends ColonyTask {
     }
 
     @Override
+    public boolean publicWork(Villager v) {
+        return true;
+    }
+
+    @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.isTrading() || level.getGameTime() < nextRunAt || colony.storages.isEmpty()
                 || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) {
