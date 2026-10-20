@@ -6,6 +6,7 @@ import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.HouseConstructionTask;
 import net.betterthanvillage.defense.GolemManager;
+import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.society.Economy;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -56,6 +57,7 @@ public final class Census {
         for (Villager v : adults) {
             Professions.applyRole(level, colony, v);
         }
+        Households.step(level, colony, adults);
         laborCensus(colony, adults);
         Economy.step(level, colony);
         GolemManager.step(level, colony);

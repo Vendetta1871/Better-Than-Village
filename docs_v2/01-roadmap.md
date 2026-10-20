@@ -46,7 +46,7 @@ Milestones (each one builds, passes a server test and is committed on its own):
 | # | Milestone | Status |
 |---|---|---|
 | 1.1 | Fixed professions: the ten professions, vanilla conversion, elder succession by reputation, inheritance, the herder's fishing fallback; `RoleBalancer` removed | done |
-| 1.2 | Households: bed and house ownership, home chests, starting capital, the treasury in the elder's house | |
+| 1.2 | Households: bed and house ownership, home chests, starting capital; the village stock that is left is the treasury | done |
 | 1.3 | Household stock: work tasks take from and deliver to the worker's own chest; public work uses the treasury | |
 | 1.4 | Gatherings, prices and player trade from the villager's own stock; taxes and wages; the abstract market removed | |
 | 1.5 | Credit and debt notes; conscription and the idle poor | |

@@ -36,6 +36,7 @@
   "commands.better_than_village.status.militia": "Militia: [%s]",
   "commands.better_than_village.status.golems": "Golems: %s/%s / Golem materials: iron=%s/36, pumpkin=%s, nextBuild=%s ticks",
   "commands.better_than_village.status.economy": "Economy: emeralds=%s, sold=%s, bought=%s, next=%s ticks",
+  "commands.better_than_village.status.households": "Households: %s (homeless %s, without a chest %s), emeralds at home=%s, still to hand out=%s; [%s]",
   "commands.better_than_village.status.theft": "Theft alarm: player=%s, stolen=%s, remaining=%ss",
   "commands.better_than_village.status.development": "Development: elder=%s, founder=%s, founderTarget=%s, visits=%s, capital=%s, propertyOrder=%s",
   "commands.better_than_village.status.road": "Road: queue=%s, head=%s, stall=%s, skipped=%s / Mine: route=%s, trips=%s, yield=%s / Pen: %s",

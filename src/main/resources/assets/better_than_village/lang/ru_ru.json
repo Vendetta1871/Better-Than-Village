@@ -36,6 +36,7 @@
   "commands.better_than_village.status.militia": "Ополчение: [%s]",
   "commands.better_than_village.status.golems": "Големы: %s/%s / Материалы големов: железо=%s/36, тыквы=%s, следующий через %s тиков",
   "commands.better_than_village.status.economy": "Экономика: изумруды=%s, продано=%s, куплено=%s, следующая через %s тиков",
+  "commands.better_than_village.status.households": "Хозяйства: %s (без кровати %s, без сундука %s), изумрудов дома=%s, ещё выдать=%s; [%s]",
   "commands.better_than_village.status.theft": "Тревога о краже: игрок=%s, украдено=%s, осталось=%s с",
   "commands.better_than_village.status.development": "Развитие: старейшина=%s, основатель=%s, цель=%s, визиты=%s, капитал=%s, заказ=%s",
   "commands.better_than_village.status.road": "Дорога: очередь=%s, голова=%s, простой=%s, пропущено=%s / Шахта: маршрут=%s, походов=%s, добыто=%s / Загон: %s",

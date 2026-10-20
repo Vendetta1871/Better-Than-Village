@@ -1,6 +1,7 @@
 package net.betterthanvillage.colony;
 
 import net.betterthanvillage.api.VillageCapability;
+import net.betterthanvillage.economy.Household;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -134,6 +135,12 @@ public final class Colony implements VillageCapability {
      * 02 §Inheritance) and expedition members (given back when they settle or return).
      */
     public final Map<UUID, ColonyRole> pendingProfessions = new LinkedHashMap<>();
+
+    // ---- households ----
+    /** Households by owner (docs_v2/03-economy.md §Households). */
+    public final Map<UUID, Household> households = new LinkedHashMap<>();
+    /** Set once the generated village got its households and starting capital. */
+    public boolean householdsSettled;
 
     // ---- construction jobs ----
     public final List<ConstructionJob> jobs = new ArrayList<>();
@@ -423,6 +430,10 @@ public final class Colony implements VillageCapability {
             inherited.add(e);
         });
         tag.put("pending_professions", inherited);
+        ListTag householdList = new ListTag();
+        households.values().forEach(h -> householdList.add(h.save()));
+        tag.put("households", householdList);
+        tag.putBoolean("households_settled", householdsSettled);
         ListTag jobList = new ListTag();
         jobs.forEach(job -> jobList.add(job.save()));
         tag.put("construction_jobs", jobList);
@@ -573,6 +584,12 @@ public final class Colony implements VillageCapability {
             ColonyRole role = ColonyRole.byName(e.getString("role"));
             if (villager != null && role.isProfession()) c.pendingProfessions.put(villager, role);
         }
+        ListTag householdList = tag.getList("households", Tag.TAG_COMPOUND);
+        for (int i = 0; i < householdList.size(); i++) {
+            Household h = Household.load(householdList.getCompound(i));
+            if (h != null) c.households.put(h.owner, h);
+        }
+        c.householdsSettled = tag.getBoolean("households_settled");
         ListTag jobList = tag.getList("construction_jobs", Tag.TAG_COMPOUND);
         for (int i = 0; i < jobList.size(); i++) {
             c.jobs.add(ConstructionJob.load(jobList.getCompound(i)));

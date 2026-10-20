@@ -16,6 +16,8 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.Professions;
+import net.betterthanvillage.economy.Household;
+import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
 import net.betterthanvillage.colony.TerrainSurvey;
@@ -143,6 +145,7 @@ public final class ColonyCommands {
                 ColonyStorage.count(level, c, s -> s.is(Items.PUMPKIN) || s.is(Items.CARVED_PUMPKIN)), Math.max(0, c.nextGolemTick - level.getServer().getTickCount())));
         out.add(Msg.command("status.economy", ColonyStorage.count(level, c, s -> s.is(Items.EMERALD)), c.soldTrades, c.boughtTrades,
                 Math.max(0, c.nextEconomyTick - now)));
+        out.add(householdStatus(level, c));
         boolean theft = now < c.theftUntil;
         out.add(Msg.command("status.theft", theft ? c.reportedThief.toString() : "-", c.stolenItems, theft ? (c.theftUntil - now) / 20 : 0));
         out.add(Msg.command("status.development", String.valueOf(c.elder), String.valueOf(c.founder),
@@ -185,6 +188,21 @@ public final class ColonyCommands {
         out.add(Msg.command("status.realestate", ColonyManager.data(level).land.stream().filter(p -> p.colony().equals(c.id())).count(),
                 Prices.smallHousePrice(c), Prices.mediumHousePrice(c), Prices.landPrice(c)));
         return out;
+    }
+
+    private static Component householdStatus(ServerLevel level, Colony c) {
+        int homeless = 0, chestless = 0, emeralds = 0, pending = 0;
+        StringJoiner list = new StringJoiner(", ");
+        for (Household h : c.households.values()) {
+            if (h.bed == null) homeless++;
+            if (!h.hasChest()) chestless++;
+            int e = Households.emeralds(level, h);
+            emeralds += e;
+            pending += h.pendingCapital;
+            list.add(c.roleOf(h.owner).serializedName() + " bed=" + (h.bed == null ? "-" : h.bed.toShortString())
+                    + " chests=" + h.chests.size() + " em=" + e + String.format(" g=%.2f", h.greed));
+        }
+        return Msg.command("status.households", c.households.size(), homeless, chestless, emeralds, pending, list.toString());
     }
 
     private static String houseState(ServerLevel level, Colony c, int activeJobs) {

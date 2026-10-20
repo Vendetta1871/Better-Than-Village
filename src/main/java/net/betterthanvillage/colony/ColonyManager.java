@@ -6,6 +6,7 @@ import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.construction.HousePlanner;
 import net.betterthanvillage.defense.ThreatManager;
+import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.society.Colonization;
 import net.betterthanvillage.society.FilmMode;
 import net.betterthanvillage.society.LandNotices;
@@ -223,6 +224,7 @@ public final class ColonyManager {
         for (Colony colony : data(level).colonies()) {
             changed |= colony.roles.remove(id) != null;
             changed |= colony.pendingProfessions.remove(id) != null;
+            changed |= Households.dissolve(colony, id);
             if (id.equals(colony.elder)) {
                 colony.elder = null;
                 changed = true;

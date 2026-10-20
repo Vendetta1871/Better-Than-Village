@@ -11,6 +11,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.LandPlot;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.Professions;
+import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
@@ -524,6 +525,7 @@ public final class Colonization {
             if (moved) {
                 colony.roles.remove(id);
                 colony.pendingProfessions.remove(id);
+                Households.dissolve(colony, id);
             } else {
                 // The next census gives the held trade back.
                 colony.setRole(id, ColonyRole.CITIZEN, now);

@@ -4,6 +4,7 @@ import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.defense.ThreatManager;
+import net.betterthanvillage.economy.Households;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
@@ -42,7 +43,8 @@ public final class Theft {
     /** Colony owning the storage at pos (managed or scanned, not player storage), or null. */
     static Colony storageOwner(ServerLevel level, BlockPos pos) {
         for (Colony colony : ColonyManager.data(level).colonies()) {
-            if (colony.managedStorages.containsKey(pos) || colony.storages.contains(pos)) {
+            // Home chests belong to a villager; taking from them is theft as well (05 §Offences).
+            if (colony.managedStorages.containsKey(pos) || colony.storages.contains(pos) || Households.ownerOf(colony, pos) != null) {
                 return Protection.isProtectedContainer(level, pos) ? null : colony;
             }
         }

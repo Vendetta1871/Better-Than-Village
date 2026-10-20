@@ -1,5 +1,6 @@
 package net.betterthanvillage.colony;
 
+import net.betterthanvillage.economy.Households;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
@@ -33,7 +34,8 @@ public final class StorageScanner {
             pos.set(core.getX() + dx, core.getY() + dy, core.getZ() + dz);
             if (!level.isLoaded(pos)) continue;
             BlockEntity be = level.getBlockEntity(pos);
-            if ((be instanceof ChestBlockEntity || be instanceof BarrelBlockEntity) && !Protection.isProtectedContainer(level, pos)) {
+            if ((be instanceof ChestBlockEntity || be instanceof BarrelBlockEntity) && !Protection.isProtectedContainer(level, pos)
+                    && !Households.isHomeChest(level, pos)) {
                 colony.scanPending.add(pos.immutable());
             }
         }

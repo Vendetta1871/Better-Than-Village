@@ -32,6 +32,7 @@ public final class ColonyConfig {
     public Roles roles = new Roles();
     public Debug debug = new Debug();
     public Work work = new Work();
+    public Economy economy = new Economy();
     public int config_version = 2;
 
     public static final class Village {
@@ -66,6 +67,14 @@ public final class ColonyConfig {
         public int deep_mining_ticks = 1200;
         /** Lets miners teleport to the end of a long mine route instead of walking it. */
         public boolean miner_route_teleport = false;
+    }
+
+    /** docs_v2/03-economy.md. */
+    public static final class Economy {
+        /** Multiplies the starting emeralds handed out when a generated village is settled. */
+        public double starting_capital_scale = 1.0;
+        /** Share of the starting emeralds that goes to the treasury. */
+        public double treasury_share = 0.2;
     }
 
     public static ColonyConfig get() {
@@ -127,6 +136,7 @@ public final class ColonyConfig {
         if (roles == null) roles = new Roles();
         if (debug == null) debug = new Debug();
         if (work == null) work = new Work();
+        if (economy == null) economy = new Economy();
         if (config_version < 2) {
             roles.golems_break_attacker_pillars = true;
             config_version = 2;
@@ -143,6 +153,12 @@ public final class ColonyConfig {
         work.placement_ticks = clamp(work.placement_ticks, 4, 100);
         work.farming_ticks = clamp(work.farming_ticks, 4, 100);
         work.deep_mining_ticks = clamp(work.deep_mining_ticks, 400, 12000);
+        economy.starting_capital_scale = clamp(economy.starting_capital_scale, 0, 10);
+        economy.treasury_share = clamp(economy.treasury_share, 0, 0.9);
+    }
+
+    private static double clamp(double v, double lo, double hi) {
+        return Double.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo;
     }
 
     private static int clamp(int v, int lo, int hi) {
