@@ -81,7 +81,7 @@ Milestones:
 | 2.1 | Territory: a noisy shape seeded by the village, grown by construction up to a maximum area; every "inside the village" test uses it | done |
 | 2.2 | Domain: countries, per-chunk ownership, the lazy Voronoi split between generated villages with a cap; `/btv land` map | done |
 | 2.3 | Plots and empty houses sold by the elder as deed maps; villagers keep off player plots | done (player-commissioned houses removed) |
-| 2.4 | Commissioned construction: houses only for births, treasury commissions for infrastructure, builders paid per job | |
+| 2.4 | Commissioned construction: houses only for births, treasury commissions for infrastructure, builders paid per job | done (pay per unit of work; fields grow by the farmers' own tilling) |
 | 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | |
 | 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | |
 | 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | |

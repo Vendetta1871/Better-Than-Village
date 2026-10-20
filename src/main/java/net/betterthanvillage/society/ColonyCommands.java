@@ -310,7 +310,8 @@ public final class ColonyCommands {
         }
         out.add(Msg.command("status.repairs", c.repairs.size(), repairs.toString()));
         out.add(Msg.command("status.land", c.radius(), net.betterthanvillage.colony.Territory.maxRadius(c),
-                net.betterthanvillage.colony.Territory.area(c), ColonyConfig.get().land.territory_max_area));
+                net.betterthanvillage.colony.Territory.area(c), ColonyConfig.get().land.territory_max_area,
+                net.betterthanvillage.economy.Commissions.budget(level, c)));
         out.add(Msg.command("status.walls", c.fortifications.radius, c.fortifications.managed.size(), c.fortifications.pending.size(),
                 c.fortifications.skipped, Math.max(0, c.fortifications.nextPlan - now)));
         List<String> gate = Census.populationGate(level, c);

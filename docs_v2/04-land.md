@@ -99,6 +99,10 @@ Every building has an **owner**: a household, the village, or a player plot.
   - Farmers till the new field; herders fence the new pen.
 - **Payment.** Each worker is paid per job at market rates. Materials are bought at the
   gathering and charged to the commissioner.
+- **Budget.** The treasury keeps its public works (walls, lamp posts, terraforming, demolition)
+  going only while it can pay for them: while it holds more emeralds than three days of army wages
+  plus the pay it already owes. Workers are paid per unit of work (`labor_units_per_emerald`).
+  Repairs are always done; houses are paid by the parents.
 - **No speculative houses.** Empty houses come only from deaths, conquest and worldgen.
 - **Reachable sites only.** A site is accepted only if a villager standing by the bell can walk
   to its door; otherwise the search moves on (implemented in phase 1).
