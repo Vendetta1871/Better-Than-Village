@@ -161,12 +161,12 @@ public final class Trading {
             ColonyStorage.recount(level, colony);
             int uses = Prices.deedMaxUses(colony);
             String dim = level.dimension().location().toString();
-            // House deeds can only be redeemed when terrain changes are allowed (Deeds.placeOrder).
-            if (ColonyManager.terrainChangesAllowed(level)) {
-                permission(offers, descs, colony, Deeds.propertyDeed(1, colony.id(), dim), Prices.smallHousePrice(colony), uses, 10);
-                permission(offers, descs, colony, Deeds.propertyDeed(2, colony.id(), dim), Prices.mediumHousePrice(colony), uses, 20);
-            }
+            // Plots and empty houses (docs_v2/04-land.md §Plots and houses); the village builds no houses for sale.
             permission(offers, descs, colony, Deeds.landDeed(colony.id(), dim), Prices.landPrice(colony), uses, 10);
+            for (LandSales.HouseOffer house : LandSales.houseOffers(level, colony)) {
+                int price = house.beds() > 1 ? Prices.mediumHousePrice(colony) : Prices.smallHousePrice(colony);
+                permission(offers, descs, colony, house.map(), price, 1, 20);
+            }
         }
         Household h = colony.households.get(v.getUUID());
         if (h != null && h.hasChest()) {
@@ -367,7 +367,7 @@ public final class Trading {
         List<ColonyStorage.Slot> slots = slots(level, colony, d);
         if (slots.isEmpty()) return false;
         return switch (d.kind()) {
-            case PERMISSION -> Chests.room(slots, emerald) >= paid;
+            case PERMISSION -> Chests.room(slots, emerald) >= paid && LandSales.forSale(level, colony, offer.getResult());
             case SELL -> Chests.count(slots, s -> plain(s, d.item())) >= d.count() && Chests.room(slots, emerald) >= paid;
             case BUY -> Chests.count(slots, s -> s.is(Items.EMERALD)) >= d.price() && Chests.room(slots, new ItemStack(d.item())) >= paid;
             case SELL_ON_CREDIT, REPAY, PAY_WITH_NOTE, COLLECT -> PlayerCredit.validate(level, colony, d, slots);
@@ -404,6 +404,8 @@ public final class Trading {
             PlayerCredit.settle(level, colony, v, d, slots, h);
         } else if (d.permission()) {
             Chests.put(slots, List.of(new ItemStack(Items.EMERALD, paid)));
+            Player buyer = v.getTradingPlayer();
+            LandSales.sellHouse(level, colony, buyer == null ? null : buyer.getUUID(), offer.getResult());
             colony.soldTrades++;
             WorkTracker.status(v, LABEL_PERMISSION);
         } else if (d.villagerSells()) {

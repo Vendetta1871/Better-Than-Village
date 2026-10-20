@@ -210,7 +210,7 @@ public final class Colonization {
         ColonySavedData data = ColonyManager.data(level);
         if (data.playerBuildNear(pos, 104)) return false;
         for (LandPlot plot : data.land) {
-            if (Math.max(Math.abs(plot.center().getX() - pos.getX()), Math.abs(plot.center().getZ() - pos.getZ())) <= 104 + plot.radius()) return false;
+            if (plot.overlaps(pos, 0, 0, 104)) return false;
         }
         if (Protection.beaconNear(level, pos)) return false;
         long r2 = 104L * 104L;

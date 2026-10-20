@@ -276,7 +276,7 @@ public final class Households {
             if (colony.managedStorages.containsKey(pos) || !level.isLoaded(pos)) continue;
             if (Math.abs(pos.getX() - h.bed.getX()) > HOUSE_XZ || Math.abs(pos.getZ() - h.bed.getZ()) > HOUSE_XZ
                     || Math.abs(pos.getY() - h.bed.getY()) > HOUSE_Y) continue;
-            if (isHomeChest(level, pos) || Protection.isProtectedContainer(level, pos)) continue;
+            if (isHomeChest(level, pos) || Protection.isProtectedContainer(level, pos) || Protection.playerProperty(level, pos)) continue;
             double d = pos.distSqr(h.bed);
             if (d < bestD) {
                 bestD = d;

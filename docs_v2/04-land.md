@@ -63,6 +63,12 @@ After generation, domains change only by agreement or force:
 - **Deed map.** The player receives a vanilla filled map centred on the property, with red X
   decorations outlining it, like a treasure map. Ownership lives on the server. Losing the map
   loses nothing.
+  - A plot is bought as a land deed (paper). Used on the ground inside the territory, it marks the
+    plot centred there and turns into the deed map.
+  - An empty house is sold as its deed map directly; the elder offers the two nearest to the bell.
+    A house is empty when it has beds and nobody of the village sleeps, lives or stores anything in
+    it, and no birth is waiting for it. The sold house becomes a plot covering it plus one block.
+  - The elder no longer takes orders for houses built for the player.
 - **Rights on a plot.** The player builds and breaks freely. Villagers do not interfere: no
   repairs, no terraforming, no lamp posts, no roads through it.
 - **The plot stays part of the village.** The walls enclose it, and warriors defend it against

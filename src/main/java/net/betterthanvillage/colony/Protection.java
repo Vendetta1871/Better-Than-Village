@@ -70,6 +70,11 @@ public final class Protection {
         return data.isPlayerBlock(pos) || data.inLand(pos) || inPlayerOwnedJob(level, pos);
     }
 
+    /** A player's property: a bought plot or house, or a house built for a player. Villagers keep off it. */
+    public static boolean playerProperty(ServerLevel level, BlockPos pos) {
+        return ColonyManager.data(level).inLand(pos) || inPlayerOwnedJob(level, pos);
+    }
+
     public static boolean inPlayerOwnedJob(ServerLevel level, BlockPos pos) {
         for (Colony colony : ColonyManager.data(level).colonies()) {
             for (ConstructionJob job : colony.jobs) {

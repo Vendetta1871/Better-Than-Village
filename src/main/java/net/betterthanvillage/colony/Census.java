@@ -141,7 +141,7 @@ public final class Census {
                     reads++;
                 }
                 int n = (int) poi.getInChunk(h -> h.is(PoiTypes.HOME), new ChunkPos(cx, cz), PoiManager.Occupancy.ANY)
-                        .filter(rec -> ColonyManager.colonyAt(level, rec.getPos()) == colony)
+                        .filter(rec -> ColonyManager.colonyAt(level, rec.getPos()) == colony && !Protection.playerProperty(level, rec.getPos()))
                         .count();
                 cache.put(key, n);
                 total += n;

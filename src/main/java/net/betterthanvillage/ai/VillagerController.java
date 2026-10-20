@@ -7,6 +7,7 @@ import net.betterthanvillage.ai.work.RoleTools;
 import net.betterthanvillage.ai.work.WorkTracker;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
+import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Professions;
@@ -338,7 +339,7 @@ public final class VillagerController {
     private static boolean usableBed(ServerLevel level, Villager v, BlockPos pos) {
         if (!level.isLoaded(pos)) return false;
         BlockState s = level.getBlockState(pos);
-        if (!s.is(BlockTags.BEDS)) return false;
+        if (!s.is(BlockTags.BEDS) || Protection.playerProperty(level, pos)) return false;
         if (s.hasProperty(BedBlock.OCCUPIED) && s.getValue(BedBlock.OCCUPIED)) {
             return v.getSleepingPos().map(pos::equals).orElse(false);
         }

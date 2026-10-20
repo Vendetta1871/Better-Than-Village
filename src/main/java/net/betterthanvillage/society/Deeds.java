@@ -6,6 +6,7 @@ import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.LandPlot;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.Protection;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
@@ -319,16 +320,12 @@ public final class Deeds {
             Msg.chat(player, Msg.message("land_unavailable"));
             return true;
         }
-        data.land.add(new LandPlot(player.getUUID(), colony.id(), pos.immutable(), LAND_RADIUS));
+        LandPlot plot = new LandPlot(player.getUUID(), colony.id(), pos.immutable(), LAND_RADIUS);
+        data.land.add(plot);
         data.landWarnings.removeIf(w -> player.getUUID().equals(w.player));
         data.setDirty();
-        ItemStack used = held.copyWithCount(1);
-        CompoundTag usedTag = data(used);
-        usedTag.putBoolean(LAND_USED, true);
-        usedTag.putLong(LAND_CENTER, pos.asLong());
-        setData(used, usedTag);
-        used.set(DataComponents.CUSTOM_NAME, Msg.item("land_deed.complete", Msg.xyz(pos)));
-        replaceOne(player, hand, held, used);
+        // The paper becomes the deed map of the plot (docs_v2/04-land.md §Plots and houses).
+        replaceOne(player, hand, held, LandSales.deedMap(level, plot, Msg.item("land_deed.complete", Msg.xyz(pos))));
         Protection.sanitizeStorages(level);
         return true;
     }
@@ -337,14 +334,14 @@ public final class Deeds {
     public static boolean plotValid(ServerLevel level, Colony colony, UUID buyer, BlockPos c) {
         BlockPos core = colony.core();
         int r = LAND_RADIUS;
-        if (Math.hypot(c.getX() - core.getX(), c.getZ() - core.getZ()) + 11.36 > colony.radius()) return false;
+        if (!Territory.containsBox(colony, c.getX() - r, c.getZ() - r, c.getX() + r, c.getZ() + r, 0)) return false;
         if (Math.max(Math.abs(c.getX() - core.getX()), Math.abs(c.getZ() - core.getZ())) < 14) return false;
         ColonySavedData data = ColonyManager.data(level);
         if (foreignBlockIn(data, buyer, c.getX() - r, c.getZ() - r, c.getX() + r, c.getZ() + r, Integer.MIN_VALUE, Integer.MAX_VALUE)) {
             return false;
         }
         for (LandPlot plot : data.land) {
-            if (Math.abs(plot.center().getX() - c.getX()) <= plot.radius() + r && Math.abs(plot.center().getZ() - c.getZ()) <= plot.radius() + r) {
+            if (plot.overlaps(c, r, r, 0)) {
                 return false;
             }
         }

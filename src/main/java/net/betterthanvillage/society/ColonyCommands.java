@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 import java.util.UUID;
+import net.minecraft.world.item.ItemStack;
 
 /** /btv commands (01 §10, 06 §8). */
 public final class ColonyCommands {
@@ -57,7 +58,8 @@ public final class ColonyCommands {
                 .then(Commands.literal("status").requires(s -> s.hasPermission(2)).executes(ColonyCommands::status))
                 .then(Commands.literal("offers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::offers))
                 .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
-                .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land))
+                .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land)
+                        .then(Commands.literal("sell").executes(ColonyCommands::sellHouse)))
                 .then(film()));
     }
 
@@ -197,8 +199,32 @@ public final class ColonyCommands {
         for (int i = 0; i < countries.size(); i++) {
             legend.add((char) ('A' + Math.min(25, i)) + "=" + countries.get(i).toString().substring(0, 8) + " (" + chunks.getOrDefault(countries.get(i), 0) * 4 + " chunks)");
         }
+        StringJoiner houses = new StringJoiner(", ");
+        for (LandSales.House h : LandSales.emptyHouses(level, c)) houses.add(h.box().getCenter().toShortString() + " beds=" + h.beds().size());
+        ok(source, Component.literal("Empty houses: [" + houses + "]; player plots: " + ColonyManager.data(level).land.size()));
         ok(source, Component.literal("Countries: " + legend + "; territory radius=" + c.radius() + " max=" + net.betterthanvillage.colony.Territory.maxRadius(c)
                 + " seat=" + (c.seat == null ? "-" : c.seat.toString())));
+        return 1;
+    }
+
+    /** Debug: sells the first empty house on offer to a placeholder buyer, as if a player had bought it. */
+    private static int sellHouse(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        List<LandSales.HouseOffer> offers = LandSales.houseOffers(level, c);
+        if (offers.isEmpty()) {
+            source.sendFailure(Component.literal("No empty house for sale"));
+            return 0;
+        }
+        ItemStack map = offers.get(0).map();
+        LandSales.sellHouse(level, c, new UUID(0, 1), map);
+        ok(source, Component.literal("Sold " + map.getHoverName().getString() + " map=" + map.get(net.minecraft.core.component.DataComponents.MAP_ID)
+                + " decorations=" + map.get(net.minecraft.core.component.DataComponents.MAP_DECORATIONS)));
         return 1;
     }
 
