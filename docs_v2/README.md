@@ -6,6 +6,13 @@ of truth for *what* we build. The old reference stays in the repository: many me
 (gathering, navigation, construction, combat) are reused. Every document here links to the old
 sections it builds on.
 
+## Branches
+
+| Branch | Contents |
+|---|---|
+| `legacy` | The Independent Villagers port as it was before the fork, with its docs (`docs/`) only. Frozen. |
+| `main` | The fork: new code and this design (`docs_v2/`). Once the fork is implemented, `docs/` is removed from `main`; the old reference then lives only on `legacy`. |
+
 ## Vision
 
 Vanilla villages become small medieval societies. Every villager is a **household**: they own
