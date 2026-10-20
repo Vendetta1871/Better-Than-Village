@@ -177,7 +177,8 @@ infrastructure.
 Implementation: posts are planned beside road blocks, on the square around the bell and inside
 the wall gates, where the block light is below 6 (no light within about 10 blocks). A post is two
 oak fences with a lantern (if the treasury has one) or a torch, from the treasury's fences, planks
-or one log, and torches or coal. The carpenter builds them before felling trees or working wood.
+or one log, and torches or coal. The carpenter builds them before felling trees or working wood, but not while a house is under
+construction, and never from the logs the treasury keeps for houses (48).
 Dark spots it passes are still lit with a short post, as in phase 1.
 
 ## Expansion

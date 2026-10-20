@@ -38,9 +38,9 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | `defense` | defense | guards, golems, threat manager, raid shelter |
 | `gather` | gather | lumberjack, miner, night lighting |
 | `food` | food | farmer, fisher, rancher, item pickup |
-| `construction` | construction | house planning/catalog/builder, roads, walls, damage detection & repair |
-| `economy` | economy (v2 phase 1) | `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
-| `society` | society | player trading (`Trading`, `PlayerCredit`), deeds, land notices, theft, offline sim, colonization, film mode, commands |
+| `construction` | construction | house planning/catalog/builder, roads, layered walls, damage detection & repair; v2 phase 2: `LandWork`/`LandWorkTask` (miner demolition and pit filling), `LampPosts`/`LampPostTask` |
+| `economy` | economy (v2 phase 1) | `Commissions` (public works budget), `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
+| `society` | society | player trading (`Trading`, `PlayerCredit`), deeds, `LandSales` (deed maps, empty houses), land notices, theft, offline sim, colonization, film mode, commands |
 | `mixin.<subsystem>` | each | mixins, registered in `better_than_village.<subsystem>.mixins.json` (`client` mixins in `better_than_village.client.mixins.json`) |
 
 ## Stock scope (v2)

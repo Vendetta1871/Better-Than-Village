@@ -32,6 +32,9 @@ public final class LampPostTask extends ColonyTask {
     static final String STATUS = "фонарный столб";
     static final String STATUS_NO_MATERIAL = "нет забора или факела для фонарного столба";
 
+    /** Logs the treasury keeps for houses and repairs (its reserve, Needs.treasury). */
+    private static final int LOG_RESERVE = 48;
+
     private final BlockWorkTimer timer = new BlockWorkTimer();
     private int built;
 
@@ -44,18 +47,21 @@ public final class LampPostTask extends ColonyTask {
         return true;
     }
 
-    /** The carpenter has a post to build and the treasury can pay (the lumber and workshop tasks then yield). */
+    /**
+     * The carpenter has a post to build, no house is under construction (houses come first) and the treasury can
+     * pay (the lumber and workshop tasks then yield).
+     */
     public static boolean wanted(ServerLevel level, Villager v, Colony colony) {
         return !v.isSleeping() && v.getTradingPlayer() == null && colony.roleOf(v.getUUID()) == ColonyRole.CARPENTER
-                && ColonyManager.terrainChangesAllowed(level) && LampPosts.siteCount(colony) > 0 && Commissions.canPay(level, colony)
-                && hasMaterials(level, colony);
+                && ColonyManager.terrainChangesAllowed(level) && LampPosts.siteCount(colony) > 0 && !colony.hasActiveConstruction()
+                && Commissions.canPay(level, colony) && hasMaterials(level, colony);
     }
 
     private static boolean hasMaterials(ServerLevel level, Colony colony) {
         java.util.List<ColonyStorage.Slot> treasury = ColonyStorage.treasury(level, colony);
         boolean posts = net.betterthanvillage.economy.Chests.count(treasury, s -> s.is(ItemTags.WOODEN_FENCES)) >= LampPosts.FENCES
                 || net.betterthanvillage.economy.Chests.count(treasury, s -> s.is(ItemTags.PLANKS)) >= 2 * LampPosts.FENCES
-                || net.betterthanvillage.economy.Chests.count(treasury, s -> s.is(ItemTags.LOGS)) >= 1;
+                || net.betterthanvillage.economy.Chests.count(treasury, s -> s.is(ItemTags.LOGS)) > LOG_RESERVE;
         boolean light = net.betterthanvillage.economy.Chests.count(treasury, s -> s.is(Items.TORCH) || s.is(Items.LANTERN)
                 || s.is(Items.COAL) || s.is(Items.CHARCOAL)) > 0;
         return posts && light;
@@ -129,7 +135,8 @@ public final class LampPostTask extends ColonyTask {
             return ColonyStorage.consume(level, colony, s -> s.is(ItemTags.WOODEN_FENCES), LampPosts.FENCES);
         }
         if (ColonyStorage.consume(level, colony, s -> s.is(ItemTags.PLANKS), 2 * LampPosts.FENCES)) return true;
-        // One log makes the planks and sticks of a post.
+        // One log makes the planks and sticks of a post; logs kept for houses and repairs are not used.
+        if (ColonyStorage.count(level, colony, s -> s.is(ItemTags.LOGS)) <= LOG_RESERVE) return false;
         return ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 1);
     }
 
