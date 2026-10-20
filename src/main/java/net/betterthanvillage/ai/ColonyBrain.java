@@ -38,6 +38,7 @@ public final class ColonyBrain {
                 task(1, new GuardEquipmentTask()),
                 task(2, new FarmerTask()),
                 task(3, new LumberjackTask()),
+                task(3, new net.betterthanvillage.construction.LandWorkTask()),
                 task(4, new MinerTask()),
                 task(5, new FisherTask()),
                 task(6, new RancherTask()),

@@ -55,10 +55,9 @@ public final class LandNotices {
     public static void onPlacement(ServerLevel level, Player player, BlockPos pos, BlockState state) {
         if (player.isCreative() || player.isSpectator() || !structural(state)) return;
         if (Deeds.ownsPosition(level, player.getUUID(), pos)) return;
+        // Anywhere in a territory (docs_v2/04-land.md §Plots and houses: illegal builds).
         Colony colony = ColonyManager.colonyAt(level, pos);
         if (colony == null) return;
-        double max = Math.min(96, colony.radius());
-        if (colony.core().distSqr(pos) > max * max) return;
         long now = level.getGameTime();
         ColonySavedData data = ColonyManager.data(level);
         LandWarning record = find(data, player);

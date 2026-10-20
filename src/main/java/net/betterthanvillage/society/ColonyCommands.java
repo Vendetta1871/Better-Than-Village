@@ -59,7 +59,8 @@ public final class ColonyCommands {
                 .then(Commands.literal("offers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::offers))
                 .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
                 .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land)
-                        .then(Commands.literal("sell").executes(ColonyCommands::sellHouse)))
+                        .then(Commands.literal("sell").executes(ColonyCommands::sellHouse))
+                        .then(Commands.literal("illegal").executes(ColonyCommands::illegalBuild)))
                 .then(film()));
     }
 
@@ -201,9 +202,45 @@ public final class ColonyCommands {
         }
         StringJoiner houses = new StringJoiner(", ");
         for (LandSales.House h : LandSales.emptyHouses(level, c)) houses.add(h.box().getCenter().toShortString() + " beds=" + h.beds().size());
-        ok(source, Component.literal("Empty houses: [" + houses + "]; player plots: " + ColonyManager.data(level).land.size()));
+        ok(source, Component.literal("Empty houses: [" + houses + "]; player plots: " + ColonyManager.data(level).land.size()
+                + "; to demolish: " + net.betterthanvillage.construction.LandWork.demolitionCount(c)
+                + "; pits: " + net.betterthanvillage.construction.LandWork.pitCount(c)));
         ok(source, Component.literal("Countries: " + legend + "; territory radius=" + c.radius() + " max=" + net.betterthanvillage.colony.Territory.maxRadius(c)
                 + " seat=" + (c.seat == null ? "-" : c.seat.toString())));
+        return 1;
+    }
+
+    /**
+     * Debug: a 3x3x3 cobblestone build of a placeholder player 24 blocks east of the bell, on the surface, whose
+     * owner got the elder's notice long ago: it is illegal and due for demolition.
+     */
+    private static int illegalBuild(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        UUID owner = new UUID(0, 2);
+        long now = level.getGameTime();
+        BlockPos base = c.core().east(24);
+        base = new BlockPos(base.getX(), level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, base.getX(), base.getZ()), base.getZ());
+        int placed = 0;
+        for (BlockPos p : BlockPos.betweenClosed(base, base.offset(2, 2, 2))) {
+            if (!level.getBlockState(p).canBeReplaced()) continue;
+            level.setBlock(p, net.minecraft.world.level.block.Blocks.COBBLESTONE.defaultBlockState(), 3);
+            ColonyManager.data(level).recordPlacement(p.immutable(), owner, now);
+            placed++;
+        }
+        net.betterthanvillage.colony.LandWarning w = new net.betterthanvillage.colony.LandWarning();
+        w.player = owner;
+        w.colony = c.id();
+        w.pos = base;
+        w.delivered = now - LandNotices.GRACE - 1;
+        ColonyManager.data(level).landWarnings.add(w);
+        ColonyManager.markDirty(level);
+        ok(source, Component.literal("Illegal build of " + placed + " blocks at " + base.toShortString()));
         return 1;
     }
 

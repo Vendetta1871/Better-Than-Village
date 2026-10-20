@@ -353,6 +353,7 @@ public final class ColonyManager {
             HousePlanner.tick(level, colony);
         }
         Fortifications.tick(level, colony);
+        net.betterthanvillage.construction.LandWork.tick(level, colony);
         if (ColonyConfig.get().debug.render_build_boxes && now % 20 == 0) {
             for (ConstructionJob job : colony.jobs) {
                 if (job.status == JobStatus.QUEUED || job.status == JobStatus.BUILDING) {

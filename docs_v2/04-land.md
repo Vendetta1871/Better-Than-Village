@@ -128,7 +128,19 @@ inside the territory.
 - **Materials.** Fill uses real blocks: the miner's own spoil, or dirt or cobblestone bought at
   the gathering.
 - **Unreachable houses.** A house, bed or chest villagers cannot walk to (generated villages
-  have some on hillsides) gets a path cut or built to it: steps, a ramp or a tunnel.
+  have some on hillsides) gets a path cut or built to it: steps, a ramp or a tunnel. *(Not
+  implemented yet, nor are road tunnels.)*
+- **Implementation.**
+  - *Demolition.* A player block in the territory outside the owner's property is condemned
+    once the elder's notice was delivered to its owner and the grace period is over. Nothing is
+    condemned while the village fights. The miner tears builds down from the top; drops and
+    container contents go to the treasury.
+  - *Pits.* A dry column whose ground lies 2–6 blocks below the ground two blocks away on both
+    sides (along x or z), within 4 blocks of a house, road, field or bed, is filled up to that
+    rim with dirt or cobblestone of the treasury.
+  - *Sites.* Masons still prepare their own sites; site search accepts at most 4 blocks of
+    height difference, inside the 6-block limit.
+  - The miner's land work is public work within the treasury's budget, and comes before mining.
 
 ## Layered walls
 
