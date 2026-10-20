@@ -126,12 +126,7 @@ public final class FarmTerritory {
 
     /** Near the planned wall ring (|dist - W| <= margin + 2) or within margin of any construction job box. */
     private static boolean nearStructure(Colony colony, BlockPos pos, int margin) {
-        int w = colony.fortifications.radius;
-        if (w > 0) {
-            double dx = pos.getX() - colony.core().getX();
-            double dz = pos.getZ() - colony.core().getZ();
-            if (Math.abs(Math.sqrt(dx * dx + dz * dz) - w) <= margin + 2) return true;
-        }
+        if (net.betterthanvillage.construction.Fortifications.isNearWall(colony, pos, margin)) return true;
         for (ConstructionJob job : colony.jobs) {
             if (nearBoxXZ(job.box(), pos, margin)) return true;
         }

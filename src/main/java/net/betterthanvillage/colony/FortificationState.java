@@ -14,7 +14,10 @@ import java.util.Set;
 
 /** Per-colony wall planner state (owned by the construction subsystem). */
 public final class FortificationState {
+    /** Territory radius the current (outermost) ring was laid out for; 0 before the first ring. */
     public int radius;
+    /** Territory radii of the older rings, kept and maintained inside the current one. */
+    public final java.util.List<Integer> oldRings = new java.util.ArrayList<>();
     public int skipped;
     public long nextPlan;
     public final Set<BlockPos> surveyed = new LinkedHashSet<>();
@@ -27,6 +30,7 @@ public final class FortificationState {
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("radius", radius);
+        tag.putIntArray("old_rings", oldRings.stream().mapToInt(Integer::intValue).toArray());
         tag.putInt("skipped", skipped);
         tag.putLong("next_plan", nextPlan);
         tag.putLongArray("surveyed", NbtHelper.packPositions(surveyed));
@@ -46,6 +50,8 @@ public final class FortificationState {
 
     public void load(CompoundTag tag, HolderGetter<Block> blocks) {
         radius = NbtHelper.clamp(tag.getInt("radius"), 0, 512);
+        oldRings.clear();
+        for (int r : tag.getIntArray("old_rings")) oldRings.add(r);
         skipped = Math.max(0, tag.getInt("skipped"));
         nextPlan = tag.getLong("next_plan");
         surveyed.clear();

@@ -163,11 +163,7 @@ public final class GatherUtil {
 
     /** Near the planned wall ring (|dist - W| <= margin + 2) or within margin of a construction job box horizontally. */
     private static boolean nearStructure(Colony c, BlockPos pos, int margin) {
-        int w = c.fortifications.radius;
-        if (w > 0) {
-            double d = Math.sqrt(hDist2(pos, c.core()));
-            if (Math.abs(d - w) <= margin + 2) return true;
-        }
+        if (net.betterthanvillage.construction.Fortifications.isNearWall(c, pos, margin)) return true;
         for (ConstructionJob job : c.jobs) {
             BoundingBox b = job.box();
             if (pos.getX() >= b.minX() - margin && pos.getX() <= b.maxX() + margin && pos.getZ() >= b.minZ() - margin && pos.getZ() <= b.maxZ() + margin) {

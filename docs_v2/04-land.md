@@ -154,6 +154,14 @@ inside the territory.
   **outer** side, so the plot stays inside and protected.
 - **Funding.** Walls are military buildings, paid by the treasury.
 
+- **Implementation.** A ring is laid out for the territory radius at the time: it follows the
+  noisy border two blocks inside it, and is pushed out along the ray around player property. The
+  village's pieces, houses, fields, storages and pen grow the territory (up to its maximum) so
+  the ring encloses them. Once the territory radius is 16 blocks past the current ring, a new ring
+  is planned and the old one is kept. Missing blocks of every ring are put back. Gates stand where
+  the ring crosses a road and on the bell's axes. Config `land.layered_walls` off: the ring moves
+  out instead, as before.
+
 Reuses: ring layout, materials and gate control, old
 [05-construction §4](../docs/independent-villagers/05-construction.md). Change: rings are never
 demolished or moved; new rings are added.
@@ -165,6 +173,12 @@ torch, or a lantern once the smith sells them. They go along roads at regular sp
 squares, at gates and wherever the old darkness scan finds dark spots (old
 [03 §4](../docs/independent-villagers/03-gathering-navigation.md)). Paid by the treasury as
 infrastructure.
+
+Implementation: posts are planned beside road blocks, on the square around the bell and inside
+the wall gates, where the block light is below 6 (no light within about 10 blocks). A post is two
+oak fences with a lantern (if the treasury has one) or a torch, from the treasury's fences, planks
+or one log, and torches or coal. The carpenter builds them before felling trees or working wood.
+Dark spots it passes are still lit with a short post, as in phase 1.
 
 ## Expansion
 

@@ -83,8 +83,8 @@ Milestones:
 | 2.3 | Plots and empty houses sold by the elder as deed maps; villagers keep off player plots | done (player-commissioned houses removed) |
 | 2.4 | Commissioned construction: houses only for births, treasury commissions for infrastructure, builders paid per job | done (pay per unit of work; fields grow by the farmers' own tilling) |
 | 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | done: demolition, pit filling; open: paths to unreachable houses, road tunnels |
-| 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | |
-| 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | |
+| 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | done (a lone mason still builds houses before walls) |
+| 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | done |
 | 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | |
 
 Done when: a village fills its maximum territory, builds a second wall ring and founds a daughter

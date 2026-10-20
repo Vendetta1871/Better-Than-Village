@@ -60,7 +60,18 @@ public final class ColonyCommands {
                 .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
                 .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land)
                         .then(Commands.literal("sell").executes(ColonyCommands::sellHouse))
-                        .then(Commands.literal("illegal").executes(ColonyCommands::illegalBuild)))
+                        .then(Commands.literal("illegal").executes(ColonyCommands::illegalBuild))
+                        .then(Commands.literal("grow").then(Commands.argument("blocks", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 256))
+                                .executes(ctx -> {
+                                    Colony c = colonyNear(ctx.getSource());
+                                    if (c == null) return 0;
+                                    // Debug: grows the territory as construction would, past the maximum if asked.
+                                    c.growRadius(c.radius() + com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "blocks"));
+                                    c.fortifications.nextPlan = 0;
+                                    ColonyManager.markDirty(ctx.getSource().getLevel());
+                                    ok(ctx.getSource(), Component.literal("Territory radius " + c.radius()));
+                                    return 1;
+                                }))))
                 .then(film()));
     }
 
@@ -204,7 +215,18 @@ public final class ColonyCommands {
         for (LandSales.House h : LandSales.emptyHouses(level, c)) houses.add(h.box().getCenter().toShortString() + " beds=" + h.beds().size());
         ok(source, Component.literal("Empty houses: [" + houses + "]; player plots: " + ColonyManager.data(level).land.size()
                 + "; to demolish: " + net.betterthanvillage.construction.LandWork.demolitionCount(c)
-                + "; pits: " + net.betterthanvillage.construction.LandWork.pitCount(c)));
+                + "; pits: " + net.betterthanvillage.construction.LandWork.pitCount(c)
+                + "; wall rings: " + c.fortifications.oldRings + " + " + c.fortifications.radius + " built=" + c.fortifications.managed.size()
+                + " pending=" + c.fortifications.pending.size()
+                + "; lamp post sites: " + net.betterthanvillage.construction.LampPosts.siteCount(c)));
+        List<ColonyStorage.Slot> treasury = ColonyStorage.treasury(level, c);
+        java.util.function.BiFunction<String, java.util.function.Predicate<ItemStack>, String> n = (name, p) ->
+                name + "=" + net.betterthanvillage.economy.Chests.count(treasury, p);
+        ok(source, Component.literal("Treasury materials: " + String.join(", ",
+                n.apply("cobble", st -> st.is(net.minecraft.tags.ItemTags.STONE_CRAFTING_MATERIALS)),
+                n.apply("logs", st -> st.is(net.minecraft.tags.ItemTags.LOGS)), n.apply("planks", st -> st.is(net.minecraft.tags.ItemTags.PLANKS)),
+                n.apply("fences", st -> st.is(net.minecraft.tags.ItemTags.WOODEN_FENCES)), n.apply("torches", st -> st.is(Items.TORCH)),
+                n.apply("coal", st -> st.is(Items.COAL) || st.is(Items.CHARCOAL)), n.apply("dirt", st -> st.is(Items.DIRT)))));
         ok(source, Component.literal("Countries: " + legend + "; territory radius=" + c.radius() + " max=" + net.betterthanvillage.colony.Territory.maxRadius(c)
                 + " seat=" + (c.seat == null ? "-" : c.seat.toString())));
         return 1;

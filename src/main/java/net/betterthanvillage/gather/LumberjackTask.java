@@ -96,7 +96,8 @@ public final class LumberjackTask extends ColonyTask {
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.getTradingPlayer() != null || !ColonyManager.terrainChangesAllowed(level) || !assigned(colony, v)
-                || VillagerUtil.isRunning(v, net.betterthanvillage.economy.WorkshopTask.class)) {
+                || VillagerUtil.isRunning(v, net.betterthanvillage.economy.WorkshopTask.class)
+                || net.betterthanvillage.construction.LampPostTask.wanted(level, v, colony)) {
             return false;
         }
         queue.clear();

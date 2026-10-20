@@ -46,7 +46,8 @@ public final class WorkshopTask extends ColonyTask {
         ColonyRole role = colony.roleOf(v.getUUID());
         if (v.isSleeping() || v.getTradingPlayer() != null || level.getGameTime() < cooldown || !workshopTrade(role)) return false;
         // A carpenter fells trees or works wood, never both at once.
-        if (role == ColonyRole.CARPENTER && VillagerUtil.isRunning(v, LumberjackTask.class)) return false;
+        if (role == ColonyRole.CARPENTER && (VillagerUtil.isRunning(v, LumberjackTask.class)
+                || net.betterthanvillage.construction.LampPostTask.wanted(level, v, colony))) return false;
         Household h = colony.households.get(v.getUUID());
         if (h == null || !h.hasChest()) return false;
         return Workshop.ready(Workshop.recipes(role), ColonyStorage.usable(level, h), Skill.master(colony, v.getUUID())) != null;

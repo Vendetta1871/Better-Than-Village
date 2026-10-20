@@ -119,6 +119,8 @@ public final class ColonyConfig {
         public double territory_noise = 0.25;
         /** A chunk farther than this many blocks from every generated village belongs to no country. */
         public int domain_cap = 512;
+        /** Rings are kept when the territory outgrows them and a new ring is built outside; off: the ring moves out. */
+        public boolean layered_walls = true;
     }
 
     public static ColonyConfig get() {
