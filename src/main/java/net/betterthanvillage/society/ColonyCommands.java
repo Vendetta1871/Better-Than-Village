@@ -219,6 +219,18 @@ public final class ColonyCommands {
                 + "; wall rings: " + c.fortifications.oldRings + " + " + c.fortifications.radius + " built=" + c.fortifications.managed.size()
                 + " pending=" + c.fortifications.pending.size()
                 + "; lamp post sites: " + net.betterthanvillage.construction.LampPosts.siteCount(c)));
+        if (c.founder != null) {
+            StringJoiner party = new StringJoiner("; ");
+            List<UUID> ids = new ArrayList<>(c.founderCompanions);
+            ids.add(0, c.founder);
+            for (UUID id : ids) {
+                net.minecraft.world.entity.Entity e = level.getEntity(id);
+                party.add(e == null ? id.toString().substring(0, 8) + " unloaded"
+                        : e.blockPosition().toShortString() + " " + (e instanceof Villager pv ? net.betterthanvillage.ai.work.WorkTracker.status(pv) + (pv.getNavigation().isDone() ? " idle" : " moving") : ""));
+            }
+            ok(source, Component.literal("Search party to " + (c.founderTarget == null ? "-" : c.founderTarget.toShortString())
+                    + (c.founderReturning ? " (returning)" : "") + ": " + party));
+        }
         List<ColonyStorage.Slot> treasury = ColonyStorage.treasury(level, c);
         java.util.function.BiFunction<String, java.util.function.Predicate<ItemStack>, String> n = (name, p) ->
                 name + "=" + net.betterthanvillage.economy.Chests.count(treasury, p);

@@ -85,7 +85,7 @@ Milestones:
 | 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | done: demolition, pit filling; open: paths to unreachable houses, road tunnels |
 | 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | done (a lone mason still builds houses before walls) |
 | 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | done |
-| 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | |
+| 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | done (travel is live only; foreign land is never chosen until phase 4) |
 
 Done when: a village fills its maximum territory, builds a second wall ring and founds a daughter
 village, and an illegal player build in the territory is demolished.

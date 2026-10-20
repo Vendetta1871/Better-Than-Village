@@ -4,6 +4,13 @@ import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.nav.WaypointNavigator;
 import net.betterthanvillage.ai.work.SafeEdit;
 import net.betterthanvillage.colony.Colony;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
+import net.betterthanvillage.construction.HousePlanner;
+import net.betterthanvillage.economy.Births;
+import net.betterthanvillage.economy.Household;
+import net.betterthanvillage.colony.Domain;
+import net.betterthanvillage.colony.Territory;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonySavedData;
@@ -51,12 +58,18 @@ import java.util.function.Predicate;
 /** Founder expeditions (06 §6): start, settler selection, site search, travel, founding and deaths. */
 public final class Colonization {
     private static final int SETTLERS = 5;
+    /** A party smaller than this does not leave: the future elder, a warrior and one more. */
+    private static final int MIN_SETTLERS = 3;
     /** Founding sites lie MIN_SITE_DISTANCE..MAX_SITE_DISTANCE blocks from the home core. */
-    static final int MIN_SITE_DISTANCE = 192;
-    static final int MAX_SITE_DISTANCE = 320;
+    static final int MIN_SITE_DISTANCE = 288;
+    static final int MAX_SITE_DISTANCE = 448;
     private static final long FOUNDER_MISSING_TICKS = 6000;
     private static final long EXPEDITION_MAX_TICKS = 3 * 24000L;
     private static final String MISSING_KEY = "society.founderMissingSince";
+    private static final String COMPANION_MISSING_KEY = "society.companionMissingSince";
+    private static final long COMPANION_MISSING_TICKS = 1200;
+    private static final String STRAGGLER_KEY = "society.stragglerSince";
+    private static final long STRAGGLER_TICKS = 600;
     private static final long CORE_SPACING_SQ = 160L * 160L;
     private static final String BRIDGE_KEY = "society.bridge";
     private static final Predicate<ItemStack> FOOD = ColonyStorage::isFood;
@@ -88,49 +101,101 @@ public final class Colonization {
         return raid != null && raid.isActive();
     }
 
+    /**
+     * docs_v2/04-land.md §Expansion: once the territory is at its maximum and a pair cannot get a plot or adults
+     * lack houses, a search party leaves to found a village of the same country.
+     */
     private static void tryStart(ServerLevel level, Colony colony) {
         long now = level.getGameTime();
-        if (now < colony.nextFounderTick || colony.population() < 24 || raidNear(level, colony)) return;
-        if (colony.cachedFood < 256 || colony.cachedLogs < 128 || colony.cachedStone < 256) return;
+        if (now < colony.nextFounderTick || raidNear(level, colony) || !crowded(level, colony)) return;
         List<Villager> settlers = selectSettlers(level, colony);
-        if (settlers.size() < SETTLERS) return;
-        BlockPos site = searchSite(level, colony);
+        BlockPos site = settlers.size() < MIN_SETTLERS ? null : searchSite(level, colony);
         if (site == null) {
             colony.nextFounderTick = now + 1200;
             ColonyManager.markDirty(level);
             return;
         }
-        loadCargo(level, colony);
+        loadCargo(level, colony, settlers);
         depart(level, colony, settlers, site, now);
     }
 
-    /** Five settlers: CITIZEN first; every role keeps at least one member; elder and founders never leave. */
+    /** The territory cannot grow any more, and a pair's house found no site or an adult has no bed. */
+    public static boolean crowded(ServerLevel level, Colony colony) {
+        if (!Territory.atMax(colony)) return false;
+        if (Births.unsited(colony) != null && HousePlanner.siteFailures(colony) >= 2) return true;
+        for (Household h : colony.households.values()) {
+            if (h.bed == null) return true;
+        }
+        return false;
+    }
+
+    /**
+     * About five settlers (04 §Expansion): the future elder first, the wealthiest adult (most emeralds at home);
+     * then a warrior and a farmer, then adults without a house; every trade keeps at least one member at home and
+     * the elder stays.
+     */
     static List<Villager> selectSettlers(ServerLevel level, Colony colony) {
-        List<Villager> adults = ColonyManager.adultMembers(level, colony);
-        EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
-        for (Villager v : adults) counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
-        adults.sort(Comparator.comparingInt(v -> colony.roleOf(v.getUUID()) == ColonyRole.CITIZEN ? 0 : 1));
-        List<Villager> out = new ArrayList<>();
-        for (Villager v : adults) {
-            if (out.size() >= SETTLERS) break;
+        List<Villager> adults = new ArrayList<>();
+        for (Villager v : ColonyManager.adultMembers(level, colony)) {
             ColonyRole role = colony.roleOf(v.getUUID());
             if (v.getTradingPlayer() != null || v.isSleeping() || role == ColonyRole.ELDER || role == ColonyRole.FOUNDER) continue;
-            if (role == ColonyRole.CITIZEN) {
-                out.add(v);
-            } else if (counts.getOrDefault(role, 0) > 1) {
-                counts.merge(role, -1, Integer::sum);
-                out.add(v);
-            }
+            adults.add(v);
+        }
+        EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
+        for (Villager v : ColonyManager.adultMembers(level, colony)) counts.merge(colony.tradeOf(v.getUUID()), 1, Integer::sum);
+        List<Villager> out = new ArrayList<>();
+        java.util.function.Predicate<Villager> spare = v -> {
+            ColonyRole trade = colony.tradeOf(v.getUUID());
+            return !trade.isProfession() || counts.getOrDefault(trade, 0) > 1;
+        };
+        java.util.function.Consumer<Villager> pick = v -> {
+            out.add(v);
+            adults.remove(v);
+            counts.merge(colony.tradeOf(v.getUUID()), -1, Integer::sum);
+        };
+        adults.stream().filter(spare).max(Comparator.comparingInt(v -> purse(level, colony, v.getUUID()))).ifPresent(pick);
+        for (ColonyRole needed : new ColonyRole[]{ColonyRole.WARRIOR, ColonyRole.FARMER}) {
+            if (out.stream().anyMatch(v -> colony.roleOf(v.getUUID()) == needed)) continue;
+            adults.stream().filter(v -> colony.roleOf(v.getUUID()) == needed && spare.test(v)).findFirst().ifPresent(pick);
+        }
+        adults.sort(Comparator.comparingInt(v -> {
+            Household h = colony.households.get(v.getUUID());
+            return h != null && h.bed == null ? 0 : 1;
+        }));
+        for (Villager v : new ArrayList<>(adults)) {
+            if (out.size() >= SETTLERS) break;
+            if (spare.test(v)) pick.accept(v);
         }
         return out;
     }
 
-    private static void loadCargo(ServerLevel level, Colony colony) {
+    /** Emeralds in a villager's home chests. */
+    private static int purse(ServerLevel level, Colony colony, UUID villager) {
+        Household h = colony.households.get(villager);
+        return h == null ? 0 : net.betterthanvillage.economy.Chests.count(ColonyStorage.usable(level, h), st -> st.is(Items.EMERALD));
+    }
+
+    /**
+     * Cargo: the treasury's starting grant (emeralds) and building materials and food; every settler takes its own
+     * emeralds from its home chests (paid out again to its household in the new village, or at home if the party
+     * comes back).
+     */
+    private static void loadCargo(ServerLevel level, Colony colony, List<Villager> settlers) {
         colony.founderCargo.clear();
+        take(level, colony, s -> s.is(Items.EMERALD), ColonyConfig.get().land.expansion_grant);
         take(level, colony, s -> s.is(ItemTags.LOGS), 32);
         take(level, colony, s -> s.is(ItemTags.STONE_CRAFTING_MATERIALS), 112);
         take(level, colony, FOOD, 32);
         colony.founderCargoReserved = true;
+        colony.founderPurses.clear();
+        for (Villager v : settlers) {
+            Household h = colony.households.get(v.getUUID());
+            if (h == null) continue;
+            List<ColonyStorage.Slot> home = ColonyStorage.usable(level, h);
+            int held = net.betterthanvillage.economy.Chests.count(home, st -> st.is(Items.EMERALD));
+            int n = net.betterthanvillage.economy.Chests.total(net.betterthanvillage.economy.Chests.take(home, st -> st.is(Items.EMERALD), held));
+            if (n > 0) colony.founderPurses.put(v.getUUID(), n);
+        }
     }
 
     private static void take(ServerLevel level, Colony colony, Predicate<ItemStack> pred, int max) {
@@ -174,17 +239,42 @@ public final class Colonization {
 
     // ---------------------------------------------------------------- site search (06 §6.3)
 
+    /**
+     * Site of the new village (04 §Expansion): its territory at the maximum must not overlap any village's
+     * territory at the maximum. Preferred inside the own country's domain, else on land nobody owns; never inside
+     * a foreign domain (buying or taking land comes with countries, phase 4). Loaded land only.
+     */
     static BlockPos searchSite(ServerLevel level, Colony home) {
-        for (int i = 0; i < 16; i++) {
-            double angle = level.random.nextDouble() * Math.PI * 2;
-            int dist = MIN_SITE_DISTANCE + level.random.nextInt(MAX_SITE_DISTANCE - MIN_SITE_DISTANCE + 1);
-            int x = home.core().getX() + (int) Math.round(Math.cos(angle) * dist);
-            int z = home.core().getZ() + (int) Math.round(Math.sin(angle) * dist);
-            if (!level.hasChunk(x >> 4, z >> 4)) continue;
-            BlockPos pos = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
-            if (candidate(level, pos) && suitable(level, pos)) return pos;
+        BlockPos unowned = null;
+        int offset = level.random.nextInt(48);
+        for (int dist = MIN_SITE_DISTANCE; dist <= MAX_SITE_DISTANCE; dist += 32) {
+            for (int i = 0; i < 48; i++) {
+                double angle = (i + offset) * Math.PI * 2 / 48;
+                int x = home.core().getX() + (int) Math.round(Math.cos(angle) * dist);
+                int z = home.core().getZ() + (int) Math.round(Math.sin(angle) * dist);
+                if (!level.hasChunk(x >> 4, z >> 4)) continue;
+                UUID owner = Domain.countryAt(level, new ChunkPos(x >> 4, z >> 4));
+                boolean own = home.country != null && home.country.equals(owner);
+                if (owner != null && !own) continue;
+                if (!own && unowned != null) continue;
+                BlockPos pos = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
+                if (!roomToGrow(level, pos) || !candidate(level, pos) || !suitable(level, pos)) continue;
+                if (own) return pos;
+                unowned = pos;
+            }
         }
-        return null;
+        return unowned;
+    }
+
+    /** No village's largest territory comes within the new village's largest territory of the site. */
+    private static boolean roomToGrow(ServerLevel level, BlockPos pos) {
+        int ownMax = (int) Math.sqrt(ColonyConfig.get().land.territory_max_area / Math.PI);
+        for (Colony c : ColonyManager.data(level).colonies()) {
+            long reach = Math.max(c.radius(), Territory.maxRadius(c)) + ownMax;
+            long dx = c.core().getX() - pos.getX(), dz = c.core().getZ() - pos.getZ();
+            if (dx * dx + dz * dz < reach * reach) return false;
+        }
+        return true;
     }
 
     /** Dry free standing spot, modifiable, no colony core within 160 blocks. */
@@ -346,11 +436,25 @@ public final class Colonization {
             UUID id = colony.founderCompanions.get(i);
             int slot = i % 4;
             Entity e = level.getEntity(id);
+            Map<UUID, Long> missing = colony.runtime(COMPANION_MISSING_KEY, java.util.HashMap::new);
             if (e == null) {
+                // A companion out of the loaded world for long stays behind (it rejoins its trade at home).
+                long since = missing.computeIfAbsent(id, k -> now);
+                if (now - since >= COMPANION_MISSING_TICKS) {
+                    missing.remove(id);
+                    colony.founderCompanions.remove(i--);
+                    colony.setRole(id, ColonyRole.CITIZEN, now);
+                    Household h = colony.households.get(id);
+                    Integer purse = colony.founderPurses.remove(id);
+                    if (h != null && purse != null) h.pendingCapital += purse;
+                    ColonyManager.markDirty(level);
+                    continue;
+                }
                 allArrived = false;
                 straggler = true;
                 continue;
             }
+            missing.remove(id);
             if (!(e instanceof Villager v) || !v.isAlive()) {
                 colony.founderCompanions.remove(i--);
                 colony.roles.remove(id);
@@ -372,7 +476,20 @@ public final class Colonization {
                 }
                 WaypointNavigator.travel(level, v, goal, 0.95);
             }
-            if (toFounder > 144) straggler = true;
+            if (toFounder > 144) {
+                straggler = true;
+                // A companion that cannot catch up (fell into a pit, cut off by water) climbs out to the leader.
+                Map<UUID, Long> behind = colony.runtime(STRAGGLER_KEY, java.util.HashMap::new);
+                long since = behind.computeIfAbsent(id, k -> now);
+                if (now - since >= STRAGGLER_TICKS) {
+                    BlockPos spot = standNear(level, founder.blockPosition());
+                    if (spot != null) net.betterthanvillage.gather.GatherUtil.teleport(v, spot);
+                    behind.remove(id);
+                }
+            } else {
+                Map<UUID, Long> behind = colony.runtime(STRAGGLER_KEY, java.util.HashMap::new);
+                behind.remove(id);
+            }
             if (toTarget > 36) allArrived = false;
             if (colony.founderCapital >= 24 && founderAt && v.blockPosition().equals(target)) {
                 nudge(level, v, target);
@@ -408,6 +525,21 @@ public final class Colonization {
         if (!waterCrossing(level, colony, founder, target)) {
             WaypointNavigator.travel(level, founder, target, 0.9);
         }
+    }
+
+    /** A standable spot 1..3 blocks from pos, or null. */
+    private static BlockPos standNear(ServerLevel level, BlockPos pos) {
+        for (int r = 1; r <= 3; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        BlockPos p = pos.offset(dx, dy, dz);
+                        if (Nav.standable(level, p)) return p;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /** Moves a villager off the exact target block to a free standable spot 2..3 blocks away. */
@@ -529,8 +661,12 @@ public final class Colonization {
             } else {
                 // The next census gives the held trade back.
                 colony.setRole(id, ColonyRole.CITIZEN, now);
+                Household h = colony.households.get(id);
+                Integer purse = colony.founderPurses.get(id);
+                if (h != null && purse != null) h.pendingCapital += purse;
             }
         }
+        colony.founderPurses.clear();
         for (UUID id : new ArrayList<>(colony.roles.keySet())) {
             if (colony.roleOf(id) == ColonyRole.FOUNDER) colony.setRole(id, ColonyRole.CITIZEN, now);
         }
@@ -671,13 +807,50 @@ public final class Colonization {
             moveFromHome(level, home, fresh, FOOD, 32);
         }
         long now = level.getGameTime();
+        // A village of the same country; on land nobody owned it claims the unowned chunks around it.
+        fresh.country = home.country;
+        if (Domain.countryAt(level, new ChunkPos(target)) == null) Domain.claimAround(level, fresh);
+        // Settlers bring their own money: households now, no starting capital out of nothing.
+        fresh.householdsSettled = true;
         fresh.setRole(founder.getUUID(), ColonyRole.ELDER, now);
         fresh.elder = founder.getUUID();
         Professions.applyRole(level, fresh, founder);
         List<UUID> companions = new ArrayList<>(home.founderCompanions);
+        boolean farmer = false;
+        for (UUID id : companions) farmer |= home.pendingProfessions.get(id) == ColonyRole.FARMER;
+        List<UUID> party = new ArrayList<>(companions);
+        party.add(founder.getUUID());
+        for (UUID id : party) {
+            Household h = new Household(id);
+            h.founded = now;
+            h.lastIncomeDay = Math.floorDiv(level.getDayTime(), 24000L);
+            h.greed = (level.random.nextFloat() * 2f - 1f) * 0.3f;
+            h.pendingCapital = home.founderPurses.getOrDefault(id, 0);
+            fresh.households.put(id, h);
+        }
+        // Trades in the new village: every settler keeps its own; the party has one warrior and one farmer, the
+        // farmer taking up farming as first of its line if no farmer came along.
+        List<ColonyRole> trades = new ArrayList<>();
+        int warriorAt = -1;
         for (int i = 0; i < companions.size(); i++) {
             ColonyRole trade = home.pendingProfessions.get(companions.get(i));
-            fresh.setRole(companions.get(i), trade != null ? trade : ColonyRole.WARRIOR, now);
+            if (trade == null) trade = ColonyRole.WARRIOR;
+            if (trade == ColonyRole.WARRIOR && warriorAt < 0) warriorAt = i;
+            trades.add(trade);
+        }
+        if (warriorAt < 0 && !companions.isEmpty()) {
+            warriorAt = 0;
+            trades.set(0, ColonyRole.WARRIOR);
+        }
+        if (!farmer) {
+            for (int i = companions.size() - 1; i >= 0; i--) {
+                if (i == warriorAt) continue;
+                trades.set(i, ColonyRole.FARMER);
+                break;
+            }
+        }
+        for (int i = 0; i < companions.size(); i++) {
+            fresh.setRole(companions.get(i), trades.get(i), now);
             Villager v = villager(level, companions.get(i));
             if (v != null) {
                 Nav.reset(v);

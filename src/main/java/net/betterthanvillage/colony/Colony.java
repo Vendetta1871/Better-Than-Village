@@ -94,6 +94,8 @@ public final class Colony implements VillageCapability {
     public boolean founderCargoReserved;
     public final Map<Item, Integer> founderCargo = new LinkedHashMap<>();
     public final List<UUID> founderCompanions = new ArrayList<>();
+    /** Emeralds each search party member took from its home chests (docs_v2/04-land.md §Expansion). */
+    public final Map<UUID, Integer> founderPurses = new LinkedHashMap<>();
     public BlockPos founderTarget;
     public long founderStartedTick;
     public int founderVisits;
@@ -395,6 +397,9 @@ public final class Colony implements VillageCapability {
         NbtHelper.putUuid(tag, "founder", founder);
         tag.putBoolean("founder_leader_lost", founderLeaderLost);
         tag.putBoolean("founder_returning", founderReturning);
+        CompoundTag purses = new CompoundTag();
+        founderPurses.forEach((id, n) -> purses.putInt(id.toString(), n));
+        tag.put("founder_purses", purses);
         tag.putBoolean("founder_cargo_reserved", founderCargoReserved);
         CompoundTag cargo = new CompoundTag();
         founderCargo.forEach((item, n) -> cargo.putInt(itemKey(item), n));
@@ -561,6 +566,14 @@ public final class Colony implements VillageCapability {
         c.founder = NbtHelper.uuid(tag, "founder");
         c.founderLeaderLost = tag.getBoolean("founder_leader_lost");
         c.founderReturning = tag.getBoolean("founder_returning");
+        CompoundTag purses = tag.getCompound("founder_purses");
+        for (String key : purses.getAllKeys()) {
+            try {
+                c.founderPurses.put(UUID.fromString(key), Math.max(0, purses.getInt(key)));
+            } catch (IllegalArgumentException ignored) {
+                // A malformed entry is dropped.
+            }
+        }
         c.founderCargoReserved = tag.getBoolean("founder_cargo_reserved");
         CompoundTag cargo = tag.getCompound("founder_cargo");
         for (String key : cargo.getAllKeys()) {

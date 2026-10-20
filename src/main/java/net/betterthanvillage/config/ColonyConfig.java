@@ -121,6 +121,8 @@ public final class ColonyConfig {
         public int domain_cap = 512;
         /** Rings are kept when the territory outgrows them and a new ring is built outside; off: the ring moves out. */
         public boolean layered_walls = true;
+        /** Emeralds the treasury gives a search party to found a new village. */
+        public int expansion_grant = 12;
     }
 
     public static ColonyConfig get() {
@@ -220,6 +222,7 @@ public final class ColonyConfig {
         land.territory_max_area = clamp(land.territory_max_area, 8000, 800000);
         land.territory_noise = clamp(land.territory_noise, 0, 0.6);
         land.domain_cap = clamp(land.domain_cap, 128, 2048);
+        land.expansion_grant = clamp(land.expansion_grant, 0, 4096);
     }
 
     private static double clamp(double v, double lo, double hi) {

@@ -71,6 +71,11 @@ public final class HousePlanner {
 
     private static final String FAILS_KEY = "btv_site_fails";
 
+    /** Search passes in a row that found no house site. */
+    public static int siteFailures(Colony colony) {
+        return (Integer) colony.runtime.getOrDefault(FAILS_KEY, 0);
+    }
+
     /**
      * A full search pass found nothing: retry with exponential backoff (200 .. 6400 ticks) and grow
      * the territory (up to its maximum) only if the pass actually evaluated loaded ground at its edge.

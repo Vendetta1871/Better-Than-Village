@@ -204,6 +204,22 @@ Dark spots it passes are still lit with a short post, as in phase 1.
 4. **Founding.** The party places a bell (and the first storage, as in the old colonization) and
    becomes a new village of the **same country**.
 
+Implementation notes:
+- **Party.** Up to five settlers, at least three. The future elder is the settler with the most
+  emeralds at home. Then a warrior and a farmer join if their trade can spare one, then adults
+  without a bed. Every trade keeps at least one member at home, and the elder stays. Each settler
+  takes the emeralds from its home chests. In the new village they are paid out to its new
+  household; if the party comes back, they are paid back at home. The treasury adds
+  `land.expansion_grant` emeralds (12) plus building materials and food.
+- **New village.** The party always has a warrior and a farmer. A settler takes up farming as
+  first of its line if no farmer came along. No starting capital is created for the new
+  village.
+- **Site.** Loaded land 288–448 blocks away. The largest territories of the new and of every
+  existing village must not overlap. Inside a foreign domain is skipped until countries can
+  negotiate (phase 4).
+- **Travel.** A settler unloaded for a minute stays home. A settler that cannot catch up with the
+  leader for 30 s climbs out to it (teleport).
+
 Reuses: party travel, path recovery and founding, old
 [06-society §6](../docs/independent-villagers/06-society.md). Changes: the trigger, the party
 members, the site rule, and travel that is abstract when unloaded.
