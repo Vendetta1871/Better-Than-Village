@@ -167,7 +167,7 @@ public final class GolemManager {
         Villager guard = null;
         double best = Double.MAX_VALUE;
         for (Villager v : ColonyManager.adultMembers(level, colony)) {
-            if (colony.roleOf(v.getUUID()) != ColonyRole.GUARD) continue;
+            if (colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) continue;
             double d = v.blockPosition().distSqr(colony.core());
             if (d < best) {
                 best = d;

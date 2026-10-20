@@ -9,7 +9,7 @@ import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
-import net.betterthanvillage.colony.RoleBalancer;
+import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.defense.GuardPatrol;
 import net.betterthanvillage.defense.GuardShield;
@@ -74,7 +74,7 @@ public final class VillagerController {
         }
         Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null && colony.roleOf(v.getUUID()) != ColonyRole.CITIZEN) {
-            RoleBalancer.applyRole(level, colony, v);
+            Professions.applyRole(level, colony, v);
         }
     }
 
@@ -100,7 +100,7 @@ public final class VillagerController {
         StarterWarehouseTask.clearStaleDisplay(v);
         ColonyRole role = colony.roleOf(v.getUUID());
 
-        if (RaidShelter.isActive(level, colony) && role != ColonyRole.GUARD) {
+        if (RaidShelter.isActive(level, colony) && role != ColonyRole.WARRIOR) {
             v.setTradingPlayer(null);
             if (v.isSleeping()) v.stopSleeping();
             if (VillagerUtil.currentActivity(v) != ModRegistries.COLONY_SHELTER.get()) {
@@ -138,9 +138,9 @@ public final class VillagerController {
         boolean evening = t >= 9000 && t < 12000;
         boolean night = t >= 12000;
         boolean raidShelter = RaidShelter.isActive(level, colony);
-        LivingEntity threat = role == ColonyRole.GUARD ? ThreatManager.findThreat(level, colony) : null;
+        LivingEntity threat = role == ColonyRole.WARRIOR ? ThreatManager.findThreat(level, colony) : null;
         // Guards answer the colony-wide alarm; civilians only a raid or a hostile close to themselves.
-        boolean alarm = role == ColonyRole.GUARD
+        boolean alarm = role == ColonyRole.WARRIOR
                 ? (colony.lastThreatTick != Colony.NEVER && now - colony.lastThreatTick <= 200) || raidShelter || threat != null
                 : raidShelter || threatNearby(level, colony, v, now);
 
@@ -162,26 +162,26 @@ public final class VillagerController {
         AntiStuck.monitor(level, colony, v);
         boolean forcedIdle = AntiStuck.isForcedIdle(v, now);
         boolean engaged = false;
-        if (role == ColonyRole.GUARD) {
+        if (role == ColonyRole.WARRIOR) {
             Optional<LivingEntity> mem = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get());
             engaged = (mem.isPresent() && ThreatManager.keepsTarget(level, colony, mem.get())) || threat != null;
         }
         boolean workNeeded;
-        if (role == ColonyRole.GUARD && (alarm || engaged)) {
+        if (role == ColonyRole.WARRIOR && (alarm || engaged)) {
             workNeeded = true;
         } else if (!work) {
             workNeeded = false;
         } else {
             workNeeded = switch (role) {
-                case BUILDER -> colony.needsStarterWarehouse() || colony.storages.isEmpty() || colony.hasActiveConstruction()
+                case MASON -> colony.needsStarterWarehouse() || colony.storages.isEmpty() || colony.hasActiveConstruction()
                         || !colony.roadQueue.isEmpty() || !colony.repairs.isEmpty() || Fortifications.hasPendingWall(colony);
-                case LUMBERJACK -> true;
-                case MINER, FARMER, FISHERMAN, RANCHER, GUARD -> !colony.storages.isEmpty();
+                case CARPENTER -> true;
+                case MINER, FARMER, HERDER, WARRIOR -> !colony.storages.isEmpty();
                 default -> false;
             };
         }
         // A guard under alarm fights before anything else (the evening food walk would leave the colony undefended).
-        boolean guardCombat = role == ColonyRole.GUARD && (engaged || alarm) && !(night && !alarm);
+        boolean guardCombat = role == ColonyRole.WARRIOR && (engaged || alarm) && !(night && !alarm);
         Activity chosen = null;
         if (guardCombat) {
             chosen = Activity.FIGHT;
@@ -189,7 +189,7 @@ public final class VillagerController {
             chosen = Activity.IDLE;
         } else if (night && !alarm) {
             chosen = Activity.REST;
-        } else if (role == ColonyRole.GUARD && v.getHealth() < v.getMaxHealth() * 0.3f) {
+        } else if (role == ColonyRole.WARRIOR && v.getHealth() < v.getMaxHealth() * 0.3f) {
             chosen = Activity.FIGHT;
         } else if (workNeeded) {
             chosen = ModRegistries.COLONY_WORK.get();
@@ -202,7 +202,7 @@ public final class VillagerController {
                 VillagerUtil.refreshActivities(level, v);
             }
         }
-        if (role == ColonyRole.GUARD && work && !alarm && (now + v.getId()) % 40 == 0 && !VillagerUtil.isRunning(v, GuardEquipmentTask.class)) {
+        if (role == ColonyRole.WARRIOR && work && !alarm && (now + v.getId()) % 40 == 0 && !VillagerUtil.isRunning(v, GuardEquipmentTask.class)) {
             GuardPatrol.patrol(level, colony, v);
         }
     }

@@ -356,7 +356,7 @@ public final class ThreatManager {
             WaypointNavigator.travel(level, golem, target, 1.9);
         }
         List<Villager> guards = new ArrayList<>(level.getEntitiesOfClass(Villager.class, box, v -> v.isAlive()
-                && colony.roleOf(v.getUUID()) == ColonyRole.GUARD && (player || !busy(level, colony, v))));
+                && colony.roleOf(v.getUUID()) == ColonyRole.WARRIOR && (player || !busy(level, colony, v))));
         guards.sort(nearest);
         for (Villager v : guards.subList(0, Math.min(MOBILIZE_GUARDS, guards.size()))) {
             if (v.isSleeping()) v.stopSleeping();

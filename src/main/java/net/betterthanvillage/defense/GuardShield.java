@@ -39,7 +39,7 @@ public final class GuardShield {
 
     /** Returns true while the guard holds its shield up this tick (the caller must not attack). */
     public static boolean tick(ServerLevel level, Villager v, Colony colony) {
-        if (colony == null || colony.roleOf(v.getUUID()) != ColonyRole.GUARD || v.isSleeping() || v.isTrading()
+        if (colony == null || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR || v.isSleeping() || v.isTrading()
                 || !v.getOffhandItem().is(Items.SHIELD)) {
             return false;
         }
@@ -89,7 +89,7 @@ public final class GuardShield {
                 a -> !a.isRemoved() && a.getDeltaMovement().lengthSqr() >= 0.04)) {
             Entity owner = p.getOwner();
             if (owner == v) continue;
-            if (owner instanceof Villager ov && colony.roleOf(ov.getUUID()) == ColonyRole.GUARD) continue;
+            if (owner instanceof Villager ov && colony.roleOf(ov.getUUID()) == ColonyRole.WARRIOR) continue;
             int steps = stepsToHit(p, v);
             if (steps < 0 || steps >= bestSteps || !v.hasLineOfSight(p)) continue;
             best = p;

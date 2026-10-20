@@ -8,7 +8,7 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
-import net.betterthanvillage.colony.RoleBalancer;
+import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
 import net.betterthanvillage.config.ColonyConfig;
@@ -286,7 +286,7 @@ public final class FilmMode {
         VillagerUtil.stopModTasks(level, v);
         Nav.reset(v);
         colony.setRole(v.getUUID(), role, level.getGameTime());
-        RoleBalancer.applyRole(level, colony, v);
+        Professions.applyRole(level, colony, v);
         ColonyManager.markDirty(level);
     }
 

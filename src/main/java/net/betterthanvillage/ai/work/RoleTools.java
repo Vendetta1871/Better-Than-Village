@@ -3,6 +3,7 @@ package net.betterthanvillage.ai.work;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
+import net.betterthanvillage.food.FisherTask;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.SimpleContainer;
@@ -46,12 +47,11 @@ public final class RoleTools {
 
     private static boolean needed(ColonyRole role, ItemStack s) {
         return switch (role) {
-            case GUARD -> GUARD_GEAR.test(s);
+            case WARRIOR -> GUARD_GEAR.test(s);
             case MINER -> PICKAXE.test(s);
-            case LUMBERJACK -> AXE.test(s);
+            case CARPENTER -> AXE.test(s);
             case FARMER -> HOE.test(s) || BUCKET.test(s);
-            case FISHERMAN -> ROD.test(s);
-            case RANCHER -> SHEARS.test(s) || BUCKET.test(s);
+            case HERDER -> SHEARS.test(s) || BUCKET.test(s) || ROD.test(s);
             default -> false;
         };
     }
@@ -81,13 +81,13 @@ public final class RoleTools {
     private static void takeMainTool(ServerLevel level, Colony colony, Villager v, ColonyRole role) {
         ToolSupply.Kind kind = switch (role) {
             case MINER -> ToolSupply.Kind.PICKAXE;
-            case LUMBERJACK -> ToolSupply.Kind.AXE;
+            case CARPENTER -> ToolSupply.Kind.AXE;
             case FARMER -> ToolSupply.Kind.HOE;
             default -> null;
         };
         if (kind != null) {
             ToolSupply.takeStored(level, colony, v, kind);
-        } else if (role == ColonyRole.FISHERMAN && !v.getMainHandItem().is(Items.FISHING_ROD)) {
+        } else if (role == ColonyRole.HERDER && FisherTask.fishing(level, colony) && !v.getMainHandItem().is(Items.FISHING_ROD)) {
             ItemStack rod = ColonyStorage.withdrawOne(level, colony, ROD);
             if (!rod.isEmpty()) {
                 ItemStack old = v.getMainHandItem().copy();

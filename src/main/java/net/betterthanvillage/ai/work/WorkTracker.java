@@ -96,7 +96,7 @@ public final class WorkTracker {
         long now = level.getGameTime();
         if ((now + v.getId()) % 20 != 0) return;
         long t = Math.floorMod(level.getDayTime(), 24000L);
-        if (v.isSleeping() || t < 1000 || t >= 9000 || colony.roleOf(v.getUUID()) == ColonyRole.GUARD) return;
+        if (v.isSleeping() || t < 1000 || t >= 9000 || colony.roleOf(v.getUUID()) == ColonyRole.WARRIOR) return;
         Stats s = stats(v);
         boolean modTask = false;
         boolean exempt = false;

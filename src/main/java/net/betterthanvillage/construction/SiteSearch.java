@@ -260,6 +260,6 @@ public final class SiteSearch {
         BlockPos c = colony.core();
         int r = colony.radius();
         AABB box = new AABB(c.getX() - r, level.getMinBuildHeight(), c.getZ() - r, c.getX() + r + 1, level.getMaxBuildHeight(), c.getZ() + r + 1);
-        return level.getEntitiesOfClass(Villager.class, box, v -> v.isAlive() && !v.isBaby() && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER);
+        return level.getEntitiesOfClass(Villager.class, box, v -> v.isAlive() && !v.isBaby() && colony.roleOf(v.getUUID()) == ColonyRole.MASON);
     }
 }

@@ -214,7 +214,7 @@ public final class Damage {
                 for (int i = 0; i < c.getContainerSize(); i++) add(s.storage, c.getItem(i));
             }
             for (Villager v : ColonyManager.adultMembers(level, colony)) {
-                if (colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) continue;
+                if (colony.roleOf(v.getUUID()) != ColonyRole.MASON) continue;
                 add(s.carried, v.getMainHandItem());
                 for (int i = 0; i < v.getInventory().getContainerSize(); i++) add(s.carried, v.getInventory().getItem(i));
             }

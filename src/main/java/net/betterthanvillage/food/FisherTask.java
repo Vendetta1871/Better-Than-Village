@@ -1,6 +1,7 @@
 package net.betterthanvillage.food;
 
 import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.work.ToolSupply;
 import net.betterthanvillage.ai.work.WorkTracker;
@@ -93,6 +94,24 @@ public final class FisherTask extends ColonyTask {
         return LIVE_BOBBERS.contains(hook);
     }
 
+    private static final String FISHING_KEY = "better_than_village:herder_fishing";
+    /** Herders fish while the colony cannot keep a breeding pair of any species. */
+    private static final int BREEDING_MINIMUM = 2;
+
+    /**
+     * True while the colony's herders fish instead of keeping animals (02 §Herder): the colony has no breeding pair
+     * of any species to keep. Recomputed every 200 ticks.
+     */
+    public static boolean fishing(ServerLevel level, Colony colony) {
+        long[] cache = colony.runtime(FISHING_KEY, () -> new long[]{Long.MIN_VALUE, 0});
+        long now = level.getGameTime();
+        if (now - cache[0] >= 200 || now < cache[0]) {
+            cache[0] = now;
+            cache[1] = RancherTask.largestHerd(level, colony) < BREEDING_MINIMUM ? 1 : 0;
+        }
+        return cache[1] != 0;
+    }
+
     private static boolean isFish(ItemStack s) {
         return s.is(Items.COD) || s.is(Items.SALMON) || s.is(Items.COOKED_COD) || s.is(Items.COOKED_SALMON);
     }
@@ -102,14 +121,15 @@ public final class FisherTask extends ColonyTask {
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         return !v.isSleeping() && v.getTradingPlayer() == null && level.getGameTime() >= cooldown
-                && colony.roleOf(v.getUUID()) == ColonyRole.FISHERMAN && colony.hasStorage();
+                && colony.roleOf(v.getUUID()) == ColonyRole.HERDER && colony.hasStorage() && fishing(level, colony)
+                && !VillagerUtil.isRunning(v, RancherTask.class);
     }
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
         Colony colony = ColonyManager.colonyOf(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null
-                && colony.roleOf(v.getUUID()) == ColonyRole.FISHERMAN && !done;
+                && colony.roleOf(v.getUUID()) == ColonyRole.HERDER && !done;
     }
 
     @Override
@@ -273,7 +293,7 @@ public final class FisherTask extends ColonyTask {
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
             // Fish, and anything picked up that a fisherman does not keep.
-            if (!s.isEmpty() && (isFish(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.FISHERMAN))) FoodUtil.deposit(level, colony, v, s);
+            if (!s.isEmpty() && (isFish(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.HERDER))) FoodUtil.deposit(level, colony, v, s);
         }
         inv.setChanged();
         cookFish(level, colony);

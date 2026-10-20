@@ -129,7 +129,18 @@ New roles: smith, healer, librarian.
    | cleric | healer |
    | librarian | librarian |
    | cartographer | elder; extra cartographers become librarians |
-   | nitwit, unemployed adults | warrior |
+   | nitwit, unemployed adults | see below |
+
+   Freshly generated villagers are mostly unemployed, so "all unemployed become warriors" would
+   give a village of warriors. An unemployed adult (or nitwit) instead takes, in this order:
+   1. a missing guaranteed trade (farmer, then warrior);
+   2. a free vanilla workstation in the village, mapped through the table above;
+   3. the first trade the village still lacks, in the order farmer, warrior, carpenter, mason,
+      miner, herder, smith, healer, librarian;
+   4. warrior.
+
+   The elder is chosen before the trades: a cartographer if there is one, otherwise the adult with
+   the best reputation (see Elder).
 3. **Starting state.** Each adult gets a house (an existing bed), a home chest and starting
    capital ([03](03-economy.md)).
 

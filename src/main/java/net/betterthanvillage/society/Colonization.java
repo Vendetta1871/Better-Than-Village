@@ -10,7 +10,7 @@ import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.LandPlot;
 import net.betterthanvillage.colony.Protection;
-import net.betterthanvillage.colony.RoleBalancer;
+import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.colony.SafeEditScope;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
@@ -113,8 +113,7 @@ public final class Colonization {
         for (Villager v : adults) {
             if (out.size() >= SETTLERS) break;
             ColonyRole role = colony.roleOf(v.getUUID());
-            if (v.getTradingPlayer() != null || v.isSleeping() || role == ColonyRole.ELDER || role == ColonyRole.FOUNDER
-                    || RoleBalancer.isIndependentTrader(colony, v)) continue;
+            if (v.getTradingPlayer() != null || v.isSleeping() || role == ColonyRole.ELDER || role == ColonyRole.FOUNDER) continue;
             if (role == ColonyRole.CITIZEN) {
                 out.add(v);
             } else if (counts.getOrDefault(role, 0) > 1) {
@@ -146,6 +145,11 @@ public final class Colonization {
         Villager leader = settlers.get(0);
         long now = level.getGameTime();
         leader.setPersistenceRequired();
+        // Expedition members keep their trade for life (02 §Fixed professions); it is held while they travel.
+        for (Villager v : settlers) {
+            ColonyRole trade = colony.roleOf(v.getUUID());
+            if (trade.isProfession()) colony.pendingProfessions.put(v.getUUID(), trade);
+        }
         colony.setRole(leader.getUUID(), ColonyRole.FOUNDER, now);
         colony.founder = leader.getUUID();
         colony.founderTarget = site.immutable();
@@ -155,13 +159,13 @@ public final class Colonization {
         colony.founderLeaderLost = false;
         colony.founderReturning = false;
         colony.founderCompanions.clear();
-        RoleBalancer.applyRole(level, colony, leader);
+        Professions.applyRole(level, colony, leader);
         for (int i = 1; i < settlers.size(); i++) {
             Villager v = settlers.get(i);
             v.setPersistenceRequired();
             colony.founderCompanions.add(v.getUUID());
             colony.setRole(v.getUUID(), ColonyRole.FOUNDER, now);
-            RoleBalancer.applyRole(level, colony, v);
+            Professions.applyRole(level, colony, v);
         }
         colony.runtime.remove(BRIDGE_KEY);
         ColonyManager.markDirty(level);
@@ -517,8 +521,13 @@ public final class Colonization {
             else members.add(0, colony.founder);
         }
         for (UUID id : members) {
-            if (moved) colony.roles.remove(id);
-            else colony.setRole(id, ColonyRole.CITIZEN, now);
+            if (moved) {
+                colony.roles.remove(id);
+                colony.pendingProfessions.remove(id);
+            } else {
+                // The next census gives the held trade back.
+                colony.setRole(id, ColonyRole.CITIZEN, now);
+            }
         }
         for (UUID id : new ArrayList<>(colony.roles.keySet())) {
             if (colony.roleOf(id) == ColonyRole.FOUNDER) colony.setRole(id, ColonyRole.CITIZEN, now);
@@ -541,7 +550,7 @@ public final class Colonization {
                 Villager v = villager(level, id);
                 if (v != null && v.isAlive()) {
                     Nav.reset(v);
-                    RoleBalancer.applyRole(level, ColonyManager.colonyOf(level, v), v);
+                    Professions.applyRole(level, ColonyManager.colonyOf(level, v), v);
                 }
             }
         }
@@ -662,15 +671,15 @@ public final class Colonization {
         long now = level.getGameTime();
         fresh.setRole(founder.getUUID(), ColonyRole.ELDER, now);
         fresh.elder = founder.getUUID();
-        RoleBalancer.applyRole(level, fresh, founder);
-        ColonyRole[] cycle = {ColonyRole.BUILDER, ColonyRole.FARMER, ColonyRole.LUMBERJACK, ColonyRole.MINER};
+        Professions.applyRole(level, fresh, founder);
         List<UUID> companions = new ArrayList<>(home.founderCompanions);
         for (int i = 0; i < companions.size(); i++) {
-            fresh.setRole(companions.get(i), cycle[i % cycle.length], now);
+            ColonyRole trade = home.pendingProfessions.get(companions.get(i));
+            fresh.setRole(companions.get(i), trade != null ? trade : ColonyRole.WARRIOR, now);
             Villager v = villager(level, companions.get(i));
             if (v != null) {
                 Nav.reset(v);
-                RoleBalancer.applyRole(level, fresh, v);
+                Professions.applyRole(level, fresh, v);
             }
         }
         Nav.reset(founder);

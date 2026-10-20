@@ -222,6 +222,7 @@ public final class ColonyManager {
         boolean changed = false;
         for (Colony colony : data(level).colonies()) {
             changed |= colony.roles.remove(id) != null;
+            changed |= colony.pendingProfessions.remove(id) != null;
             if (id.equals(colony.elder)) {
                 colony.elder = null;
                 changed = true;

@@ -5,7 +5,7 @@ import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
-import net.betterthanvillage.colony.RoleBalancer;
+import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.defense.GuardGear;
 import net.betterthanvillage.mixin.society.VillagerTradeAccess;
 import net.minecraft.server.level.ServerLevel;
@@ -70,7 +70,7 @@ public final class Trading {
         }
         ColonyRole role = colony.roleOf(v.getUUID());
         ItemStack held = player.getItemInHand(hand);
-        if (role == ColonyRole.BUILDER && Deeds.propertyLevel(held) > 0) {
+        if (role == ColonyRole.MASON && Deeds.propertyLevel(held) > 0) {
             Deeds.builderOrder(level, colony, player, hand);
             return InteractionResult.SUCCESS;
         }
@@ -83,7 +83,7 @@ public final class Trading {
             dropColonyOffers(v, true);
             return null;
         }
-        RoleBalancer.applyRole(level, colony, v);
+        Professions.applyRole(level, colony, v);
         rebuildOffers(level, colony, v, role);
         freeze(v);
         ((VillagerTradeAccess) v).btv$startTrading(player);
@@ -113,7 +113,7 @@ public final class Trading {
 
     private static boolean hasTable(ColonyRole role) {
         return switch (role) {
-            case ELDER, MINER, LUMBERJACK, FARMER, FISHERMAN, RANCHER, BUILDER, GUARD -> true;
+            case ELDER, MINER, CARPENTER, FARMER, HERDER, MASON, WARRIOR -> true;
             default -> false;
         };
     }
@@ -145,7 +145,7 @@ public final class Trading {
                 b.buy(Items.OAK_LOG, Goods.LOGS, 8, 16, 1);
                 b.buy(Items.COAL, 8, 16, 1);
             }
-            case LUMBERJACK -> {
+            case CARPENTER -> {
                 b.sell(Goods.LOGS, 8, 48, 1);
                 b.sell(Goods.SAPLINGS, 4, 8, 1);
                 b.buy(Items.OAK_SAPLING, Goods.SAPLINGS, 8, 8, 1);
@@ -158,25 +158,23 @@ public final class Trading {
                 b.buy(Items.PUMPKIN_SEEDS, 4, 8, 1);
                 b.buy(Items.BREAD, 8, 64, 2);
             }
-            case FISHERMAN -> {
+            case HERDER -> {
                 b.sell(Goods.anyOf(Items.COD, Items.COOKED_COD), 8, 16, 1);
                 b.sell(Goods.anyOf(Items.SALMON, Items.COOKED_SALMON), 6, 12, 1);
                 b.buy(Items.STRING, 3, 3, 1);
-            }
-            case RANCHER -> {
                 b.sell(Goods.item(Items.EGG), 16, 16, 1);
                 b.sell(Goods.item(Items.LEATHER), 4, 8, 1);
                 b.sell(Goods.item(Items.FEATHER), 8, 12, 1);
                 b.sell(Goods.WOOL, 6, 12, 1);
                 b.buy(Items.WHEAT, 16, 16, 2);
             }
-            case BUILDER -> {
+            case MASON -> {
                 b.sell(Goods.PLANKS, 16, 64, 1);
                 b.sell(Goods.STONE, 16, 128, 1);
                 b.buy(Items.OAK_LOG, Goods.LOGS, 16, 48, 2);
                 b.buy(Items.COBBLESTONE, Goods.COBBLE, 32, 96, 2);
             }
-            case GUARD -> {
+            case WARRIOR -> {
                 GuardGear.ensureStock(level, colony);
                 for (GuardGear.Entry entry : GuardGear.table()) {
                     b.sell(Goods.exact(entry.item()), 1, 1, entry.price());
@@ -200,11 +198,10 @@ public final class Trading {
     private static Item placeholderItem(ColonyRole role) {
         return switch (role) {
             case ELDER -> Items.PAPER;
-            case MINER, BUILDER -> Items.COBBLESTONE;
-            case LUMBERJACK -> Items.OAK_LOG;
-            case FARMER, RANCHER -> Items.WHEAT;
-            case FISHERMAN -> Items.COD;
-            case GUARD -> Items.ARROW;
+            case MINER, MASON -> Items.COBBLESTONE;
+            case CARPENTER -> Items.OAK_LOG;
+            case FARMER, HERDER -> Items.WHEAT;
+            case WARRIOR -> Items.ARROW;
             default -> Items.BREAD;
         };
     }
@@ -269,7 +266,7 @@ public final class Trading {
          */
         void buy(Item item, Predicate<ItemStack> family, int baseBatch, int target, int basePrice) {
             int have = ColonyStorage.count(level, colony, family);
-            int target2 = Math.max(target, (role == ColonyRole.FARMER || role == ColonyRole.RANCHER) ? colony.population() * 2 : target);
+            int target2 = Math.max(target, (role == ColonyRole.FARMER || role == ColonyRole.HERDER) ? colony.population() * 2 : target);
             int price = Prices.buyPrice(basePrice, have, target2);
             int batch = Math.max(1, baseBatch);
             int affordable = ColonyStorage.count(level, colony, Goods.EMERALD) / price;
@@ -287,11 +284,11 @@ public final class Trading {
     }
 
     private static List<ColonyStorage.Slot> roleSlots(ServerLevel level, Colony colony, ColonyRole role) {
-        return ColonyStorage.usableFor(level, colony, role, role == ColonyRole.GUARD);
+        return ColonyStorage.usableFor(level, colony, role, role == ColonyRole.WARRIOR);
     }
 
     private static int sellReserve(Colony colony, ColonyRole role, int reserve) {
-        return Math.max(reserve, (role == ColonyRole.FARMER || role == ColonyRole.FISHERMAN) ? colony.population() * 2 : 0);
+        return Math.max(reserve, (role == ColonyRole.FARMER || role == ColonyRole.HERDER) ? colony.population() * 2 : 0);
     }
 
     // ---------------------------------------------------------------- validation and settlement

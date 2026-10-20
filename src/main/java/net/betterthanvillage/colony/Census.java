@@ -50,10 +50,12 @@ public final class Census {
         if (t >= 9000 && t < 12000) {
             eveningHandout(level, colony, members);
         }
-        maintainElder(level, colony, adults);
         ColonyStorage.recount(level, colony);
         TerrainSurvey.step(level, colony);
-        RoleBalancer.rebalance(level, colony, false, adults);
+        Professions.assign(level, colony, adults);
+        for (Villager v : adults) {
+            Professions.applyRole(level, colony, v);
+        }
         laborCensus(colony, adults);
         Economy.step(level, colony);
         GolemManager.step(level, colony);
@@ -192,60 +194,7 @@ public final class Census {
     // ---------------------------------------------------------------- elder
 
     public static void maintainElder(ServerLevel level, Colony colony) {
-        maintainElder(level, colony, ColonyManager.adultMembers(level, colony));
-    }
-
-    /**
-     * Keeps exactly one elder among the adults. A missing elder is promoted from the nearest citizen, else from a
-     * role with more than one member; never from founders or independent traders. No villager is ever spawned:
-     * without a candidate the post stays empty.
-     */
-    public static void maintainElder(ServerLevel level, Colony colony, List<Villager> adults) {
-        long now = level.getGameTime();
-        BlockPos core = colony.core();
-        Comparator<Villager> byCore = Comparator.comparingDouble(v -> v.distanceToSqr(core.getX() + 0.5, core.getY(), core.getZ() + 0.5));
-        List<Villager> elders = new ArrayList<>();
-        for (Villager v : adults) {
-            if (colony.roleOf(v.getUUID()) == ColonyRole.ELDER) elders.add(v);
-        }
-        if (!elders.isEmpty()) {
-            Villager keep = null;
-            for (Villager v : elders) {
-                if (v.getUUID().equals(colony.elder)) keep = v;
-            }
-            if (keep == null) keep = elders.stream().min(byCore).orElseThrow();
-            for (Villager v : elders) {
-                if (v != keep) colony.setRole(v.getUUID(), ColonyRole.CITIZEN, now);
-            }
-            colony.elder = keep.getUUID();
-            return;
-        }
-        List<Villager> candidates = new ArrayList<>();
-        for (Villager v : adults) {
-            if (!colony.isFounderParty(v.getUUID()) && !RoleBalancer.isIndependentTrader(colony, v)) candidates.add(v);
-        }
-        Villager pick = candidates.stream().filter(v -> colony.roleOf(v.getUUID()) == ColonyRole.CITIZEN).min(byCore).orElse(null);
-        if (pick == null) {
-            EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
-            for (Villager v : candidates) counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
-            pick = candidates.stream().filter(v -> {
-                ColonyRole r = colony.roleOf(v.getUUID());
-                return r != ColonyRole.FOUNDER && counts.getOrDefault(r, 0) > 1;
-            }).min(byCore).orElse(null);
-        }
-        if (pick == null) {
-            if (colony.elder != null) {
-                colony.elder = null;
-                ColonyManager.markDirty(level);
-            }
-            return;
-        }
-        VillagerUtil.stopModTasks(level, pick);
-        Nav.reset(pick);
-        colony.setRole(pick.getUUID(), ColonyRole.ELDER, now);
-        colony.elder = pick.getUUID();
-        RoleBalancer.applyRole(level, colony, pick);
-        ColonyManager.markDirty(level);
+        Professions.maintainElder(level, colony, ColonyManager.adultMembers(level, colony));
     }
 
     // ---------------------------------------------------------------- labor census
@@ -254,7 +203,7 @@ public final class Census {
         EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
         for (ColonyRole r : ColonyRole.values()) counts.put(r, 0);
         for (Villager v : adults) {
-            if (colony.isFounderParty(v.getUUID()) || RoleBalancer.isIndependentTrader(colony, v)) continue;
+            if (colony.isFounderParty(v.getUUID())) continue;
             counts.merge(colony.roleOf(v.getUUID()), 1, Integer::sum);
         }
         colony.laborCensus.clear();
@@ -275,7 +224,7 @@ public final class Census {
             if (job.builder == null) continue;
             net.minecraft.world.entity.Entity e = level.getEntity(job.builder);
             boolean valid = e instanceof Villager v && v.isAlive() && !v.isBaby()
-                    && ColonyManager.colonyOf(level, v) == colony && colony.roleOf(v.getUUID()) == ColonyRole.BUILDER;
+                    && ColonyManager.colonyOf(level, v) == colony && colony.roleOf(v.getUUID()) == ColonyRole.MASON;
             boolean stalled = false;
             if (valid && day && job.status == JobStatus.BUILDING && job.lastProgressTick != Long.MIN_VALUE) {
                 boolean running = VillagerUtil.isRunning((Villager) e, HouseConstructionTask.class);
@@ -335,6 +284,8 @@ public final class Census {
         if (!ok) return;
         parents.get(0).setAge(1200);
         parents.get(1).setAge(1200);
+        ColonyRole inherited = Professions.inherit(colony, parents.get(0).getUUID(), parents.get(1).getUUID(), level.random);
+        if (inherited != null) colony.pendingProfessions.put(baby.getUUID(), inherited);
         colony.nextBreedingTick = now + 300;
         level.sendParticles(ParticleTypes.HEART, spot.getX() + 0.5, spot.getY() + 1, spot.getZ() + 0.5, 8, 0.3, 0.3, 0.3, 0);
         ColonyManager.markDirty(level);

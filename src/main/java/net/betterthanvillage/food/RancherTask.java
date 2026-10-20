@@ -1,6 +1,7 @@
 package net.betterthanvillage.food;
 
 import net.betterthanvillage.ai.ColonyTask;
+import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.ai.work.SafeEdit;
 import net.betterthanvillage.ai.work.WorkTracker;
@@ -179,6 +180,17 @@ public final class RancherTask extends ColonyTask {
         return level.getEntitiesOfClass(Animal.class, box, a -> a.isAlive() && managed(a));
     }
 
+    /** Largest group of one managed species the colony keeps or can lure (herder fishing fallback, 02 §Herder). */
+    public static int largestHerd(ServerLevel level, Colony colony) {
+        Map<Object, Integer> counts = new HashMap<>();
+        int best = 0;
+        for (Animal a : animals(level, colony)) {
+            if (!inPen(colony, a) && foreignAnimal(level, colony, a)) continue;
+            best = Math.max(best, counts.merge(a.getType(), 1, Integer::sum));
+        }
+        return best;
+    }
+
     /** Penned animals (except one) near the gate walk to the pen centre, away from the open gate. */
     private static void herdInside(ServerLevel level, Colony colony, Animal except) {
         BlockPos p = colony.livestockPen;
@@ -280,14 +292,15 @@ public final class RancherTask extends ColonyTask {
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         return !v.isSleeping() && v.getTradingPlayer() == null && level.getGameTime() >= cooldown
-                && colony.roleOf(v.getUUID()) == ColonyRole.RANCHER && colony.hasStorage();
+                && colony.roleOf(v.getUUID()) == ColonyRole.HERDER && colony.hasStorage() && !FisherTask.fishing(level, colony)
+                && !VillagerUtil.isRunning(v, FisherTask.class);
     }
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
         Colony colony = ColonyManager.colonyOf(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null
-                && colony.roleOf(v.getUUID()) == ColonyRole.RANCHER && !done;
+                && colony.roleOf(v.getUUID()) == ColonyRole.HERDER && !done;
     }
 
     @Override
@@ -388,7 +401,7 @@ public final class RancherTask extends ColonyTask {
         // items the role does not keep go to storage.
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (!s.isEmpty() && (isProduct(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.RANCHER))) FoodUtil.deposit(level, colony, v, s);
+            if (!s.isEmpty() && (isProduct(s) || !ItemPickup.keepWhenDumping(s, ColonyRole.HERDER))) FoodUtil.deposit(level, colony, v, s);
         }
         // 6: keep at most 2 empty buckets
         int buckets = 0;
@@ -890,7 +903,7 @@ public final class RancherTask extends ColonyTask {
         boolean inside = inPen(colony, v);
         for (var item : level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new AABB(p).inflate(6, 2, 6))) {
             if (!item.isAlive() || (!inside && v.distanceToSqr(item) > 9) || !isProduct(item.getItem())
-                    || !ItemPickup.eligible(level, colony, v, item, ColonyRole.RANCHER)) continue;
+                    || !ItemPickup.eligible(level, colony, v, item, ColonyRole.HERDER)) continue;
             int limit = item.getItem().is(Items.EGG) ? Math.max(0, EGG_CAP - eggs(level, colony, v)) : Integer.MAX_VALUE;
             ItemPickup.pickup(level, colony, v, item, limit);
         }

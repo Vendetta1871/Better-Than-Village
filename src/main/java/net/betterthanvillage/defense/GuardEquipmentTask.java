@@ -56,7 +56,7 @@ public final class GuardEquipmentTask extends ColonyTask {
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.isTrading() || level.getGameTime() < nextRunAt || colony.storages.isEmpty()
-                || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) {
+                || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) {
             return false;
         }
         if (!needsEquipment(level, v, colony) && !GolemManager.workNeeded(level, colony)) {
@@ -79,7 +79,7 @@ public final class GuardEquipmentTask extends ColonyTask {
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
         // running behaviors keep ticking after an activity switch: yield as soon as the guard has to fight
-        return !v.isSleeping() && !v.isTrading() && colony != null && colony.roleOf(v.getUUID()) == ColonyRole.GUARD
+        return !v.isSleeping() && !v.isTrading() && colony != null && colony.roleOf(v.getUUID()) == ColonyRole.WARRIOR
                 && storage != null && !done && VillagerUtil.currentActivity(v) == ModRegistries.COLONY_WORK.get();
     }
 
@@ -98,7 +98,7 @@ public final class GuardEquipmentTask extends ColonyTask {
             return;
         }
         if (golem.plan(level, colony, v)) return;
-        boolean equipped = colony.roleOf(v.getUUID()) == ColonyRole.GUARD
+        boolean equipped = colony.roleOf(v.getUUID()) == ColonyRole.WARRIOR
                 && (weaponsAndShield(level, colony, v) || armor(level, colony, v));
         if (equipped) v.swing(InteractionHand.MAIN_HAND);
         done = true;

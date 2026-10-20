@@ -81,7 +81,7 @@ public final class AntiStuck {
             return;
         }
         ColonyRole role = colony.roleOf(v.getUUID());
-        if (role == ColonyRole.GUARD && v.getBrain().hasMemoryValue(ModRegistries.THREAT_TARGET.get())) {
+        if (role == ColonyRole.WARRIOR && v.getBrain().hasMemoryValue(ModRegistries.THREAT_TARGET.get())) {
             STATES.remove(v);
             return;
         }

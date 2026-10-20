@@ -129,6 +129,12 @@ public final class Colony implements VillageCapability {
         }
     };
 
+    /**
+     * Professions held for villagers without an active one: children (inherited at birth, given when they grow up,
+     * 02 §Inheritance) and expedition members (given back when they settle or return).
+     */
+    public final Map<UUID, ColonyRole> pendingProfessions = new LinkedHashMap<>();
+
     // ---- construction jobs ----
     public final List<ConstructionJob> jobs = new ArrayList<>();
 
@@ -409,6 +415,14 @@ public final class Colony implements VillageCapability {
             roleList.add(e);
         });
         tag.put("roles", roleList);
+        ListTag inherited = new ListTag();
+        pendingProfessions.forEach((uuid, role) -> {
+            CompoundTag e = new CompoundTag();
+            e.putString("villager", uuid.toString());
+            e.putString("role", role.serializedName());
+            inherited.add(e);
+        });
+        tag.put("pending_professions", inherited);
         ListTag jobList = new ListTag();
         jobs.forEach(job -> jobList.add(job.save()));
         tag.put("construction_jobs", jobList);
@@ -551,6 +565,13 @@ public final class Colony implements VillageCapability {
             if (villager == null) continue;
             c.roles.put(villager, new RoleEntry(ColonyRole.byName(e.getString("role")),
                     e.contains("changed_at") ? e.getLong("changed_at") : ROLE_CHANGED_DEFAULT));
+        }
+        ListTag inherited = tag.getList("pending_professions", Tag.TAG_COMPOUND);
+        for (int i = 0; i < inherited.size(); i++) {
+            CompoundTag e = inherited.getCompound(i);
+            UUID villager = NbtHelper.uuid(e, "villager");
+            ColonyRole role = ColonyRole.byName(e.getString("role"));
+            if (villager != null && role.isProfession()) c.pendingProfessions.put(villager, role);
         }
         ListTag jobList = tag.getList("construction_jobs", Tag.TAG_COMPOUND);
         for (int i = 0; i < jobList.size(); i++) {

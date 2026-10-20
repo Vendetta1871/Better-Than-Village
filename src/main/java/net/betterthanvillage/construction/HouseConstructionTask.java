@@ -94,7 +94,7 @@ public final class HouseConstructionTask extends ColonyTask {
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
         long now = level.getGameTime();
         if (v.isSleeping() || v.isTrading() || now < cooldownUntil) return false;
-        if (!ColonyManager.terrainChangesAllowed(level) || colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) return false;
+        if (!ColonyManager.terrainChangesAllowed(level) || colony.roleOf(v.getUUID()) != ColonyRole.MASON) return false;
         if (!HousePlanner.established(level, colony) || !colony.hasStorage() || !colony.roadQueue.isEmpty()) return false;
         if (Damage.hasActionableRepair(level, colony) || Fortifications.isWallBuilder(level, colony, v)) return false;
         ConstructionJob candidate = null;
@@ -124,7 +124,7 @@ public final class HouseConstructionTask extends ColonyTask {
         }
         job.builder = v.getUUID();
         if (job.status == JobStatus.QUEUED) job.status = JobStatus.BUILDING;
-        v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), ColonyRole.BUILDER);
+        v.getBrain().setMemory(ModRegistries.COLONY_ROLE.get(), ColonyRole.MASON);
         v.getBrain().setMemory(ModRegistries.CURRENT_STRUCTURE_BOUNDS.get(), job.box());
         Colony colony = colony(level, v);
         if (colony != null && !colony.storages.isEmpty()) {
@@ -157,7 +157,7 @@ public final class HouseConstructionTask extends ColonyTask {
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
         if (job == null || v.isSleeping() || v.isTrading()) return false;
         Colony colony = colony(level, v);
-        if (colony == null || !colony.jobs.contains(job) || colony.roleOf(v.getUUID()) != ColonyRole.BUILDER) return false;
+        if (colony == null || !colony.jobs.contains(job) || colony.roleOf(v.getUUID()) != ColonyRole.MASON) return false;
         if (Fortifications.isWallBuilder(level, colony, v) || Damage.hasActionableRepair(level, colony)) return false;
         return !job.catchup && job.status == JobStatus.BUILDING && v.getUUID().equals(job.builder) && job.nextBlock < job.totalBlocks;
     }

@@ -102,8 +102,7 @@ public final class OfflineSim {
     /** Production short of need, a storage chunk unloaded and the loaded food cannot cover the gap. */
     private static boolean shouldDefer(ServerLevel level, Colony colony, long ticks) {
         double d = ticks / 24000.0;
-        double produced = d * (120 * census(colony, ColonyRole.FARMER, false) + 90 * census(colony, ColonyRole.FISHERMAN, false)
-                + 96 * census(colony, ColonyRole.RANCHER, false));
+        double produced = d * (120 * census(colony, ColonyRole.FARMER, false) + 96 * census(colony, ColonyRole.HERDER, false));
         double needed = d * Math.max(2, colony.population()) * 10;
         if (produced >= needed) return false;
         Set<BlockPos> positions = new LinkedHashSet<>(colony.storages);
@@ -138,19 +137,19 @@ public final class OfflineSim {
         if (initial) {
             if (colony.lastPopulation == 0) {
                 colony.lastPopulation = 8;
-                for (ColonyRole r : List.of(ColonyRole.ELDER, ColonyRole.BUILDER, ColonyRole.FARMER, ColonyRole.LUMBERJACK, ColonyRole.MINER,
-                        ColonyRole.FISHERMAN, ColonyRole.RANCHER, ColonyRole.GUARD)) {
+                for (ColonyRole r : List.of(ColonyRole.ELDER, ColonyRole.MASON, ColonyRole.FARMER, ColonyRole.CARPENTER, ColonyRole.MINER,
+                        ColonyRole.HERDER, ColonyRole.WARRIOR)) {
                     colony.laborCensus.put(r, 1);
                 }
             }
             colony.initialDevelopment = false;
         }
         int p = Math.max(initial ? 8 : 2, colony.lastPopulation);
-        int f = census(colony, ColonyRole.FARMER, initial), fi = census(colony, ColonyRole.FISHERMAN, initial),
-                r = census(colony, ColonyRole.RANCHER, initial), l = census(colony, ColonyRole.LUMBERJACK, initial),
-                m = census(colony, ColonyRole.MINER, initial), b = census(colony, ColonyRole.BUILDER, initial);
+        int f = census(colony, ColonyRole.FARMER, initial), h = census(colony, ColonyRole.HERDER, initial),
+                l = census(colony, ColonyRole.CARPENTER, initial),
+                m = census(colony, ColonyRole.MINER, initial), b = census(colony, ColonyRole.MASON, initial);
         ColonyStorage.recount(level, colony);
-        double produced = d * (120 * f + 90 * fi + 96 * r);
+        double produced = d * (120 * f + 96 * h);
         double needed = d * p * 10;
         double s = Prices.clamp((colony.cachedFood + produced) / Math.max(1, needed), 0, 1);
         int deficit = (int) Math.min(colony.cachedFood, Math.ceil(Math.max(0, needed - produced)));
@@ -159,8 +158,8 @@ public final class OfflineSim {
         }
         double sf = Math.max(0, produced - needed) / Math.max(1, produced);
         produce(colony, Items.BREAD, d * f * 24 * sf);
-        produce(colony, Items.COOKED_COD, d * fi * 18 * sf);
-        produce(colony, Items.COOKED_BEEF, d * r * 12 * sf);
+        produce(colony, Items.COOKED_COD, d * h * 6 * sf);
+        produce(colony, Items.COOKED_BEEF, d * h * 9 * sf);
         produce(colony, biomeLog(level, colony), d * s * l * 256);
         produce(colony, Items.COBBLESTONE, d * s * m * 384);
         produce(colony, Items.IRON_INGOT, d * s * m * 12);

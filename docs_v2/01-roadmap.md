@@ -41,6 +41,18 @@ Scope:
 Replaces in the current code: `ColonyStorage` categories as the main stock, `RoleBalancer`, the
 abstract market (old [06-society §1.4](../docs/independent-villagers/06-society.md)).
 
+Milestones (each one builds, passes a server test and is committed on its own):
+
+| # | Milestone | Status |
+|---|---|---|
+| 1.1 | Fixed professions: the ten professions, vanilla conversion, elder succession by reputation, inheritance, the herder's fishing fallback; `RoleBalancer` removed | done |
+| 1.2 | Households: bed and house ownership, home chests, starting capital, the treasury in the elder's house | |
+| 1.3 | Household stock: work tasks take from and deliver to the worker's own chest; public work uses the treasury | |
+| 1.4 | Gatherings, prices and player trade from the villager's own stock; taxes and wages; the abstract market removed | |
+| 1.5 | Credit and debt notes; conscription and the idle poor | |
+| 1.6 | Births paid by the parents: plot, house and workplace, then the child | |
+| 1.7 | New work: carpenter processing and lamp posts, ore from stone, smith, healer and librarian tasks | |
+
 Done when: a generated village runs for 10+ in-game days on a headless server. Its emerald
 total changes only through player trades, everyone eats, and births happen only when a house
 was paid for.

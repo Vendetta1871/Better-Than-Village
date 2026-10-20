@@ -41,7 +41,7 @@ public final class ItemPickup {
         if (phase % 5 != 0) return;
         if (v.isSleeping() || v.getTradingPlayer() != null || v.isBaby() || RaidShelter.isActive(level, colony)) return;
         ColonyRole role = colony.roleOf(v.getUUID());
-        if (role == ColonyRole.GUARD && v.getBrain().hasMemoryValue(ModRegistries.THREAT_TARGET.get())) return;
+        if (role == ColonyRole.WARRIOR && v.getBrain().hasMemoryValue(ModRegistries.THREAT_TARGET.get())) return;
         for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, v.getBoundingBox().inflate(1.8, 0.6, 1.8))) {
             if (eligible(level, colony, v, item, role)) pickup(level, colony, v, item, Integer.MAX_VALUE);
         }
@@ -84,11 +84,10 @@ public final class ItemPickup {
         String path = path(s);
         return switch (role) {
             case FARMER -> path.endsWith("_seeds") || s.is(ItemTags.HOES);
-            case RANCHER -> RancherTask.isProduct(s) || s.is(Items.BUCKET) || s.is(Items.SHEARS);
-            case FISHERMAN -> s.is(Items.FISHING_ROD);
-            case BUILDER -> s.is(Items.STONE) || s.is(Items.STONE_BRICKS) || s.is(Items.GLASS);
+            case HERDER -> RancherTask.isProduct(s) || s.is(Items.BUCKET) || s.is(Items.SHEARS) || s.is(Items.FISHING_ROD);
+            case MASON -> s.is(Items.STONE) || s.is(Items.STONE_BRICKS) || s.is(Items.GLASS);
             case MINER -> s.is(ItemTags.PICKAXES) || s.is(ItemTags.STONE_CRAFTING_MATERIALS) || path.startsWith("raw_") || s.is(Items.COAL);
-            case LUMBERJACK -> s.is(ItemTags.AXES) || s.is(ItemTags.LOGS) || s.is(ItemTags.SAPLINGS);
+            case CARPENTER -> s.is(ItemTags.AXES) || s.is(ItemTags.LOGS) || s.is(ItemTags.SAPLINGS);
             default -> false;
         };
     }
@@ -160,11 +159,11 @@ public final class ItemPickup {
         if (ColonyStorage.isFood(s) || s.is(Items.TORCH) || s.is(ItemTags.PICKAXES) || s.is(ItemTags.AXES) || s.is(ItemTags.HOES)
                 || s.is(Items.FISHING_ROD)) return true;
         return switch (role) {
-            case GUARD -> isWeaponOrArmour(s);
-            case RANCHER -> s.is(Items.SHEARS) || s.is(Items.BUCKET) || s.is(Items.WHEAT) || s.is(Items.WHEAT_SEEDS) || s.is(Items.CARROT);
+            case WARRIOR -> isWeaponOrArmour(s);
+            case HERDER -> s.is(Items.SHEARS) || s.is(Items.BUCKET) || s.is(Items.WHEAT) || s.is(Items.WHEAT_SEEDS) || s.is(Items.CARROT);
             case FARMER -> s.is(Items.WHEAT) || path(s).endsWith("_seeds") || s.is(Items.BUCKET) || s.is(Items.WATER_BUCKET);
             // Building material fetched for the current house must not go straight back to storage.
-            case BUILDER -> BuildCost.buildingMaterial(s) || s.is(ItemTags.WOOL) || s.is(Items.COAL) || s.is(Items.CHARCOAL)
+            case MASON -> BuildCost.buildingMaterial(s) || s.is(ItemTags.WOOL) || s.is(Items.COAL) || s.is(Items.CHARCOAL)
                     || s.is(Items.IRON_INGOT) || s.is(Items.IRON_NUGGET) || s.is(Items.WATER_BUCKET) || s.is(Items.FLOWER_POT);
             default -> false;
         };

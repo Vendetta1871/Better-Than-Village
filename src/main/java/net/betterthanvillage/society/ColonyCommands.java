@@ -15,7 +15,7 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
-import net.betterthanvillage.colony.RoleBalancer;
+import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.colony.StoragePlacer;
 import net.betterthanvillage.colony.TerrainSurvey;
@@ -122,7 +122,7 @@ public final class ColonyCommands {
             String status = WorkTracker.status(v);
             String entry = role.serializedName() + "@" + v.blockPosition().toShortString() + " "
                     + VillagerUtil.currentActivity(v) + ": " + (status.isEmpty() ? "ожидание работы" : status);
-            if (role == ColonyRole.GUARD) {
+            if (role == ColonyRole.WARRIOR) {
                 militia.add(entry + " hp=" + Math.round(v.getHealth()) + " main=" + v.getMainHandItem().getItem());
             }
             workers.add(entry);
@@ -159,7 +159,7 @@ public final class ColonyCommands {
                 ColonyStorage.count(level, c, s -> s.is(Items.EGG)), ColonyStorage.count(level, c, s -> s.is(Items.MILK_BUCKET))));
         out.add(Msg.command("status.targets", targets.toString()));
         int spare = Math.max(0, c.beds() - c.population());
-        out.add(Msg.command("status.construction", spare, RoleBalancer.targetSpareBeds(c.population()), c.completedHouseCount(),
+        out.add(Msg.command("status.construction", spare, Professions.targetSpareBeds(c.population()), c.completedHouseCount(),
                 ColonyConfig.get().village.max_constructed_houses, houseState(level, c, activeJobs)));
         StringJoiner repairs = new StringJoiner("; ");
         int shown = 0;
@@ -173,8 +173,9 @@ public final class ColonyCommands {
         List<String> gate = Census.populationGate(level, c);
         int ready = 0;
         for (Villager v : adults) if (v.getAge() == 0) ready++;
-        EnumMap<ColonyRole, Integer> demand = RoleBalancer.demand(level, c);
-        out.add(Msg.command("status.demand", demand.toString() + "%", OfflineSim.summary(level, c),
+        EnumMap<ColonyRole, Integer> professions = Professions.counts(c, adults);
+        professions.values().removeIf(n -> n == 0);
+        out.add(Msg.command("status.demand", professions.toString(), OfflineSim.summary(level, c),
                 gate.isEmpty() ? "колония разрешает" : String.join(", ", gate), ready, Math.max(0, (c.nextBreedingTick - now) / 20)));
         TerrainSurvey.State survey = TerrainSurvey.state(c);
         String surveyText = survey == null ? "разведка не начата" : (survey.complete ? "готова" : "идёт") + ", лес=" + survey.forest
@@ -368,7 +369,7 @@ public final class ColonyCommands {
         TerrainSurvey.step(level, c);
         Map<java.util.UUID, ColonyRole> before = new LinkedHashMap<>();
         for (Villager v : ColonyManager.adultMembers(level, c)) before.put(v.getUUID(), c.roleOf(v.getUUID()));
-        int changed = RoleBalancer.rebalance(level, c, true);
+        int changed = Professions.assign(level, c, ColonyManager.adultMembers(level, c));
         StringJoiner list = new StringJoiner(", ");
         before.forEach((id, role) -> {
             ColonyRole now = c.roleOf(id);
@@ -424,9 +425,9 @@ public final class ColonyCommands {
         FilmMode.population(level, c, 24);
         Census.run(level, c);
         BlockPos core = c.core();
-        FilmMode.assignRole(level, c, ColonyRole.BUILDER, Math.max(0, 2 - count(level, c, ColonyRole.BUILDER)), core);
+        FilmMode.assignRole(level, c, ColonyRole.MASON, Math.max(0, 2 - count(level, c, ColonyRole.MASON)), core);
         FilmMode.assignRole(level, c, ColonyRole.FARMER, Math.max(0, 4 - count(level, c, ColonyRole.FARMER)), core);
-        FilmMode.assignRole(level, c, ColonyRole.LUMBERJACK, Math.max(0, 2 - count(level, c, ColonyRole.LUMBERJACK)), core);
+        FilmMode.assignRole(level, c, ColonyRole.CARPENTER, Math.max(0, 2 - count(level, c, ColonyRole.CARPENTER)), core);
         FilmMode.assignRole(level, c, ColonyRole.MINER, Math.max(0, 3 - count(level, c, ColonyRole.MINER)), core);
         ok(ctx.getSource(), Msg.command("film.prepare.done", roleCounts(level, c).toString()));
         return 1;

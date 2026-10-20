@@ -82,8 +82,8 @@ public final class LumberjackTask extends ColonyTask {
 
     private static boolean assigned(Colony colony, Villager v) {
         ColonyRole role = colony.roleOf(v.getUUID());
-        return role == ColonyRole.LUMBERJACK
-                || (role == ColonyRole.BUILDER && !colony.needsStarterWarehouse() && colony.storages.isEmpty());
+        return role == ColonyRole.CARPENTER
+                || (role == ColonyRole.MASON && !colony.needsStarterWarehouse() && colony.storages.isEmpty());
     }
 
     @Override

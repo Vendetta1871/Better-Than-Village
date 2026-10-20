@@ -57,7 +57,7 @@ public final class Economy {
                 && buy(level, colony, agent, new ItemStack(Items.OAK_LOG, 8), 1, "древесина для запуска хозяйства")) return;
         for (Villager w : workers) {
             ColonyRole role = colony.roleOf(w.getUUID());
-            if ((role == ColonyRole.MINER || role == ColonyRole.BUILDER)
+            if ((role == ColonyRole.MINER || role == ColonyRole.MASON)
                     && sell(level, colony, w, role, Goods.COBBLE, 32, 64, 1, "камень на снабжение")) return;
             if (surplus(level, colony, w, role)) return;
         }
@@ -68,7 +68,7 @@ public final class Economy {
         Villager agent = workers.get(0);
         for (Villager w : workers) {
             ColonyRole r = colony.roleOf(w.getUUID());
-            if (r == ColonyRole.GUARD || r == ColonyRole.BUILDER) {
+            if (r == ColonyRole.WARRIOR || r == ColonyRole.MASON) {
                 agent = w;
                 break;
             }
@@ -98,7 +98,7 @@ public final class Economy {
     /** Table A: purchases a role needs; a failed purchase falls through to the next line. */
     private static boolean needs(ServerLevel level, Colony colony, Villager w, ColonyRole role) {
         switch (role) {
-            case BUILDER -> {
+            case MASON -> {
                 // Beds cost wool: without a sheep pen the colony would never furnish its houses.
                 boolean bedsWanted = colony.repairs.values().stream().anyMatch(st -> st.is(BlockTags.BEDS));
                 if (bedsWanted && ColonyStorage.count(level, colony, Goods.WOOL) < 3
@@ -116,16 +116,14 @@ public final class Economy {
                 if (ColonyStorage.count(level, colony, Goods.SEEDS) < 16 && buy(level, colony, w, new ItemStack(Items.WHEAT_SEEDS, 16), 1, "семена")) return true;
                 return colony.cachedFood < Math.max(64, colony.population() * 8) && buy(level, colony, w, new ItemStack(Items.BREAD, 8), 2, "еда");
             }
-            case LUMBERJACK -> {
+            case CARPENTER -> {
                 return colony.cachedSaplings < 8 && buy(level, colony, w, new ItemStack(Items.OAK_SAPLING, 8), 1, "саженцы");
             }
-            case FISHERMAN -> {
-                return ColonyStorage.count(level, colony, Goods.item(Items.STRING)) < 3 && buy(level, colony, w, new ItemStack(Items.STRING, 3), 1, "леска");
-            }
-            case RANCHER -> {
+            case HERDER -> {
+                if (ColonyStorage.count(level, colony, Goods.item(Items.STRING)) < 3 && buy(level, colony, w, new ItemStack(Items.STRING, 3), 1, "леска")) return true;
                 return ColonyStorage.count(level, colony, Goods.item(Items.WHEAT)) < 16 && buy(level, colony, w, new ItemStack(Items.WHEAT, 16), 2, "корм");
             }
-            case GUARD -> {
+            case WARRIOR -> {
                 if (ColonyStorage.count(level, colony, Goods.item(Items.ARROW)) < 32 && buy(level, colony, w, new ItemStack(Items.ARROW, 32), 2, "стрелы")) return true;
                 return colony.cachedIron < 24 && buy(level, colony, w, new ItemStack(Items.IRON_INGOT, 8), 3, "железо для снаряжения");
             }
@@ -138,7 +136,7 @@ public final class Economy {
     /** Table B: surplus sales of a role; the first success ends the run. */
     private static boolean surplus(ServerLevel level, Colony colony, Villager w, ColonyRole role) {
         return switch (role) {
-            case BUILDER -> sell(level, colony, w, role, Goods.PLANKS, 32, 128, 1, "доски")
+            case MASON -> sell(level, colony, w, role, Goods.PLANKS, 32, 128, 1, "доски")
                     || sell(level, colony, w, role, Goods.STONE, 32, 256, 1, "строительный камень");
             case MINER -> sell(level, colony, w, role, Goods.COBBLE, 32, 256, 1, "камень")
                     || sell(level, colony, w, role, Goods.item(Items.COPPER_INGOT), 16, 32, 1, "медь")
@@ -147,11 +145,11 @@ public final class Economy {
             case FARMER -> sell(level, colony, w, role, Goods.item(Items.WHEAT), 20, 64, 1, "пшеница")
                     || sell(level, colony, w, role, Goods.item(Items.BREAD), 12, 32, 1, "хлеб")
                     || sell(level, colony, w, role, Goods.ROOTS, 24, 48, 1, "урожай");
-            case LUMBERJACK -> sell(level, colony, w, role, Goods.LOGS, 16, 128, 1, "брёвна")
+            case CARPENTER -> sell(level, colony, w, role, Goods.LOGS, 16, 128, 1, "брёвна")
                     || sell(level, colony, w, role, Goods.SAPLINGS, 16, 32, 1, "саженцы");
-            case FISHERMAN -> sell(level, colony, w, role, Goods.item(Items.COD), 15, 32, 1, "треска")
-                    || sell(level, colony, w, role, Goods.item(Items.SALMON), 12, 24, 1, "лосось");
-            case RANCHER -> sell(level, colony, w, role, Goods.item(Items.EGG), 16, 16, 1, "яйца")
+            case HERDER -> sell(level, colony, w, role, Goods.item(Items.COD), 15, 32, 1, "треска")
+                    || sell(level, colony, w, role, Goods.item(Items.SALMON), 12, 24, 1, "лосось")
+                    || sell(level, colony, w, role, Goods.item(Items.EGG), 16, 16, 1, "яйца")
                     || sell(level, colony, w, role, Goods.item(Items.LEATHER), 8, 16, 1, "кожа")
                     || sell(level, colony, w, role, Goods.item(Items.FEATHER), 16, 24, 1, "перья")
                     || sell(level, colony, w, role, Goods.WOOL, 12, 24, 1, "шерсть");

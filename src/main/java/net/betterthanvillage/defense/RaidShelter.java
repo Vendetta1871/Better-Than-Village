@@ -57,7 +57,7 @@ public final class RaidShelter {
 
     /** Every role except GUARD is a civilian. */
     public static boolean civilian(Colony colony, Villager v) {
-        return colony.roleOf(v.getUUID()) != ColonyRole.GUARD;
+        return colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR;
     }
 
     public static void release(Villager v) {
@@ -123,7 +123,7 @@ public final class RaidShelter {
         Villager guard = null;
         double best = Double.MAX_VALUE;
         for (Villager g : level.getEntitiesOfClass(Villager.class, v.getBoundingBox().inflate(48), LivingEntity::isAlive)) {
-            if (colony.roleOf(g.getUUID()) != ColonyRole.GUARD) continue;
+            if (colony.roleOf(g.getUUID()) != ColonyRole.WARRIOR) continue;
             double d = g.distanceToSqr(v);
             if (d < best) {
                 best = d;

@@ -68,7 +68,7 @@ public final class GuardPatrol {
     public static Villager leader(ServerLevel level, Colony colony) {
         Villager best = null;
         for (Villager g : level.getEntitiesOfClass(Villager.class, ThreatManager.colonyBox(colony), LivingEntity::isAlive)) {
-            if (colony.roleOf(g.getUUID()) != ColonyRole.GUARD) continue;
+            if (colony.roleOf(g.getUUID()) != ColonyRole.WARRIOR) continue;
             if (best == null || g.getUUID().compareTo(best.getUUID()) < 0) best = g;
         }
         return best;

@@ -68,7 +68,7 @@ public final class DefenseEvents {
         Entity victim = hit.getEntity();
         if (!(victim instanceof Villager) && !(victim instanceof IronGolem)) return;
         Colony shooter = ColonyManager.colonyOf(level, owner);
-        if (shooter == null || shooter.roleOf(owner.getUUID()) != ColonyRole.GUARD) return;
+        if (shooter == null || shooter.roleOf(owner.getUUID()) != ColonyRole.WARRIOR) return;
         if (ThreatManager.memberOf(level, shooter, victim)) {
             p.discard();
             event.setCanceled(true);

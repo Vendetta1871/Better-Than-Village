@@ -64,7 +64,7 @@ public final class GuardCombatTask extends ColonyTask {
 
     @Override
     protected boolean shouldRun(ServerLevel level, Villager v, Colony colony) {
-        if (v.isSleeping() || v.isTrading() || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) return false;
+        if (v.isSleeping() || v.isTrading() || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) return false;
         this.colony = colony;
         LivingEntity t = pickTarget(level, v);
         return t != null || recentAlarm(level, colony) || v.getHealth() < v.getMaxHealth() * 0.3f;
@@ -118,7 +118,7 @@ public final class GuardCombatTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
-        if (v.isSleeping() || v.isTrading() || colony == null || colony.roleOf(v.getUUID()) != ColonyRole.GUARD) return false;
+        if (v.isSleeping() || v.isTrading() || colony == null || colony.roleOf(v.getUUID()) != ColonyRole.WARRIOR) return false;
         // running behaviors keep ticking after an activity switch: stop once the controller leaves FIGHT
         if (VillagerUtil.currentActivity(v) != Activity.FIGHT) return false;
         return (target != null && target.isAlive() && ThreatManager.inColony(colony, target, ThreatManager.BORDER_MARGIN))
@@ -186,7 +186,7 @@ public final class GuardCombatTask extends ColonyTask {
         AABB box = new AABB(colony.core()).inflate(Math.min(colony.radius(), 48));
         Villager best = null;
         for (Villager g : level.getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
-            if (colony.roleOf(g.getUUID()) != ColonyRole.GUARD || g.getMainHandItem().is(Items.BOW)) continue;
+            if (colony.roleOf(g.getUUID()) != ColonyRole.WARRIOR || g.getMainHandItem().is(Items.BOW)) continue;
             if (best == null || g.getUUID().compareTo(best.getUUID()) < 0) best = g;
         }
         return best == null || best == v ? colony.core() : best.blockPosition();
