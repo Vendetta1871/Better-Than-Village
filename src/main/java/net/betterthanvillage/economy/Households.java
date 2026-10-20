@@ -50,7 +50,20 @@ public final class Households {
     private static final int HOUSE_XZ = 6;
     private static final int HOUSE_Y = 3;
 
+    /** A household owns at most this many home chests. */
+    private static final int MAX_CHESTS = 3;
+
     private Households() {
+    }
+
+    private static int freeSlots(ServerLevel level, Household h) {
+        int free = 0;
+        for (ColonyStorage.Slot slot : ColonyStorage.usable(level, h)) {
+            for (int i = 0; i < slot.container().getContainerSize(); i++) {
+                if (slot.container().getItem(i).isEmpty()) free++;
+            }
+        }
+        return free;
     }
 
     // ---------------------------------------------------------------- queries
@@ -143,6 +156,9 @@ public final class Households {
                 claimHouseChest(level, colony, h);
             }
             if (!h.hasChest() && terrain && placed < 2 && placeHomeChest(level, colony, h, settling)) {
+                placed++;
+            } else if (h.hasChest() && h.chests.size() < MAX_CHESTS && terrain && placed < 2 && freeSlots(level, h) < 3
+                    && placeHomeChest(level, colony, h, false)) {
                 placed++;
             }
             payPendingCapital(level, colony, h);
@@ -285,7 +301,11 @@ public final class Households {
         BlockPos site = h.bed != null ? bedsideSite(level, colony, h.bed) : null;
         if (site == null) site = centreSite(level, colony);
         if (site == null) return false;
-        if (!free && !ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 2)) return false;
+        if (!free) {
+            // A household pays for its own extra chest; a homeless one's first chest is paid by the treasury.
+            List<ColonyStorage.Slot> payer = h.hasChest() ? ColonyStorage.usable(level, h) : ColonyStorage.treasury(level, colony);
+            if (Chests.take(payer, s -> s.is(ItemTags.LOGS), 2).isEmpty() && Chests.take(payer, s -> s.is(ItemTags.PLANKS), 8).isEmpty()) return false;
+        }
         Direction facing = h.bed != null ? facingAway(site, h.bed) : Direction.NORTH;
         BlockPos at = site;
         SafeEditScope.run(() -> level.setBlock(at, Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, facing), 3));
@@ -349,7 +369,9 @@ public final class Households {
                     if (Math.abs(y - core.getY()) > 3) continue;
                     BlockPos pos = new BlockPos(px, y, pz);
                     BlockState ground = level.getBlockState(pos.below());
-                    if (ground.is(Blocks.DIRT_PATH) || ground.is(Blocks.FARMLAND)) continue;
+                    // Natural ground only: the heightmap also finds roofs and market stalls nobody can walk onto.
+                    if (!(ground.is(BlockTags.DIRT) || ground.is(BlockTags.SAND) || ground.is(BlockTags.BASE_STONE_OVERWORLD)
+                            || ground.is(Blocks.GRAVEL)) || ground.is(Blocks.FARMLAND)) continue;
                     if (chestFits(level, colony, pos)) return pos;
                 }
             }

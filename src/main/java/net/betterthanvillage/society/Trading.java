@@ -295,7 +295,7 @@ public final class Trading {
 
     /** Emeralds a household never spends on the player's goods: a few days of food (03 §Currency). */
     private static int survivalReserve(Colony colony) {
-        double food = Needs.DAILY_FOOD * Needs.FOOD_DAYS * Values.FOOD_UNIT * Market.index(colony, Family.FOOD);
+        double food = Needs.DAILY_FOOD * Needs.FOOD_DAYS * Family.FOOD.unit * Market.index(colony, Family.FOOD);
         return Math.max(2, (int) Math.ceil(food));
     }
 

@@ -21,7 +21,15 @@ import java.util.List;
  */
 public final class Treasury {
     /** Goods worth less than this per item pay no levy in kind. */
-    private static final double LEVY_MIN_VALUE = 0.05;
+    private static final double LEVY_MIN_VALUE = 0.05 * Values.SCALE;
+    /** A household keeps at most this much of one kind of cheap bulk (stone, gravel, sand). */
+    public static final int BULK_CAP = 256;
+
+    /** Cheap bulk: tradable goods worth less than the levy threshold. */
+    public static boolean isBulk(ItemStack stack) {
+        return Values.tradable(stack) && Values.base(stack) < LEVY_MIN_VALUE;
+    }
+
     /** The treasury adds a chest when fewer slots than this are free. */
     private static final int MIN_FREE_SLOTS = 9;
 

@@ -18,7 +18,12 @@ import java.util.Set;
  * nutrition, a miner who needs a pickaxe buys any pickaxe. Food is measured in nutrition, everything else in items.
  */
 public final class Values {
-    /** Emeralds per point of nutrition. */
+    /**
+     * All base values are multiplied by this: with a few dozen emeralds per household, everyday goods must be worth
+     * enough that a day's purchase is a whole emerald or two.
+     */
+    public static final double SCALE = 3.0;
+    /** Emeralds per point of nutrition (before SCALE). */
     public static final double FOOD_UNIT = 0.05;
     /** Edible items villagers never trade as food (valuable or harmful). */
     private static final Set<Item> NOT_FOOD = Set.of(Items.GOLDEN_APPLE, Items.ENCHANTED_GOLDEN_APPLE, Items.ROTTEN_FLESH,
@@ -39,7 +44,7 @@ public final class Values {
         public final double unit;
 
         Family(double unit) {
-            this.unit = unit;
+            this.unit = unit * SCALE;
         }
     }
 
@@ -111,7 +116,7 @@ public final class Values {
 
     private static void put(Family family, double value, Item... items) {
         for (Item item : items) {
-            TABLE.put(item, new Entry(family, value));
+            TABLE.put(item, new Entry(family, value * SCALE));
         }
     }
 

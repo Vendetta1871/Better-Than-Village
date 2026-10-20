@@ -86,6 +86,11 @@ public final class WorkTracker {
         Item item = stack.getItem();
         Household h = StockScope.household(colony);
         if (h != null) {
+            // Cheap bulk beyond what can ever sell is left as spoil instead of filling the home chest.
+            if (Treasury.isBulk(stack) && ColonyStorage.count(level, colony, s -> s.is(item)) >= Treasury.BULK_CAP) {
+                stack.setCount(0);
+                return before;
+            }
             // Production of a household: the levy in kind goes to the treasury (03 §Taxes).
             Treasury.levy(level, colony, h, stack);
         }

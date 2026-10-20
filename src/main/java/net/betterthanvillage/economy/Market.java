@@ -230,6 +230,10 @@ public final class Market {
             // What the buyer's emeralds do not cover is bought on credit (03 §Credit).
             int pay = Math.min(total, buyer.cash);
             int onCredit = total - pay;
+            if (Chests.room(buyer.slots, new ItemStack(a.item)) < n) {
+                // The buyer has no room for the goods: its bid ends, the ask stays for others.
+                break;
+            }
             if (!transfer(a.seller, buyer, a.item, n, pay)) {
                 a.qty = 0;
                 continue;
