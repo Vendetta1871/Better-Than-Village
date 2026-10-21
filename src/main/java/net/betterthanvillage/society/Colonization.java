@@ -242,10 +242,10 @@ public final class Colonization {
     /**
      * Site of the new village (04 §Expansion): its territory at the maximum must not overlap any village's
      * territory at the maximum. Preferred inside the own country's domain, else on land nobody owns; never inside
-     * a foreign domain (buying or taking land comes with countries, phase 4). Loaded land only.
+     * a foreign domain unless its owner sells the land (docs_v2/06-politics.md §Border changes). Loaded land only.
      */
     static BlockPos searchSite(ServerLevel level, Colony home) {
-        BlockPos unowned = null;
+        BlockPos unowned = null, foreign = null;
         int offset = level.random.nextInt(48);
         for (int dist = MIN_SITE_DISTANCE; dist <= MAX_SITE_DISTANCE; dist += 32) {
             for (int i = 0; i < 48; i++) {
@@ -255,15 +255,19 @@ public final class Colonization {
                 if (!level.hasChunk(x >> 4, z >> 4)) continue;
                 UUID owner = Domain.countryAt(level, new ChunkPos(x >> 4, z >> 4));
                 boolean own = home.country != null && home.country.equals(owner);
-                if (owner != null && !own) continue;
-                if (!own && unowned != null) continue;
+                boolean abroad = owner != null && !own;
+                if (abroad && (foreign != null || unowned != null)) continue;
+                if (!own && !abroad && unowned != null) continue;
                 BlockPos pos = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
                 if (!roomToGrow(level, pos) || !candidate(level, pos) || !suitable(level, pos)) continue;
                 if (own) return pos;
-                unowned = pos;
+                if (abroad) foreign = pos;
+                else unowned = pos;
             }
         }
-        return unowned;
+        if (unowned != null) return unowned;
+        // Only land inside a foreign domain is left: the country offers to buy it.
+        return foreign != null && net.betterthanvillage.politics.Borders.acquire(level, home, foreign) ? foreign : null;
     }
 
     /** No village's largest territory comes within the new village's largest territory of the site. */
@@ -808,7 +812,7 @@ public final class Colonization {
         }
         long now = level.getGameTime();
         // A village of the same country; on land nobody owned it claims the unowned chunks around it.
-        fresh.country = home.country;
+        net.betterthanvillage.politics.Countries.join(level, fresh, home.country, ColonyConfig.get().politics.daughter_loyalty);
         if (Domain.countryAt(level, new ChunkPos(target)) == null) Domain.claimAround(level, fresh);
         // Settlers bring their own money: households now, no starting capital out of nothing.
         fresh.householdsSettled = true;

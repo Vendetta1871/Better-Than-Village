@@ -45,6 +45,8 @@ public final class ModEvents {
         bus.addListener(ModEvents::onBlockBroken);
         bus.addListener(ModEvents::onRightClickBlock);
         bus.addListener(ModEvents::onEntityLeave);
+        bus.addListener(ModEvents::onEntityJoin);
+        bus.addListener(ModEvents::onVillagerDeath);
         bus.addListener(ModEvents::onRegisterCommands);
         bus.addListener(ModEvents::onServerStopped);
         net.betterthanvillage.defense.DefenseEvents.register(bus);
@@ -129,9 +131,23 @@ public final class ModEvents {
     private static void onEntityLeave(EntityLeaveLevelEvent event) {
         if (event.getLevel() instanceof ServerLevel level && event.getEntity() instanceof Villager v) {
             Entity.RemovalReason reason = v.getRemovalReason();
-            if (reason != null && reason.shouldDestroy()) {
+            if (reason != null && reason.shouldDestroy() && !net.betterthanvillage.world.Caravans.stashing(v.getUUID())) {
                 ColonyManager.forgetVillager(level, v.getUUID());
             }
+        }
+    }
+
+    /** A caravan leader's entity loaded away from its caravan is kept out (docs_v2/08-simulation.md §Materialization). */
+    private static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+        if (event.getLevel() instanceof ServerLevel level && event.getEntity() instanceof Villager
+                && net.betterthanvillage.world.Caravans.onJoin(level, event.getEntity())) {
+            event.setCanceled(true);
+        }
+    }
+
+    private static void onVillagerDeath(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
+        if (event.getEntity().level() instanceof ServerLevel level && event.getEntity() instanceof Villager v) {
+            net.betterthanvillage.world.Caravans.onDeath(level, v);
         }
     }
 
@@ -147,6 +163,7 @@ public final class ModEvents {
         net.betterthanvillage.law.Law.clearCaches();
         net.betterthanvillage.law.Wars.clearCaches();
         net.betterthanvillage.debug.TestBot.clear();
+        net.betterthanvillage.politics.Politics.clearCaches();
         PENDING_RINGS.clear();
     }
 }

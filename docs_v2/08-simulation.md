@@ -105,3 +105,68 @@ load chunks just to look.
 
   Headless server tests ([`tools/servertest.py`](../tools/servertest.py)) use them to check
   phase "done" criteria.
+
+## Implementation notes (phase 4)
+
+The `world` package.
+- **Live or abstract.** A village is live while its bell's chunk is entity-ticking or a member
+  ticked a moment ago (`ColonyManager.isLive`); otherwise it is abstract.
+- **Ledgers** (`Ledger`, `Ledgers`). Each village has one ledger, covering the treasury and every
+  home chest.
+  - While the village is live, the base contents of the loaded chests are captured every 10 s.
+  - When the village goes abstract, still-loaded chests are captured once more and every chest
+    gets a virtual copy.
+  - `ColonyStorage` asks `Ledgers.virtual` before it touches a real chest. So all accounting code
+    (market, taxes, wages, credit, caravans) works on the virtual chests unchanged.
+  - When the village is live again, each loaded chest gets `current − base`: removals are clamped
+    to what is still there, and additions that do not fit are dropped at the chest. Chests in
+    unloaded chunks stay virtual until they load.
+- **Scheduler** (`WorldScheduler`). It runs every tick within `world.tick_budget_ms` (2 ms):
+  - applies finished worker results;
+  - runs village steps, every `world.step_ticks` (1000) with a per-village offset;
+  - moves caravans;
+  - runs the countries' daily step.
+
+  The old absence catch-up is off for settled villages. Only the initial development of a
+  generated village and the placement of construction progress on load remain.
+- **Abstract economy** (`AbstractEconomy`, `Production`). The village clears the same gatherings
+  as a live village, all households attending, up to 8 missed ones after a long absence.
+  - In the morning every household eats, wages are paid, interest and defaults run, and every
+    worker does a day of work from its own chests: inputs, the tool of its trade (worn out every
+    8 days) and products, which pay the levy in kind.
+  - Masons add 240 blocks of labour to the village's unfinished commissioned construction. It is
+    placed by the catch-up builder when the village loads, and the births that wait for those
+    houses then happen live.
+  - Order matching runs on a worker thread on copies of the chests. Loans reserve a slot for
+    their note with a placeholder. The result is applied only if the chests are unchanged;
+    otherwise the market is cleared again on the server thread.
+- **Caravans** (`Caravan`, `Caravans`).
+  - **Planning.** Every 200 ticks, each settled village with an elder and no caravan out plans a
+    trade, at most every `world.caravan_interval_days` (2) days. A worker scores every village
+    within `world.caravan_range` (1500 blocks) whose country trades with it (same country, peace
+    or alliance). The score is the value of the home surpluses the other treasury lacks plus the
+    other's surpluses home lacks, less a distance penalty.
+  - **Cargo.** Up to 64 units per family and a purse of up to 48 emeralds (keeping 3 days of
+    wages). The leader is a spare warrior, or else an adult whose trade another villager also
+    practises.
+  - **Abstract travel.** `world.caravan_blocks_per_hour` (120) blocks per in-game hour along a
+    straight line.
+  - **Live travel.** Near a player the leader is a real villager in the travel activity, walking
+    to waypoints 20 blocks ahead. If it makes no progress for 20 s it is moved 12 blocks on.
+    When it leaves entity-ticking chunks its entity data is stored in the caravan and the entity
+    removed; it is spawned again from that data when the caravan reaches loaded chunks.
+  - **Stand-ins.** A caravan that left an abstract village reaches loaded chunks before its
+    leader's entity was ever loaded, so a stand-in with the leader's id and trade walks instead.
+    If the original loads during the journey (its home chunk), it is dropped and the stand-in
+    becomes the villager. Otherwise the stand-in is dropped when the caravan is home, since the
+    original never left. A leader stored on the road that reaches an abstract home is spawned
+    when the village loads.
+  - **At the other treasury.** The caravan sells what that treasury lacks (below its reserve) and
+    buys what home wants from its surplus, at the destination's market index. The relations
+    markup is 1 + max(0, −score)/200. A side that cannot pay owes the rest as a treasury-to-
+    treasury debt note, up to 32 emeralds per pair.
+  - **Home.** Back home the cargo goes into the treasury. If the leader died, the cargo lies where
+    it fell.
+- **Debug.** `/btv world` lists ledgers, caravans and border disputes. `/btv world step` forces
+  every village step, `/btv world caravan` plans caravans now, and `/btv world ledger` shows a
+  village's ledger and treasury.

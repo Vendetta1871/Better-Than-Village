@@ -81,6 +81,10 @@ public final class ColonyManager {
         if (party != null) {
             return party;
         }
+        Colony caravan = net.betterthanvillage.world.Caravans.homeOf(level, id);
+        if (caravan != null) {
+            return caravan;
+        }
         Colony member = data(level).roleColony(id);
         if (member != null && member.withinXZ(villager.blockPosition(), MEMBER_MARGIN)) {
             return member;
@@ -257,6 +261,17 @@ public final class ColonyManager {
         return level.hasChunk(core.getX() >> 4, core.getZ() >> 4) && level.getBlockState(core).is(Blocks.BELL);
     }
 
+    /**
+     * Live mode (docs_v2/08-simulation.md §Two modes): the village's core is entity-ticking (a player is near) or a
+     * member ticked a moment ago. Otherwise the village is abstract and runs on its ledger.
+     */
+    public static boolean isLive(ServerLevel level, Colony colony) {
+        BlockPos core = colony.core();
+        if (colony.lastMemberTick != Colony.NEVER && level.getGameTime() - colony.lastMemberTick <= 1) return true;
+        return level.hasChunk(core.getX() >> 4, core.getZ() >> 4) && level.shouldTickBlocksAt(ChunkPos.asLong(core))
+                && level.isPositionEntityTicking(core);
+    }
+
     public static boolean terrainChangesAllowed(ServerLevel level) {
         return ColonyConfig.get().roles.allow_terrain_changes
                 && level.getGameRules().getBoolean(net.minecraft.world.level.GameRules.RULE_MOBGRIEFING);
@@ -287,6 +302,7 @@ public final class ColonyManager {
         }
         Colonization.tick(level);
         FilmMode.tick(level);
+        net.betterthanvillage.world.WorldScheduler.tick(level);
     }
 
     private static void tickColony(ServerLevel level, Colony colony, int[] scanBudget, int[] catchupBudget) {
@@ -300,8 +316,17 @@ public final class ColonyManager {
         }
         long now = level.getGameTime();
         BlockPos core = colony.core();
-        boolean entityTicking = level.shouldTickBlocksAt(ChunkPos.asLong(core)) && level.isPositionEntityTicking(core)
-                || (colony.lastMemberTick != Colony.NEVER && now - colony.lastMemberTick <= 1);
+        boolean entityTicking = isLive(level, colony);
+        if (net.betterthanvillage.world.WorldScheduler.enabled() && colony.householdsSettled) {
+            if (!entityTicking) {
+                // Going abstract while the chests are still loaded: the ledger starts from their real contents.
+                net.betterthanvillage.world.Ledgers.open(level, colony);
+            } else if (net.betterthanvillage.world.Ledgers.isOpen(level, colony)) {
+                net.betterthanvillage.world.Ledgers.apply(level, colony, 64);
+            } else if (Math.floorMod(now + core.asLong(), 200L) == 0) {
+                net.betterthanvillage.world.Ledgers.capture(level, colony);
+            }
+        }
         boolean playerNear = false;
         double view = (level.getServer().getPlayerList().getViewDistance() + 1) * 16.0;
         for (ServerPlayer player : level.players()) {
@@ -418,5 +443,7 @@ public final class ColonyManager {
         net.betterthanvillage.ai.nav.WaypointNavigator.clearCaches();
         TerrainSurvey.clear();
         Protection.clearCaches();
+        net.betterthanvillage.world.WorldScheduler.clearCaches();
+        net.betterthanvillage.world.Caravans.clearCaches();
     }
 }

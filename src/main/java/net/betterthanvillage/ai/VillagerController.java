@@ -102,6 +102,16 @@ public final class VillagerController {
         StarterWarehouseTask.clearStaleDisplay(v);
         ColonyRole role = colony.roleOf(v.getUUID());
 
+        if (net.betterthanvillage.world.Caravans.isTraveller(level, v)) {
+            // A caravan leader on the road: the caravan steers it (docs_v2/08-simulation.md).
+            if (VillagerUtil.currentActivity(v) != ModRegistries.COLONY_TRAVEL.get()) {
+                VillagerUtil.stopAllTasks(level, v);
+                Nav.reset(v);
+            }
+            if (v.isSleeping()) v.stopSleeping();
+            VillagerUtil.doExclusively(v, ModRegistries.COLONY_TRAVEL.get());
+            return;
+        }
         if (RaidShelter.isActive(level, colony) && role != ColonyRole.WARRIOR) {
             v.setTradingPlayer(null);
             if (v.isSleeping()) v.stopSleeping();

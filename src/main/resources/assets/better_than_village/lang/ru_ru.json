@@ -146,5 +146,16 @@
   "message.better_than_village.law.treaty.page": "МИРНЫЙ ДОГОВОР\n\nМежду %s и %s.\nПодписан в день %s.\n%s\nПеремирие до дня %s.",
   "message.better_than_village.law.treaty.paid_by_player": "Игрок заплатил %s изумрудов.",
   "message.better_than_village.law.treaty.paid_by_country": "Деревня заплатила игроку %s изумрудов.",
-  "commands.better_than_village.status.law": "Закон: украдено предметов=%s; %s"
+  "commands.better_than_village.status.law": "Закон: украдено предметов=%s; %s",
+  "message.better_than_village.politics.country": "страна деревни (%s, %s)",
+  "message.better_than_village.politics.war": "%s объявляет войну: %s. Причина: %s.",
+  "message.better_than_village.politics.peace": "Мир между %s и %s.",
+  "message.better_than_village.politics.cause.ally": "защита союзника",
+  "message.better_than_village.politics.cause.attacked": "на неё напали",
+  "message.better_than_village.politics.cause.resources": "ей нужны ресурсы и люди",
+  "message.better_than_village.politics.cause.territory": "ей нужна земля",
+  "message.better_than_village.politics.cause.border": "пограничный спор",
+  "message.better_than_village.politics.cause.debt": "неуплаченный долг",
+  "message.better_than_village.politics.cause.incidents": "повторяющиеся инциденты",
+  "message.better_than_village.politics.cause.rebellion": "мятеж"
 }

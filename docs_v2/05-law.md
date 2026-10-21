@@ -73,8 +73,9 @@ Implementation notes (`law` package):
 - **Surrender.** The flags are the `surrender_flags` item tag. The ceasefire lasts while the flag
   is seen (3 s after the last sighting); the nearest elder walks up to the player.
 - **Treaty price.** `law.treaty_base_price` (16) times country strength over player strength,
-  clamped to a quarter to four times and to 64 emeralds. Country strength: 4 per warrior plus half
-  the population of all its villages. Player strength: 2 + armour + 2 × attack damage + 4 per loss
+  clamped to a quarter to four times and to 64 emeralds. Country strength is the ruler's measure
+  ([06](06-politics.md)): per village 4 per warrior, 3 per wall ring, 4 for a golem near a live
+  village, 1 per 16 treasury emeralds and half the population. Player strength: 2 + armour + 2 × attack damage + 4 per loss
   inflicted. The country refuses for 5 minutes after killing the player while it has killed the
   player more often than it lost villagers.
 - **Weariness.** `law.weariness_losses` (4) villagers or golems lost, or `law.weariness_days` (5)

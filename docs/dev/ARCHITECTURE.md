@@ -42,6 +42,8 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | `economy` | economy (v2 phase 1) | `Commissions` (public works budget), `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
 | `society` | society | player trading (`Trading`, `PlayerCredit`, `TreatyTrade`), deeds, `LandSales` (deed maps, empty houses), land notices, theft, offline sim, colonization, film mode, commands |
 | `law` | law (v2 phase 3) | `Law` (offences, witnesses, warnings via vanilla gossip, escalation), `Witnesses`, `Offence`, `Wars`/`PlayerWar` (a country's war on a player, treaties and truces, losses, weariness), `Surrender` (white flag, ceasefire, perfidy, the elder's walk), `Treaties` (price, refusal, reparation, treaty book), `LawEvents` |
+| `world` | world (v2 phase 4) | `WorldScheduler` (time-budgeted steps of abstract villages, caravans, politics), `Ledger`/`Ledgers` (virtual chests of abstract villages, delta application on load), `AbstractEconomy` (gatherings on ledgers, market cleared on a worker), `Production` (a day of work per trade), `Caravan`/`Caravans` (treasury trade and order deliveries, abstract travel and live materialization), `SimWorkers` (worker threads for snapshot computation) |
+| `politics` | politics (v2 phase 4) | `Country`/`Countries` (capital by founding order, succession, ruler, strength, join/secede), `Politics` (daily step, loyalty, the ruler's patience), `Orders`/`Order` (redistribution, temporary tax, mobilization), `Diplomacy`/`Relation` (relations, alliance/peace/hostility/war, causes, declaration by strength), `Borders`/`BorderOffer` (buying border chunks for a search party), `PoliticsCommands` (`/btv country`, `/btv world`) |
 | `debug` | tests | `TestBot`: a fake survival player for headless tests, driven by `/btv bot` (see `society.BotCommands`) |
 | `mixin.<subsystem>` | each | mixins, registered in `better_than_village.<subsystem>.mixins.json` (`client` mixins in `better_than_village.client.mixins.json`) |
 
@@ -77,6 +79,12 @@ tasks whose `ColonyTask.publicWork(v)` is true (houses, repairs, roads, walls, w
 - Registries: `ModRegistries.COLONY_WORK/COLONY_SHELTER/COLONY_TRAVEL`, memories
   (`BUILD_TARGET_POS`, `TREE_TARGET_POS`, …, `THREAT_TARGET`), `ModTags.BUILDER_PROTECTED`, `ModTags.GOLEM_ATTACK`,
   `ModTags.WEAPONS`, `ModTags.SURRENDER_FLAGS`, `ModTags.PROTECTED_ANIMALS`.
+- World: `ColonyManager.isLive(level, colony)` (live vs abstract); every chest access of `ColonyStorage` goes through
+  `Ledgers.virtual(level, pos)` first, so code that reads chests by position directly (`level.getBlockEntity`) bypasses
+  the ledger and must only run for live villages. `Caravans.homeOf/away/isTraveller` (a caravan leader keeps its home
+  colony far away and only travels).
+- Politics: `Countries.get/capital/ruler/villages/strength/join/secede`, `Diplomacy.relation/state/trades/declareWar/makePeace`,
+  `Orders.issue`, `Borders.acquire`.
 - Law: `Law.subject/warningActive`, `Wars.war/hostile/declare/peace`, `ThreatManager.engage/calm`
   (players are never alarm attackers: `ThreatManager.isWanted` means at war with the country and no white flag).
 

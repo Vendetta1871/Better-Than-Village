@@ -50,7 +50,7 @@ public final class Gathering {
     }
 
     /** Index of the last window that has closed by this day time. */
-    static long lastClosed(long dayTime) {
+    public static long lastClosed(long dayTime) {
         long day = Math.floorDiv(dayTime, 24000L);
         long t = Math.floorMod(dayTime, 24000L);
         if (t >= EVENING_END) return day * 2 + 1;
@@ -174,7 +174,7 @@ public final class Gathering {
             return Credit.lend(level, creditor, debtor, emeralds, seller.slots(),
                     Credit.name(level, colony, creditor), Credit.name(level, colony, debtor)) != null;
         };
-        Market.Report report = parties.size() > 1 ? Market.clear(colony, parties, level.random, lender) : new Market.Report();
+        Market.Report report = parties.size() > 1 ? Market.clear(colony.marketIndex, parties, level.random, lender) : new Market.Report();
         report.repaid = repaid;
         for (Market.Party p : parties) {
             Household h = p.id() == null ? null : colony.households.get(p.id());
@@ -191,7 +191,7 @@ public final class Gathering {
     }
 
     /** Market value of the tradable goods in these chests (credit limit). */
-    static int goodsValue(Colony colony, List<ColonyStorage.Slot> slots) {
+    public static int goodsValue(Colony colony, List<ColonyStorage.Slot> slots) {
         double value = 0;
         for (ColonyStorage.Slot slot : slots) {
             var c = slot.container();
@@ -205,7 +205,7 @@ public final class Gathering {
     }
 
     /** Every household eats its daily food from its home chests; a household short of food goes hungry. */
-    private static void dailyMeals(ServerLevel level, Colony colony) {
+    public static void dailyMeals(ServerLevel level, Colony colony) {
         for (Household h : colony.households.values()) {
             // Children are fed by the village (they eat what they carry from the treasury).
             if (!h.hasChest() || colony.roleOf(h.owner) == ColonyRole.CITIZEN) continue;
@@ -217,6 +217,11 @@ public final class Gathering {
     // ---------------------------------------------------------------- status
 
     public record LastReport(long index, int attendees, Market.Report report) {
+    }
+
+    /** Records the outcome of a gathering cleared elsewhere (the abstract economy). */
+    public static void report(Colony colony, long index, int attendees, Market.Report report) {
+        colony.runtime.put(REPORT, new LastReport(index, attendees, report));
     }
 
     public static LastReport lastReport(Colony colony) {

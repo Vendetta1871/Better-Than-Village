@@ -35,6 +35,8 @@ public final class ColonyConfig {
     public Economy economy = new Economy();
     public Land land = new Land();
     public Law law = new Law();
+    public World world = new World();
+    public Politics politics = new Politics();
     public int config_version = 2;
 
     public static final class Village {
@@ -144,6 +146,52 @@ public final class ColonyConfig {
         public int weariness_days = 5;
     }
 
+    /** docs_v2/08-simulation.md. */
+    public static final class World {
+        /** Unloaded villages keep their economy running on ledgers; off: the old catch-up on return. */
+        public boolean abstract_simulation = true;
+        /** Milliseconds per server tick the world scheduler may use. */
+        public double tick_budget_ms = 2.0;
+        /** Game ticks between two abstract steps of a village (an in-game hour). */
+        public int step_ticks = 1000;
+        /** Pure computation (market clearing of abstract villages, caravan planning) runs on worker threads. */
+        public boolean async_workers = true;
+        /** Treasuries trade by caravan between villages. */
+        public boolean caravans = true;
+        /** Caravans travel this many blocks per in-game hour (1000 ticks) while abstract. */
+        public int caravan_blocks_per_hour = 120;
+        /** Farthest village a caravan goes to. */
+        public int caravan_range = 1500;
+        /** In-game days between two caravans of a village. */
+        public int caravan_interval_days = 2;
+    }
+
+    /** docs_v2/06-politics.md. */
+    public static final class Politics {
+        /** Below this loyalty a village's elder may ignore the ruler's orders. */
+        public int disobedience_loyalty = 30;
+        /** Loyalty of a daughter village when founded. */
+        public int daughter_loyalty = 80;
+        /** Loyalty of a conquered village. */
+        public int conquered_loyalty = 20;
+        /** The ruler's patience lost per ignored order (out of 100). */
+        public int patience_per_ignored_order = 25;
+        /** The ruler's patience recovered per day of tolerance. */
+        public int patience_recovery = 5;
+        /** Relations at or below this score turn peace into hostility. */
+        public int hostility_score = -40;
+        /** Relations at or above this score (with steady trade) make an alliance. */
+        public int alliance_score = 50;
+        /** A conquest war needs this strength ratio over the target and its allies. */
+        public double conquest_advantage = 1.5;
+        /** Emeralds per border chunk far from the owner's villages (up to 4 times that close to them). */
+        public double border_price_per_chunk = 0.15;
+        /** Days without battles after which a declared war ends in a plain truce (until campaigns exist). */
+        public int war_max_days = 10;
+        /** Days of truce after a peace between countries. */
+        public int truce_days = 5;
+    }
+
     public static ColonyConfig get() {
         return instance;
     }
@@ -206,6 +254,8 @@ public final class ColonyConfig {
         if (economy == null) economy = new Economy();
         if (land == null) land = new Land();
         if (law == null) law = new Law();
+        if (world == null) world = new World();
+        if (politics == null) politics = new Politics();
         if (config_version < 2) {
             roles.golems_break_attacker_pillars = true;
             config_version = 2;
@@ -250,6 +300,22 @@ public final class ColonyConfig {
         law.truce_days = clamp(law.truce_days, 0, 100);
         law.weariness_losses = clamp(law.weariness_losses, 1, 1000);
         law.weariness_days = clamp(law.weariness_days, 1, 100);
+        world.tick_budget_ms = clamp(world.tick_budget_ms, 0.2, 20);
+        world.step_ticks = clamp(world.step_ticks, 100, 24000);
+        world.caravan_blocks_per_hour = clamp(world.caravan_blocks_per_hour, 20, 2000);
+        world.caravan_range = clamp(world.caravan_range, 128, 8192);
+        world.caravan_interval_days = clamp(world.caravan_interval_days, 1, 100);
+        politics.disobedience_loyalty = clamp(politics.disobedience_loyalty, 0, 100);
+        politics.daughter_loyalty = clamp(politics.daughter_loyalty, 0, 100);
+        politics.conquered_loyalty = clamp(politics.conquered_loyalty, 0, 100);
+        politics.patience_per_ignored_order = clamp(politics.patience_per_ignored_order, 1, 100);
+        politics.patience_recovery = clamp(politics.patience_recovery, 0, 100);
+        politics.hostility_score = clamp(politics.hostility_score, -100, 0);
+        politics.alliance_score = clamp(politics.alliance_score, 0, 100);
+        politics.conquest_advantage = clamp(politics.conquest_advantage, 1, 10);
+        politics.border_price_per_chunk = clamp(politics.border_price_per_chunk, 0, 64.0);
+        politics.war_max_days = clamp(politics.war_max_days, 1, 1000);
+        politics.truce_days = clamp(politics.truce_days, 0, 100);
     }
 
     private static double clamp(double v, double lo, double hi) {

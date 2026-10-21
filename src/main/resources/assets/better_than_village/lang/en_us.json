@@ -146,5 +146,16 @@
   "message.better_than_village.law.treaty.page": "PEACE TREATY\n\nBetween %s and %s.\nSigned on day %s.\n%s\nTruce until day %s.",
   "message.better_than_village.law.treaty.paid_by_player": "The player paid %s emeralds.",
   "message.better_than_village.law.treaty.paid_by_country": "The village paid the player %s emeralds.",
-  "commands.better_than_village.status.law": "Law: stolen items=%s; %s"
+  "commands.better_than_village.status.law": "Law: stolen items=%s; %s",
+  "message.better_than_village.politics.country": "the country of village (%s, %s)",
+  "message.better_than_village.politics.war": "%s declares war on %s: %s.",
+  "message.better_than_village.politics.peace": "Peace between %s and %s.",
+  "message.better_than_village.politics.cause.ally": "it defends an ally",
+  "message.better_than_village.politics.cause.attacked": "it was attacked",
+  "message.better_than_village.politics.cause.resources": "it wants resources and people",
+  "message.better_than_village.politics.cause.territory": "it wants land",
+  "message.better_than_village.politics.cause.border": "a border dispute",
+  "message.better_than_village.politics.cause.debt": "an unpaid debt",
+  "message.better_than_village.politics.cause.incidents": "repeated incidents",
+  "message.better_than_village.politics.cause.rebellion": "a rebellion"
 }

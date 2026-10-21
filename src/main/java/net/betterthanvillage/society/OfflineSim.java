@@ -66,6 +66,12 @@ public final class OfflineSim {
         long now = level.getGameTime();
         if (colony.simulatedUntil == now) return;
         boolean initial = colony.initialDevelopment;
+        if (!initial && net.betterthanvillage.world.WorldScheduler.enabled()) {
+            // Absence is simulated continuously on the village's ledger (docs_v2/08-simulation.md), not caught up.
+            colony.simulatedUntil = now;
+            colony.deferredCatchupTicks = 0;
+            return;
+        }
         if (colony.population() < 2 && !initial) {
             // Time with too few villagers produces nothing; keep the watermark so it is not credited later.
             colony.simulatedUntil = now;

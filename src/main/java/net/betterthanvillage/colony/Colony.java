@@ -42,6 +42,16 @@ public final class Colony implements VillageCapability {
     public UUID country;
     /** Start chunk of the generated village structure; null for a founded village ({@link Domain}). */
     public net.minecraft.world.level.ChunkPos seat;
+    /** Founding order among all villages: the oldest village of a country succeeds a lost capital (06-politics.md). */
+    public long foundingIndex = -1;
+    /** Game tick the village joined its current country. */
+    public long joined;
+    /** Loyalty of a non-capital village to its country's ruler, 0..100 (06-politics.md §Loyalty and rebellion). */
+    public double loyalty = 100;
+    /** Orders of the ruler this village ignored. */
+    public int ignoredOrders;
+    /** Game tick the village last sent a trade caravan (docs_v2/08-simulation.md). */
+    public long lastCaravan = Long.MIN_VALUE;
 
     // ---- threat / offline ----
     public long lastThreatTick = NEVER;
@@ -391,6 +401,11 @@ public final class Colony implements VillageCapability {
         tag.putInt("last_mine_route_size", lastMineRouteSize);
         NbtHelper.putUuid(tag, "country", country);
         if (seat != null) tag.putLong("seat", seat.toLong());
+        tag.putLong("founding_index", foundingIndex);
+        tag.putLong("joined", joined);
+        tag.putDouble("loyalty", loyalty);
+        tag.putInt("ignored_orders", ignoredOrders);
+        tag.putLong("last_caravan", lastCaravan);
         NbtHelper.putUuid(tag, "elder", elder);
         NbtHelper.putUuid(tag, "founder", founder);
         tag.putBoolean("founder_leader_lost", founderLeaderLost);
@@ -488,6 +503,12 @@ public final class Colony implements VillageCapability {
         UUID country = NbtHelper.uuid(tag, "country");
         if (country != null) c.country = country;
         if (tag.contains("seat")) c.seat = new net.minecraft.world.level.ChunkPos(tag.getLong("seat"));
+        c.foundingIndex = tag.contains("founding_index") ? tag.getLong("founding_index") : -1;
+        c.joined = tag.getLong("joined");
+        double loyalty = tag.contains("loyalty") ? tag.getDouble("loyalty") : 100;
+        c.loyalty = Double.isFinite(loyalty) ? Math.max(0, Math.min(100, loyalty)) : 100;
+        c.ignoredOrders = NbtHelper.clamp(tag.getInt("ignored_orders"), 0, 1_000_000);
+        c.lastCaravan = tag.contains("last_caravan") ? tag.getLong("last_caravan") : Long.MIN_VALUE;
         c.lastThreatTick = tag.contains("last_threat_tick") ? tag.getLong("last_threat_tick") : NEVER;
         c.simulatedUntil = tag.contains("simulated_until") ? tag.getLong("simulated_until") : NEVER;
         c.catchupTicks = Math.max(0, tag.getLong("catchup_ticks"));

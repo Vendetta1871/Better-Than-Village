@@ -142,28 +142,35 @@ public final class Market {
         return colony.marketIndex.getOrDefault(family.name(), 1.0);
     }
 
-    /** Runs the gathering among the parties and updates the market index. */
-    public static Report clear(Colony colony, List<Party> parties, RandomSource random, Lender lender) {
+    private static double idx(Map<String, Double> index, Family family) {
+        return index.getOrDefault(family.name(), 1.0);
+    }
+
+    /**
+     * Runs the gathering among the parties and updates the market index (the colony's map, or a copy when the
+     * gathering is cleared on a worker thread).
+     */
+    public static Report clear(Map<String, Double> index, List<Party> parties, RandomSource random, Lender lender) {
         Report report = new Report();
         List<Ask> asks = new ArrayList<>();
         List<Bid> bids = new ArrayList<>();
         for (Party p : parties) {
-            collect(colony, p, asks, bids, report);
+            collect(index, p, asks, bids, report);
         }
         // Most urgent first; ties in random order so nobody is always served last.
         List<Bid> order = new ArrayList<>(bids);
         java.util.Collections.shuffle(order, new java.util.Random(random.nextLong()));
         order.sort(Comparator.comparingDouble((Bid b) -> -b.urgency()));
         for (Bid bid : order) {
-            int left = serve(colony, bid, asks, report, lender);
+            int left = serve(index, bid, asks, report, lender);
             if (left > 0) report.unmetBids++;
         }
-        updateIndex(colony, report);
+        updateIndex(index, report);
         return report;
     }
 
     /** Holdings of a party per family and the asks above its reserve (most valuable items offered first). */
-    private static void collect(Colony colony, Party p, List<Ask> asks, List<Bid> bids, Report report) {
+    private static void collect(Map<String, Double> index, Party p, List<Ask> asks, List<Bid> bids, Report report) {
         Map<Item, Integer> items = new LinkedHashMap<>();
         Map<Item, ItemStack> samples = new LinkedHashMap<>();
         for (ColonyStorage.Slot slot : p.slots) {
@@ -204,7 +211,7 @@ public final class Market {
                 int units = Values.units(sample, f);
                 int qty = Math.min(items.get(item), sellable / units);
                 if (qty <= 0) continue;
-                double price = Values.base(sample) * index(colony, f) * (1 + p.greed) * p.quality;
+                double price = Values.base(sample) * idx(index, f) * (1 + p.greed) * p.quality;
                 asks.add(new Ask(p, item, f, units, price, qty));
                 sellable -= qty * units;
                 report.supply.merge(f, qty * units, Integer::sum);
@@ -213,9 +220,9 @@ public final class Market {
     }
 
     /** Serves one bid from the cheapest acceptable asks; returns the units still wanted. */
-    private static int serve(Colony colony, Bid bid, List<Ask> asks, Report report, Lender lender) {
+    private static int serve(Map<String, Double> index, Bid bid, List<Ask> asks, Report report, Lender lender) {
         Party buyer = bid.buyer();
-        double maxUnit = bid.family().unit * index(colony, bid.family()) * (1 + bid.urgency()) * (1 - buyer.greed * 0.5);
+        double maxUnit = bid.family().unit * idx(index, bid.family()) * (1 + bid.urgency()) * (1 - buyer.greed * 0.5);
         List<Ask> offers = new ArrayList<>();
         for (Ask a : asks) {
             if (a.family == bid.family() && a.qty > 0 && a.seller != buyer) offers.add(a);
@@ -309,15 +316,15 @@ public final class Market {
     }
 
     /** Market index per family: smoothed bid/ask volume ratio, clamped to [0.25, 4] (03 §Prices). */
-    private static void updateIndex(Colony colony, Report report) {
+    private static void updateIndex(Map<String, Double> index, Report report) {
         for (Family f : Family.values()) {
             int demand = report.demand.getOrDefault(f, 0);
             int supply = report.supply.getOrDefault(f, 0);
             if (demand == 0 && supply == 0) continue;
             double ratio = Math.max(1 / RATIO_LIMIT, Math.min(RATIO_LIMIT, (demand + 1.0) / (supply + 1.0)));
-            double old = index(colony, f);
+            double old = idx(index, f);
             double next = Math.exp((1 - INDEX_WEIGHT) * Math.log(old) + INDEX_WEIGHT * Math.log(ratio));
-            colony.marketIndex.put(f.name(), Math.max(INDEX_MIN, Math.min(INDEX_MAX, next)));
+            index.put(f.name(), Math.max(INDEX_MIN, Math.min(INDEX_MAX, next)));
         }
     }
 }

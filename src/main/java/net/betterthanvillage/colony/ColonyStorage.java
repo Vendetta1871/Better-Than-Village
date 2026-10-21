@@ -68,6 +68,11 @@ public final class ColonyStorage {
     // ---------------------------------------------------------------- storage access
 
     public static Container container(ServerLevel level, BlockPos pos) {
+        // An abstract village's chests are virtual (docs_v2/08-simulation.md §Ledgers).
+        Container virtual = net.betterthanvillage.world.Ledgers.virtual(level, pos);
+        if (virtual != null) {
+            return virtual;
+        }
         if (!level.isLoaded(pos)) {
             return null;
         }
@@ -77,6 +82,9 @@ public final class ColonyStorage {
 
     /** Chunk loaded and (not an inventory, or not a protected container). */
     public static boolean isUsable(ServerLevel level, BlockPos pos) {
+        if (net.betterthanvillage.world.Ledgers.virtual(level, pos) != null) {
+            return true;
+        }
         if (!level.isLoaded(pos)) {
             return false;
         }

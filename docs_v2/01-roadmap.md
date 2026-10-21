@@ -132,8 +132,21 @@ Scope:
 - Diplomacy states: alliance (common enemy or good trade), peace, hostility, war. War is
   declared here but fought in phase 5.
 
+Milestones:
+
+| # | Milestone | Status |
+|---|---|---|
+| 4.1 | Countries: founding order, capital and its succession, the ruler, strength; daughter villages join with their loyalty; `/btv country` | done |
+| 4.2 | Ledgers and the world scheduler: virtual chests for abstract villages, delta application on load, time-budgeted steps, worker threads for snapshot computation | done |
+| 4.3 | Abstract economy: gatherings, meals, wages, credit, production by trade and construction labour of unloaded villages | done (births and conscription happen live) |
+| 4.4 | Caravans between treasuries: planning, abstract travel, live materialization of the leader, trade and debts between villages | done |
+| 4.5 | Orders and loyalty: famine redistribution, temporary taxes, mobilization record; disobedience, the ruler's patience, toleration | done (suppression needs phase 5) |
+| 4.6 | Diplomacy: relations, alliance/peace/hostility/war, causes, declaration by strength, peace when the cause is gone | done (wars are not fought until phase 5) |
+| 4.7 | Border purchase for search parties: offer, decision, payment or dispute | done |
+
 Done when: two countries trade by caravan with no player nearby, and a daughter village that
 ignores orders is either tolerated or suppressed (the latter only once phase 5 exists).
+Checked in `tools/tests/world.txt`.
 
 ## Phase 5 — Warfare
 

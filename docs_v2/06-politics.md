@@ -111,3 +111,62 @@ When a village's warriors are all destroyed and the attacker holds its bell area
   under the new ruler.
 - **Loyalty** starts low.
 - **Walls.** Rings damaged in the siege are repaired by the new owner's masons.
+
+## Implementation notes (phase 4)
+
+The `politics` package.
+- **Countries** (`Country`, `Countries`).
+  - Every village has a founding index; the capital is the country's oldest village. When the
+    capital leaves the country or disappears, the next oldest takes over.
+  - The record holds the ruler's patience and a temporary tax.
+  - Country strength, per village: 4 per warrior, 3 per wall ring, 4 for a golem near a live
+    village, 1 per 16 treasury emeralds and half the population. The law's treaty prices use it
+    too.
+- **Daily step** (`Politics`, run by the world scheduler on every new day):
+  - **Loyalty.** A non-capital village loses up to 1.5 a day for each 400 blocks beyond 256 from
+    the capital. It gains 0.5 a day of peace and up to 0.5 for time since joining. An order's
+    caravan costs the giving village a quarter of the delivered value (at most 15) and gives the
+    same to the receiving village. A daughter village starts at `politics.daughter_loyalty` (80).
+  - **Orders** (`Orders`).
+    - In a famine (treasury food under half its reserve) the best-stocked village sends food.
+    - A capital with less than 3 days of wages taxes the other villages 20 % of their treasury
+      emeralds for 3 days.
+    - A war mobilizes the warriors of every village; this is only recorded until phase 5.
+    - Obeyed orders travel by caravan. A village below `politics.disobedience_loyalty` (30)
+      ignores them, which costs the ruler `politics.patience_per_ignored_order` (25) patience.
+      Patience recovers 5 a day.
+    - When patience runs out the ruler would suppress the village. Campaigns come in phase 5, so
+      for now the ruler tolerates it and the patience starts over at 50.
+  - **Diplomacy** (`Diplomacy`, `Relation`).
+    - Scores decay 2 % a day. A caravan trade gives +2; an overdue treasury debt between
+      countries gives −10, and its default (2 days later) −30. A refused border sale gives −5.
+    - Peace becomes hostility at `politics.hostility_score` (−40) and returns at −20.
+    - An alliance needs `politics.alliance_score` (50), 3 trade days in the last 10 and no
+      defaults, or a common enemy. It ends below 20.
+    - The ruler declares at most one war a day, for: a defaulted debt; a border dispute; an ally
+      attacked by that country; incidents (hostility at −80); or resources (hostility, and its
+      country has no miner while the other has).
+    - The ruler declares only if its strength (plus half of its allies') is at least the
+      target's plus its allies', or `politics.conquest_advantage` (1.5) times that for resources.
+      Declining to defend an ally costs 30 with that ally.
+    - A war ends with a plain truce (`politics.truce_days`, 5) when its cause is gone, or after
+      `politics.war_max_days` (10) days, since nothing is fought before phase 5. A peace also
+      settles the border dispute.
+- **Borders** (`Borders`). A search party that finds no site in its own domain or on free land
+  asks to buy the chunks within the largest territory around a site in a foreign domain.
+  - **Price.** `politics.border_price_per_chunk` (0.15 emeralds) per chunk, up to 4 times that close to the
+    owner's villages.
+  - **Decision.** The owner refuses during war or hostility, with relations under −10 (under −30
+    if the buyer is twice as strong), and for land within two largest-territory radii of its own
+    villages.
+  - **Payment.** The buyer pays the owner's capital, at least half in emeralds; the rest is a
+    debt note.
+  - **Refusal.** A refusal, or a buyer who cannot pay, is kept as a border dispute and the buyer
+    waits 3 days.
+- **Debug.** `/btv country` shows the country of the nearest village. Subcommands:
+  - `list` shows every country;
+  - `join <pos> <loyalty>`, `secede` and `loyalty <n>` change a village's country or loyalty;
+  - `order <kind> <amount>`, `relation <pos> <score>`, `war <pos> <cause>` and `peace <pos>`
+    stage orders and diplomacy;
+  - `border <pos>` makes a border offer;
+  - `day` runs the daily step now.

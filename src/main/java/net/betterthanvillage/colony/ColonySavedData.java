@@ -43,6 +43,17 @@ public final class ColonySavedData extends SavedData {
     /** Countries at war with players and signed treaties (docs_v2/05-law.md). */
     public final List<net.betterthanvillage.law.PlayerWar> wars = new ArrayList<>();
     public final List<net.betterthanvillage.law.PlayerWar.Treaty> treaties = new ArrayList<>();
+    /** Countries (docs_v2/06-politics.md), relations between them, the rulers' orders and border offers. */
+    public final Map<UUID, net.betterthanvillage.politics.Country> countries = new LinkedHashMap<>();
+    public final Map<String, net.betterthanvillage.politics.Relation> relations = new LinkedHashMap<>();
+    public final List<net.betterthanvillage.politics.Order> orders = new ArrayList<>();
+    public final List<net.betterthanvillage.politics.BorderOffer> borderOffers = new ArrayList<>();
+    /** Travelling caravans (docs_v2/08-simulation.md). */
+    public final List<net.betterthanvillage.world.Caravan> caravans = new ArrayList<>();
+    /** Village ledgers by colony id (docs_v2/08-simulation.md §Ledgers). */
+    public final Map<UUID, net.betterthanvillage.world.Ledger> ledgers = new LinkedHashMap<>();
+    /** Next founding index handed to a new village. */
+    public long nextFoundingIndex;
     /** Runtime only: recent player placements, pos -> (player, tick). */
     private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
     /** Runtime only: the level this data belongs to (lazy pruning of player blocks). */
@@ -74,6 +85,7 @@ public final class ColonySavedData extends SavedData {
     }
 
     public void addColony(Colony colony) {
+        if (colony.foundingIndex < 0) colony.foundingIndex = nextFoundingIndex++;
         colonies.put(colony.id(), colony);
         memberIndexDirty = true;
         setDirty();
@@ -82,6 +94,8 @@ public final class ColonySavedData extends SavedData {
     public void removeColony(Colony colony) {
         if (colonies.remove(colony.id(), colony)) {
             landWarnings.removeIf(w -> colony.id().equals(w.colony));
+            ledgers.remove(colony.id());
+            net.betterthanvillage.world.Ledgers.markIndexDirty();
             memberIndexDirty = true;
             setDirty();
         }
@@ -269,6 +283,25 @@ public final class ColonySavedData extends SavedData {
         ListTag treatyList = new ListTag();
         treaties.forEach(t -> treatyList.add(t.save()));
         tag.put("treaties", treatyList);
+        tag.putLong("next_founding_index", nextFoundingIndex);
+        ListTag countryList = new ListTag();
+        countries.values().forEach(c -> countryList.add(c.save()));
+        tag.put("countries", countryList);
+        ListTag relationList = new ListTag();
+        relations.values().forEach(r -> relationList.add(r.save()));
+        tag.put("relations", relationList);
+        ListTag orderList = new ListTag();
+        orders.forEach(o -> orderList.add(o.save()));
+        tag.put("orders", orderList);
+        ListTag offerList = new ListTag();
+        borderOffers.forEach(o -> offerList.add(o.save()));
+        tag.put("border_offers", offerList);
+        ListTag caravanList = new ListTag();
+        caravans.forEach(c -> caravanList.add(c.save(registries)));
+        tag.put("caravans", caravanList);
+        ListTag ledgerList = new ListTag();
+        ledgers.values().forEach(l -> ledgerList.add(l.save(registries)));
+        tag.put("ledgers", ledgerList);
         return tag;
     }
 
@@ -326,6 +359,42 @@ public final class ColonySavedData extends SavedData {
             var t = net.betterthanvillage.law.PlayerWar.Treaty.load(treatyList.getCompound(i));
             if (t != null) data.treaties.add(t);
         }
+        data.nextFoundingIndex = Math.max(0, tag.getLong("next_founding_index"));
+        for (Colony colony : data.colonies.values()) {
+            if (colony.foundingIndex < 0) colony.foundingIndex = data.nextFoundingIndex++;
+            else data.nextFoundingIndex = Math.max(data.nextFoundingIndex, colony.foundingIndex + 1);
+        }
+        ListTag countryList = tag.getList("countries", Tag.TAG_COMPOUND);
+        for (int i = 0; i < countryList.size(); i++) {
+            var c = net.betterthanvillage.politics.Country.load(countryList.getCompound(i));
+            if (c != null) data.countries.put(c.id, c);
+        }
+        ListTag relationList = tag.getList("relations", Tag.TAG_COMPOUND);
+        for (int i = 0; i < relationList.size(); i++) {
+            var r = net.betterthanvillage.politics.Relation.load(relationList.getCompound(i));
+            if (r != null) data.relations.put(net.betterthanvillage.politics.Diplomacy.key(r.a, r.b), r);
+        }
+        ListTag orderList = tag.getList("orders", Tag.TAG_COMPOUND);
+        for (int i = 0; i < orderList.size(); i++) {
+            var o = net.betterthanvillage.politics.Order.load(orderList.getCompound(i));
+            if (o != null) data.orders.add(o);
+        }
+        ListTag offerList = tag.getList("border_offers", Tag.TAG_COMPOUND);
+        for (int i = 0; i < offerList.size(); i++) {
+            var o = net.betterthanvillage.politics.BorderOffer.load(offerList.getCompound(i));
+            if (o != null) data.borderOffers.add(o);
+        }
+        ListTag caravanList = tag.getList("caravans", Tag.TAG_COMPOUND);
+        for (int i = 0; i < caravanList.size(); i++) {
+            var c = net.betterthanvillage.world.Caravan.load(caravanList.getCompound(i), registries);
+            if (c != null) data.caravans.add(c);
+        }
+        ListTag ledgerList = tag.getList("ledgers", Tag.TAG_COMPOUND);
+        for (int i = 0; i < ledgerList.size(); i++) {
+            var l = net.betterthanvillage.world.Ledger.load(ledgerList.getCompound(i), registries);
+            if (l != null && data.colonies.containsKey(l.colony)) data.ledgers.put(l.colony, l);
+        }
+        net.betterthanvillage.world.Ledgers.markIndexDirty();
         return data;
     }
 

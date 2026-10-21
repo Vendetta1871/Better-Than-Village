@@ -268,6 +268,17 @@ public final class Credit {
                 playerDefault(level, colony, members, d, today);
                 continue;
             }
+            if (d.debtor.kind() == Debt.Kind.TREASURY && colony.id().equals(d.debtor.colony()) && d.overdue(today)) {
+                // A village owing another village (docs_v2/06-politics.md §Causes of war: unpaid debt).
+                if (d.strikes == 0) {
+                    d.strikes = 1;
+                    net.betterthanvillage.politics.Diplomacy.debtDefault(level, d, 1);
+                } else if (d.strikes == 1 && today > d.dueDay + 2) {
+                    d.strikes = 2;
+                    net.betterthanvillage.politics.Diplomacy.debtDefault(level, d, 2);
+                }
+                continue;
+            }
             if (d.debtor.kind() != Debt.Kind.HOUSEHOLD || !colony.id().equals(d.debtor.colony()) || !d.overdue(today)) continue;
             Household h = colony.households.get(d.debtor.id());
             if (h == null) continue;

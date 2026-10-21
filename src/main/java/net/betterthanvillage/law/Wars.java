@@ -3,7 +3,6 @@ package net.betterthanvillage.law;
 import com.mojang.logging.LogUtils;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
-import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.defense.ThreatManager;
@@ -231,17 +230,9 @@ public final class Wars {
 
     // ---------------------------------------------------------------- strength
 
-    /** Military strength of a country: warriors count most, population a little. */
+    /** Military strength of a country (the same measure its ruler uses against other countries). */
     public static int countryStrength(ServerLevel level, UUID country) {
-        int strength = 1;
-        for (Colony c : colonies(level, country)) {
-            int warriors = 0;
-            for (var e : c.roles.values()) {
-                if (e.role() == ColonyRole.WARRIOR) warriors++;
-            }
-            strength += 4 * warriors + c.lastPopulation / 2;
-        }
-        return strength;
+        return net.betterthanvillage.politics.Countries.strength(level, country);
     }
 
     /** Strength of the player in this war: armour, weapon and the losses already inflicted. */
