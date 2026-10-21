@@ -32,6 +32,18 @@ public abstract class IronGolemMixin {
             self.setTarget(null);
             btv$attackTarget = null;
             cir.setReturnValue(false);
+            return;
+        }
+        // Vanilla golems also go for players with a bad reputation; a village golem only fights a player at war with
+        // its country (docs_v2/05-law.md).
+        if (target instanceof Player player && !self.isPlayerCreated() && self.level() instanceof ServerLevel level) {
+            var colony = ColonyManager.colonyAt(level, self.blockPosition());
+            if (colony != null && !ThreatManager.isWanted(level, colony, player)) {
+                self.setTarget(null);
+                self.stopBeingAngry();
+                btv$attackTarget = null;
+                cir.setReturnValue(false);
+            }
         }
     }
 

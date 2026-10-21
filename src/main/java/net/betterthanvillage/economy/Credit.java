@@ -236,6 +236,7 @@ public final class Credit {
         if (d.owed() <= 0) {
             d.balance = 0;
             ColonyManager.data(level).debts.remove(d.id);
+            net.betterthanvillage.law.Wars.debtPaid(level, d);
         }
         refreshNote(creditorSlots, d);
         ColonyManager.data(level).setDirty();
@@ -285,11 +286,11 @@ public final class Credit {
     }
 
     /**
-     * A player's overdue note: a warning and bad gossip first; a day later the default stands (no more credit, and in
-     * phase 3 an offence that leads to war, 05 §Offences).
+     * A player's overdue note: a warning and bad gossip first; a day later the default stands: no more credit, and the
+     * creditor's country declares war until the debt is paid (docs_v2/05-law.md §Offences).
      */
     private static void playerDefault(ServerLevel level, Colony colony, java.util.Map<UUID, Villager> members, Debt d, long today) {
-        var player = level.getServer().getPlayerList().getPlayer(d.debtor.id());
+        var player = level.getPlayerByUUID(d.debtor.id());
         if (d.strikes == 0) {
             d.strikes = 1;
             badGossip(colony, members, d);
@@ -300,6 +301,7 @@ public final class Credit {
             badGossip(colony, members, d);
             if (player != null) player.displayClientMessage(Component.translatable("message.better_than_village.debt.default",
                     d.creditorName, d.owed()), false);
+            net.betterthanvillage.law.Wars.declare(level, colony, d.debtor.id(), d.debtorName, net.betterthanvillage.law.Offence.DEBT);
         }
     }
 

@@ -214,6 +214,15 @@ public final class RancherTask extends ColonyTask {
         return inPlayerEnclosure(level, data, pos);
     }
 
+    /** Animals a player keeps (named, tied, tamed, on their land or in a player-built enclosure): killing them is no offence. */
+    public static boolean playerKept(ServerLevel level, Animal a) {
+        if (a.hasCustomName() || a.isLeashed()) return true;
+        if (a instanceof OwnableEntity owned && owned.getOwnerUUID() != null) return true;
+        BlockPos pos = a.blockPosition();
+        ColonySavedData data = ColonyManager.data(level);
+        return data.inLand(pos) || Protection.inPlayerOwnedJob(level, pos) || inPlayerEnclosure(level, data, pos);
+    }
+
     /** Player-placed fences, walls or gates on all four sides within 12 blocks. */
     private static boolean inPlayerEnclosure(ServerLevel level, ColonySavedData data, BlockPos pos) {
         for (Direction d : Direction.Plane.HORIZONTAL) {

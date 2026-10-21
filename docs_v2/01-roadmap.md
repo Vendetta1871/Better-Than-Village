@@ -104,7 +104,18 @@ Scope ([05](05-law.md)):
 - Surrender gesture (white paper, banner or carpet) and peace treaty bought from the elder for
   a treaty book.
 
+Milestones:
+
+| # | Milestone | Status |
+|---|---|---|
+| 3.1 | Offences in the territory with witnesses: weapon in hand, building or breaking, killing farm animals, attacking villagers or the golem, theft; unpaid debt anywhere | done |
+| 3.2 | Warnings through vanilla gossip: grace period for continuous offences, a second one-shot offence while the warning is active means war | done |
+| 3.3 | Defensive war of a country on a player: warriors and golems attack on sight, villagers refuse trade, civilians shelter | done |
+| 3.4 | Surrender with a white flag (ceasefire, the elder comes), perfidy | done |
+| 3.5 | Peace treaty from the elder's trade screen: price by strength, refusal while winning, a weary country pays; truce record; a paid debt ends a debt war | done (the truce only matters in phase 5) |
+
 Done when: each offence produces a warning, then war, then surrender or peace in a server test.
+Checked with a fake survival player (`/btv bot`) in `tools/tests/law.txt`.
 
 ## Phase 4 — Countries and the abstract world
 

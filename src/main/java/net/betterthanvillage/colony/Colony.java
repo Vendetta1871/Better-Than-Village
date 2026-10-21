@@ -103,8 +103,6 @@ public final class Colony implements VillageCapability {
     public long nextFounderTick;
     public UUID propertyOwner;
     public int propertyLevel;
-    public UUID reportedThief = UUID.randomUUID();
-    public long theftUntil;
     public int stolenItems;
     public long nextBreedingTick;
     public BlockPos livestockPen;
@@ -416,8 +414,6 @@ public final class Colony implements VillageCapability {
         tag.putLong("next_founder_tick", nextFounderTick);
         NbtHelper.putUuid(tag, "property_owner", propertyOwner);
         tag.putInt("property_level", propertyLevel);
-        NbtHelper.putUuid(tag, "reported_thief", reportedThief);
-        tag.putLong("theft_until", theftUntil);
         tag.putInt("stolen_items", stolenItems);
         tag.putLong("next_breeding_tick", nextBreedingTick);
         tag.putBoolean("has_livestock_pen", livestockPen != null);
@@ -597,9 +593,6 @@ public final class Colony implements VillageCapability {
         c.nextFounderTick = tag.getLong("next_founder_tick");
         c.propertyOwner = NbtHelper.uuid(tag, "property_owner");
         c.propertyLevel = NbtHelper.clamp(tag.getInt("property_level"), 0, 3);
-        UUID thief = NbtHelper.uuid(tag, "reported_thief");
-        c.reportedThief = thief != null ? thief : UUID.randomUUID();
-        c.theftUntil = tag.getLong("theft_until");
         c.stolenItems = Math.max(0, tag.getInt("stolen_items"));
         c.nextBreedingTick = tag.getLong("next_breeding_tick");
         c.livestockPen = tag.getBoolean("has_livestock_pen") ? BlockPos.of(tag.getLong("livestock_pen")) : null;

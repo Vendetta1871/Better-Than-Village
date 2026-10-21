@@ -8,6 +8,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.player.Player;
+import net.betterthanvillage.law.Law;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.EntityHitResult;
 import net.neoforged.bus.api.IEventBus;
@@ -55,7 +57,13 @@ public final class DefenseEvents {
             return;
         }
         Colony colony = victim instanceof Villager v ? ColonyManager.colonyOf(level, v) : ColonyManager.colonyAt(level, victim.blockPosition());
-        if (colony != null) ThreatManager.reportAttack(level, colony, attacker);
+        if (colony == null) return;
+        if (attacker instanceof Player player) {
+            // Players answer to the law: a warning first, war on repeat (docs_v2/05-law.md).
+            Law.attacked(level, colony, player, victim);
+        } else {
+            ThreatManager.reportAttack(level, colony, attacker);
+        }
     }
 
     /** Guard projectiles never hurt villagers or golems of the shooter's colony. */

@@ -72,6 +72,8 @@ public final class ColonyCommands {
                                     ok(ctx.getSource(), Component.literal("Territory radius " + c.radius()));
                                     return 1;
                                 }))))
+                .then(BotCommands.bot())
+                .then(BotCommands.law())
                 .then(film()));
     }
 
@@ -355,8 +357,7 @@ public final class ColonyCommands {
             orders.add(o.profession.serializedName() + (o.parentA == null ? " (treasury)" : "") + " job=" + (o.job == null ? "-" : o.job.toString().substring(0, 8)));
         }
         out.add(Msg.command("status.births", c.birthOrders.size(), orders.toString(), c.conscripts.size()));
-        boolean theft = now < c.theftUntil;
-        out.add(Msg.command("status.theft", theft ? c.reportedThief.toString() : "-", c.stolenItems, theft ? (c.theftUntil - now) / 20 : 0));
+        out.add(Msg.command("status.law", c.stolenItems, net.betterthanvillage.law.Wars.lawStatus(level, c)));
         out.add(Msg.command("status.development", String.valueOf(c.elder), String.valueOf(c.founder),
                 c.founderTarget == null ? "-" : c.founderTarget.toShortString(), c.founderVisits, c.founderCapital,
                 c.propertyOwner == null ? "-" : c.propertyOwner + "/" + c.propertyLevel));

@@ -40,6 +40,9 @@ public final class ColonySavedData extends SavedData {
     public final Map<Long, UUID> domainChanges = new java.util.HashMap<>();
     /** Open debts by id (docs_v2/03-economy.md §Credit and debt notes). */
     public final Map<UUID, Debt> debts = new LinkedHashMap<>();
+    /** Countries at war with players and signed treaties (docs_v2/05-law.md). */
+    public final List<net.betterthanvillage.law.PlayerWar> wars = new ArrayList<>();
+    public final List<net.betterthanvillage.law.PlayerWar.Treaty> treaties = new ArrayList<>();
     /** Runtime only: recent player placements, pos -> (player, tick). */
     private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
     /** Runtime only: the level this data belongs to (lazy pruning of player blocks). */
@@ -260,6 +263,12 @@ public final class ColonySavedData extends SavedData {
             domain.add(e);
         });
         tag.put("domain_changes", domain);
+        ListTag warList = new ListTag();
+        wars.forEach(w -> warList.add(w.save()));
+        tag.put("wars", warList);
+        ListTag treatyList = new ListTag();
+        treaties.forEach(t -> treatyList.add(t.save()));
+        tag.put("treaties", treatyList);
         return tag;
     }
 
@@ -306,6 +315,16 @@ public final class ColonySavedData extends SavedData {
             CompoundTag e = domain.getCompound(i);
             UUID country = NbtHelper.uuid(e, "country");
             if (country != null) data.domainChanges.put(e.getLong("chunk"), country);
+        }
+        ListTag warList = tag.getList("wars", Tag.TAG_COMPOUND);
+        for (int i = 0; i < warList.size(); i++) {
+            var w = net.betterthanvillage.law.PlayerWar.load(warList.getCompound(i));
+            if (w != null) data.wars.add(w);
+        }
+        ListTag treatyList = tag.getList("treaties", Tag.TAG_COMPOUND);
+        for (int i = 0; i < treatyList.size(); i++) {
+            var t = net.betterthanvillage.law.PlayerWar.Treaty.load(treatyList.getCompound(i));
+            if (t != null) data.treaties.add(t);
         }
         return data;
     }

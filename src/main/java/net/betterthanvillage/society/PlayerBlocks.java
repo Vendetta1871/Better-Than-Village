@@ -9,7 +9,6 @@ import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.construction.Damage;
-import net.betterthanvillage.defense.ThreatManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -104,6 +103,8 @@ public final class PlayerBlocks {
         /** Other half of a broken door or bed and its block. */
         BlockPos companion;
         Block companionBlock;
+        /** The broken block counts as building under the law (docs_v2/05-law.md §Offences). */
+        boolean offence;
         /** Colony whose storage is being broken, its item count and whether it holds valuables. */
         Colony storageColony;
         int storageItems;
@@ -134,7 +135,8 @@ public final class PlayerBlocks {
                 s.storageValuable |= !item.isEmpty() && Theft.valuable(item);
             }
         }
-        BreakState companionOnly = s.companion == null && s.storageColony == null ? null : s;
+        s.offence = net.betterthanvillage.law.Law.breakCounts(level, player, pos, state);
+        BreakState companionOnly = s.companion == null && s.storageColony == null && !s.offence ? null : s;
         Colony colony = ColonyManager.colonyAt(level, pos);
         if (colony == null || !Damage.isColonyOwned(level, colony, pos)) return companionOnly;
         for (ConstructionJob job : colony.jobs) {
@@ -161,6 +163,8 @@ public final class PlayerBlocks {
         if (s.storageColony != null) {
             // A broken storage drops its contents: theft of the contents plus the chest, if noticed.
             Theft.taken(level, s.storageColony, player, s.storageItems + 1, s.storageValuable);
+        } else if (s.offence) {
+            net.betterthanvillage.law.Law.blockChanged(level, player, pos, false);
         }
         Colony colony = s.colony;
         if (colony == null) return;
@@ -170,11 +174,8 @@ public final class PlayerBlocks {
             s.plot.status = JobStatus.COMPLETE;
             s.plot.completedOnce = true;
         } else {
-            // The repair queue restores the block; the plot itself stays complete.
+            // The repair queue restores the block; the plot itself stays complete. Breaking it is an offence (above).
             Damage.recordRepairs(level, colony, s.snapshot);
-            if (s.storageColony == null && !player.isCreative() && !player.isSpectator()) {
-                ThreatManager.addPlayerHostility(level, colony, player, 4);
-            }
         }
         ColonyManager.markDirty(level);
     }

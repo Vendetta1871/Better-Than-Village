@@ -12,9 +12,13 @@ import net.betterthanvillage.economy.Market;
 import net.betterthanvillage.economy.Needs;
 import net.betterthanvillage.economy.Values;
 import net.betterthanvillage.economy.Values.Family;
+import net.betterthanvillage.law.PlayerWar;
+import net.betterthanvillage.law.Wars;
 import net.betterthanvillage.mixin.society.VillagerTradeAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -71,10 +75,17 @@ public final class Trading {
         /** The household buys goods and pays with its own debt note. */
         PAY_WITH_NOTE,
         /** The player hands in a note and is paid. */
-        COLLECT
+        COLLECT,
+        /** A peace treaty bought from the elder (docs_v2/05-law.md §Peace treaties). */
+        TREATY,
+        /** A weary country pays the player for peace. */
+        TREATY_PAID
     }
 
-    /** Descriptor of one of our offers; owner is the household (null for the treasury). */
+    /**
+     * Descriptor of one of our offers; owner is the household (null for the treasury); debt is the debt of a credit
+     * offer or, for a treaty, the player at war.
+     */
     record Desc(UUID colony, UUID owner, Kind kind, Item item, int count, int price, UUID debt) {
         boolean villagerSells() {
             return kind == Kind.SELL || kind == Kind.SELL_ON_CREDIT;
@@ -111,6 +122,14 @@ public final class Trading {
         }
         // Conscripts trade as their trade (their household's goods and needs).
         ColonyRole role = colony.tradeOf(v.getUUID());
+        if (Wars.war(level, colony.country, player.getUUID()) != null && role != ColonyRole.ELDER) {
+            // No trade with an enemy; only the elder talks peace (docs_v2/05-law.md §War against the player).
+            dropColonyOffers(v, true);
+            v.setUnhappyCounter(40);
+            level.playSound(null, v.blockPosition(), SoundEvents.VILLAGER_NO, SoundSource.NEUTRAL, 1f, 1f);
+            Msg.actionBar(player, Msg.message("law.refuse_trade"));
+            return InteractionResult.SUCCESS;
+        }
         ItemStack held = player.getItemInHand(hand);
         if (role == ColonyRole.MASON && Deeds.propertyLevel(held) > 0) {
             Deeds.builderOrder(level, colony, player, hand);
@@ -157,6 +176,16 @@ public final class Trading {
     public static void rebuildOffers(ServerLevel level, Colony colony, Villager v, ColonyRole role, Player player) {
         MerchantOffers offers = new MerchantOffers();
         Map<MerchantOffer, Desc> descs = new IdentityHashMap<>();
+        PlayerWar war = player == null ? null : Wars.war(level, colony.country, player.getUUID());
+        if (war != null) {
+            // At war the elder only makes peace and takes debt payments.
+            if (role == ColonyRole.ELDER) {
+                TreatyTrade.offers(level, colony, war, player, offers, descs);
+                PlayerCredit.debtOffers(level, colony, v, role, null, player, offers, descs);
+            }
+            finishOffers(v, offers, descs);
+            return;
+        }
         if (role == ColonyRole.ELDER) {
             ColonyStorage.recount(level, colony);
             int uses = Prices.deedMaxUses(colony);
@@ -173,6 +202,10 @@ public final class Trading {
             householdOffers(level, colony, v, h, role, player, offers, descs);
         }
         PlayerCredit.debtOffers(level, colony, v, role, h, player, offers, descs);
+        finishOffers(v, offers, descs);
+    }
+
+    private static void finishOffers(Villager v, MerchantOffers offers, Map<MerchantOffer, Desc> descs) {
         if (offers.isEmpty()) {
             MerchantOffer placeholder = new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(Items.BREAD), 1, 0, COLONY_MULTIPLIER);
             placeholder.setToOutOfStock();
@@ -371,6 +404,7 @@ public final class Trading {
             case SELL -> Chests.count(slots, s -> plain(s, d.item())) >= d.count() && Chests.room(slots, emerald) >= paid;
             case BUY -> Chests.count(slots, s -> s.is(Items.EMERALD)) >= d.price() && Chests.room(slots, new ItemStack(d.item())) >= paid;
             case SELL_ON_CREDIT, REPAY, PAY_WITH_NOTE, COLLECT -> PlayerCredit.validate(level, colony, d, slots);
+            case TREATY, TREATY_PAID -> TreatyTrade.validate(level, colony, d, slots);
         };
     }
 
@@ -400,7 +434,9 @@ public final class Trading {
         int paid = offer.getCostA().getCount();
         List<ColonyStorage.Slot> slots = slots(level, colony, d);
         Household h = d.owner() == null ? null : colony.households.get(d.owner());
-        if (d.kind() == Kind.SELL_ON_CREDIT || d.kind() == Kind.REPAY || d.kind() == Kind.PAY_WITH_NOTE || d.kind() == Kind.COLLECT) {
+        if (d.kind() == Kind.TREATY || d.kind() == Kind.TREATY_PAID) {
+            TreatyTrade.settle(level, colony, v, d, slots);
+        } else if (d.kind() == Kind.SELL_ON_CREDIT || d.kind() == Kind.REPAY || d.kind() == Kind.PAY_WITH_NOTE || d.kind() == Kind.COLLECT) {
             PlayerCredit.settle(level, colony, v, d, slots, h);
         } else if (d.permission()) {
             Chests.put(slots, List.of(new ItemStack(Items.EMERALD, paid)));

@@ -5,6 +5,8 @@ import net.betterthanvillage.ai.nav.WaypointNavigator;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
+import net.betterthanvillage.law.Wars;
+import net.betterthanvillage.law.Witnesses;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
@@ -194,9 +196,13 @@ public final class ThreatManager {
                 && level.getEntity(colony.assaultAttacker) instanceof LivingEntity attacker && validInside(colony, attacker)) {
             attackers.add(attacker);
         }
-        if (colony.reportedThief != null && now < colony.theftUntil) {
-            Player thief = level.getPlayerByUUID(colony.reportedThief);
-            if (thief != null && thief.level() == level && validInside(colony, thief)) attackers.add(thief);
+        // Players at war with the country are attacked on sight (docs_v2/05-law.md §War against the player).
+        if (!ColonyManager.data(level).wars.isEmpty()) {
+            for (Player p : level.players()) {
+                if (validInside(colony, p) && Wars.hostile(level, colony, p) && Witnesses.noticed(level, colony, p, Witnesses.WAR_SEE_RANGE)) {
+                    attackers.add(p);
+                }
+            }
         }
         AABB box = colonyBox(colony);
         List<LivingEntity> friends = new ArrayList<>();
@@ -252,12 +258,9 @@ public final class ThreatManager {
         return RaidShelter.isActive(level, colony) || findThreat(level, colony) != null;
     }
 
-    /** The player is the colony's current assault attacker or reported thief. */
+    /** The player is at war with the colony's country and shows no white flag. */
     public static boolean isWanted(ServerLevel level, Colony colony, Player player) {
-        long now = level.getGameTime();
-        UUID id = player.getUUID();
-        return (id.equals(colony.assaultAttacker) && now < colony.assaultUntil)
-                || (id.equals(colony.reportedThief) && now < colony.theftUntil);
+        return Wars.hostile(level, colony, player);
     }
 
     /** The target is still worth chasing: hostile, inside the colony (with hysteresis), a wanted player. */
@@ -305,7 +308,8 @@ public final class ThreatManager {
 
     /** A living attacker hurt a colony villager/golem: alarm and mobilize (02 §4 reportAttack). */
     public static void reportAttack(ServerLevel level, Colony colony, LivingEntity attacker) {
-        if (colony == null || !validInside(colony, attacker)) return;
+        // Players answer to the law (warning first, war on repeat), not to the alarm.
+        if (colony == null || attacker instanceof Player || !validInside(colony, attacker)) return;
         long now = level.getGameTime();
         Map<Integer, Long> ignored = IGNORED.get(colony.id());
         if (ignored != null) ignored.remove(attacker.getId());
@@ -318,24 +322,39 @@ public final class ThreatManager {
         ColonyManager.markDirty(level);
     }
 
-    /** Adds hostility points against a player (theft, griefing, trespass; 02 §4). */
-    public static void addPlayerHostility(ServerLevel level, Colony colony, Player player, int points) {
-        if (colony == null || player == null || points <= 0 || player.isCreative() || player.isSpectator()) return;
+    /** Warriors and golems go after a player at war with the country (docs_v2/05-law.md §War against the player). */
+    public static void engage(ServerLevel level, Colony colony, Player player) {
+        if (colony == null || player == null || !Wars.hostile(level, colony, player)) return;
         long now = level.getGameTime();
         CACHE.remove(colony.id());
-        colony.reportedThief = player.getUUID();
-        colony.theftUntil = Math.max(colony.theftUntil, now + 1200);
         colony.lastThreatTick = now;
         colony.runtime.put(LAST_THREAT_KEY, new LastThreat(player.blockPosition(), now));
         mobilize(level, colony, player);
         ColonyManager.markDirty(level);
     }
 
-    /** Items taken from colony storage: counts them as stolen and raises hostility. */
-    public static void reportTheft(ServerLevel level, Colony colony, Player player, int items) {
-        if (colony == null || player == null || items <= 0 || player.isCreative() || player.isSpectator()) return;
-        colony.stolenItems += items;
-        addPlayerHostility(level, colony, player, items);
+    /** Warriors and golems stop chasing the player (ceasefire or peace). */
+    public static void calm(ServerLevel level, Colony colony, UUID player) {
+        CACHE.remove(colony.id());
+        // The war alarm ends with it: the village is not defending any more (other threats raise it again).
+        colony.lastThreatTick = Colony.NEVER;
+        Wars.refresh(colony);
+        AABB box = colonyBox(colony);
+        for (Villager v : level.getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
+            LivingEntity mem = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get()).orElse(null);
+            if (mem != null && mem.getUUID().equals(player)) {
+                v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
+                WaypointNavigator.reset(v);
+            }
+        }
+        for (IronGolem golem : level.getEntitiesOfClass(IronGolem.class, box, LivingEntity::isAlive)) {
+            if (golem.getTarget() != null && golem.getTarget().getUUID().equals(player)) {
+                golem.setTarget(null);
+                golem.stopBeingAngry();
+                golem.getNavigation().stop();
+                golem.getPersistentData().remove(MOBILIZED_TAG);
+            }
+        }
     }
 
     /** Sends the nearest few free golems and guards after the attacker; the others keep their own fights. */

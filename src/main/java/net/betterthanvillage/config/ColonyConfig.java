@@ -34,6 +34,7 @@ public final class ColonyConfig {
     public Work work = new Work();
     public Economy economy = new Economy();
     public Land land = new Land();
+    public Law law = new Law();
     public int config_version = 2;
 
     public static final class Village {
@@ -125,6 +126,24 @@ public final class ColonyConfig {
         public int expansion_grant = 12;
     }
 
+    /** docs_v2/05-law.md. */
+    public static final class Law {
+        /** Seconds a warned player has to stop a continuous offence (weapon in hand, building) before war. */
+        public int grace_seconds = 30;
+        /** Village gossip (minor and major negative, summed over the members) about a player that keeps a warning active. */
+        public int warning_gossip = 20;
+        /** Minutes a player who attacked under a white flag cannot surrender. */
+        public int perfidy_minutes = 10;
+        /** Emeralds a peace treaty costs when the player and the country are equally strong. */
+        public int treaty_base_price = 16;
+        /** In-game days of truce after a peace treaty. */
+        public int truce_days = 3;
+        /** Villagers and golems lost to the player after which the country asks for peace. */
+        public int weariness_losses = 4;
+        /** In-game days of war (with at least one loss) after which the country asks for peace. */
+        public int weariness_days = 5;
+    }
+
     public static ColonyConfig get() {
         return instance;
     }
@@ -186,6 +205,7 @@ public final class ColonyConfig {
         if (work == null) work = new Work();
         if (economy == null) economy = new Economy();
         if (land == null) land = new Land();
+        if (law == null) law = new Law();
         if (config_version < 2) {
             roles.golems_break_attacker_pillars = true;
             config_version = 2;
@@ -223,6 +243,13 @@ public final class ColonyConfig {
         land.territory_noise = clamp(land.territory_noise, 0, 0.6);
         land.domain_cap = clamp(land.domain_cap, 128, 2048);
         land.expansion_grant = clamp(land.expansion_grant, 0, 4096);
+        law.grace_seconds = clamp(law.grace_seconds, 10, 60);
+        law.warning_gossip = clamp(law.warning_gossip, 1, 1000);
+        law.perfidy_minutes = clamp(law.perfidy_minutes, 0, 1440);
+        law.treaty_base_price = clamp(law.treaty_base_price, 1, 64);
+        law.truce_days = clamp(law.truce_days, 0, 100);
+        law.weariness_losses = clamp(law.weariness_losses, 1, 1000);
+        law.weariness_days = clamp(law.weariness_days, 1, 100);
     }
 
     private static double clamp(double v, double lo, double hi) {

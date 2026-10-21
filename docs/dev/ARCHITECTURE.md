@@ -40,7 +40,9 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | `food` | food | farmer, fisher, rancher, item pickup |
 | `construction` | construction | house planning/catalog/builder, roads, layered walls, damage detection & repair; v2 phase 2: `LandWork`/`LandWorkTask` (miner demolition and pit filling), `LampPosts`/`LampPostTask` |
 | `economy` | economy (v2 phase 1) | `Commissions` (public works budget), `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
-| `society` | society | player trading (`Trading`, `PlayerCredit`), deeds, `LandSales` (deed maps, empty houses), land notices, theft, offline sim, colonization, film mode, commands |
+| `society` | society | player trading (`Trading`, `PlayerCredit`, `TreatyTrade`), deeds, `LandSales` (deed maps, empty houses), land notices, theft, offline sim, colonization, film mode, commands |
+| `law` | law (v2 phase 3) | `Law` (offences, witnesses, warnings via vanilla gossip, escalation), `Witnesses`, `Offence`, `Wars`/`PlayerWar` (a country's war on a player, treaties and truces, losses, weariness), `Surrender` (white flag, ceasefire, perfidy, the elder's walk), `Treaties` (price, refusal, reparation, treaty book), `LawEvents` |
+| `debug` | tests | `TestBot`: a fake survival player for headless tests, driven by `/btv bot` (see `society.BotCommands`) |
 | `mixin.<subsystem>` | each | mixins, registered in `better_than_village.<subsystem>.mixins.json` (`client` mixins in `better_than_village.client.mixins.json`) |
 
 ## Stock scope (v2)
@@ -73,7 +75,10 @@ tasks whose `ColonyTask.publicWork(v)` is true (houses, repairs, roads, walls, w
 - `PathBudget.tryAcquire(level)` — the shared 6-per-tick probe limiter.
 - `Professions.applyRole/assign/maintainElder/inherit`, `SpawnSpots.find/createVillager`.
 - Registries: `ModRegistries.COLONY_WORK/COLONY_SHELTER/COLONY_TRAVEL`, memories
-  (`BUILD_TARGET_POS`, `TREE_TARGET_POS`, …, `THREAT_TARGET`), `ModTags.BUILDER_PROTECTED`, `ModTags.GOLEM_ATTACK`.
+  (`BUILD_TARGET_POS`, `TREE_TARGET_POS`, …, `THREAT_TARGET`), `ModTags.BUILDER_PROTECTED`, `ModTags.GOLEM_ATTACK`,
+  `ModTags.WEAPONS`, `ModTags.SURRENDER_FLAGS`, `ModTags.PROTECTED_ANIMALS`.
+- Law: `Law.subject/warningActive`, `Wars.war/hostile/declare/peace`, `ThreatManager.engage/calm`
+  (players are never alarm attackers: `ThreatManager.isWanted` means at war with the country and no white flag).
 
 ## Stubs
 

@@ -10,7 +10,6 @@ import net.betterthanvillage.economy.Households;
 import net.betterthanvillage.economy.StockScope;
 import net.betterthanvillage.society.Colonization;
 import net.betterthanvillage.society.FilmMode;
-import net.betterthanvillage.society.LandNotices;
 import net.betterthanvillage.society.OfflineSim;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -273,7 +272,7 @@ public final class ColonyManager {
         if (now % 20 == 0) {
             Protection.sanitizeStorages(level);
         }
-        LandNotices.tick(level);
+        net.betterthanvillage.law.Law.tick(level);
         DoorHandler.processRecorded(level);
         int[] scanBudget = {768};
         int catchupBudget = level.players().isEmpty() ? ColonyConfig.get().village.offline_blocks_per_tick

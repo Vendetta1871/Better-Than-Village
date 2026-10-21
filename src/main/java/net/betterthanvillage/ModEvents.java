@@ -52,6 +52,7 @@ public final class ModEvents {
         net.betterthanvillage.food.FoodEvents.register(bus);
         net.betterthanvillage.construction.ConstructionEvents.register(bus);
         net.betterthanvillage.society.SocietyEvents.register(bus);
+        net.betterthanvillage.law.LawEvents.register(bus);
     }
 
     private static void onLevelTick(LevelTickEvent.Post event) {
@@ -143,6 +144,9 @@ public final class ModEvents {
         RoleTools.clearCaches();
         BellScanner.clear();
         net.betterthanvillage.colony.Domain.clear();
+        net.betterthanvillage.law.Law.clearCaches();
+        net.betterthanvillage.law.Wars.clearCaches();
+        net.betterthanvillage.debug.TestBot.clear();
         PENDING_RINGS.clear();
     }
 }

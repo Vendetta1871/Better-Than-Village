@@ -23,7 +23,6 @@ import net.betterthanvillage.defense.GuardEquipmentTask;
 import net.betterthanvillage.food.ItemPickup;
 import net.betterthanvillage.gather.NightLighting;
 import net.betterthanvillage.registry.ModRegistries;
-import net.betterthanvillage.society.LandNotices;
 import net.betterthanvillage.society.OfflineSim;
 import net.betterthanvillage.society.Trading;
 import net.minecraft.core.BlockPos;
@@ -159,7 +158,7 @@ public final class VillagerController {
         if (!eating && !(role == ColonyRole.WARRIOR && alarm) && Gathering.attend(level, colony, v)) {
             return;
         }
-        if (LandNotices.elderWalk(level, v, colony)) {
+        if (net.betterthanvillage.law.Surrender.elderWalk(level, v, colony)) {
             return;
         }
         StockScope.treasury(() -> NightLighting.tick(level, colony, v));

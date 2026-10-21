@@ -48,8 +48,9 @@ public final class RaidShelter {
     private RaidShelter() {
     }
 
-    /** A running raid within min(1024, radius + 32) of the core. */
+    /** A running raid within min(1024, radius + 32) of the core, or a player at war inside (docs_v2/05-law.md). */
     public static boolean isActive(ServerLevel level, Colony colony) {
+        if (net.betterthanvillage.law.Wars.enemyInside(level, colony)) return true;
         int r = Math.min(1024, colony.radius() + 32);
         Raid raid = level.getRaids().getNearbyRaid(colony.core(), r * r);
         return raid != null && !raid.isOver() && !raid.isStopped() && raid.isActive();
