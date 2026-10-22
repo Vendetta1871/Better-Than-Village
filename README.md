@@ -1,13 +1,45 @@
 # Better Than Village
 
-NeoForge 1.21.1 mod that turns every generated vanilla village into a self-sufficient colony:
-villagers get jobs by demand (builder, militia, lumberjack, miner, farmer, fisherman, rancher,
-elder, founder), share categorized storage, build houses, roads and walls, repair damage, defend
-themselves, trade from colony stock, sell deeds and land, punish theft and griefing, catch up while
-unloaded and found new colonies.
+NeoForge 1.21.1 mod that turns vanilla villages into small medieval societies. Every villager is
+a household with a house, a chest, money and a trade fixed for life. Villagers trade at gatherings
+by the bell, lend with signed debt notes, pay taxes to the elder, build and wall their villages and
+found daughter villages when they run out of land. Villages of the same people form countries that
+trade by caravan, quarrel, send thieves at night, rebel, wage war and conquer each other. The
+player is always an outsider: they can trade, buy land, break the law, fight a war or buy peace,
+but never join a country.
 
-Clean-room reimplementation of the gameplay of the Independent Villagers mod.
-Implementation notes: `docs/dev/ARCHITECTURE.md`.
+No new blocks, items, GUIs or entities: everything goes through vanilla trade screens, filled
+maps (land deeds), written books (peace treaties, debt notes), professions and gossip.
+
+Started as a clean-room reimplementation of the Independent Villagers mod; the port as it was
+before the fork lives on the `legacy` branch.
+
+## Documentation
+
+- `docs_v2/` — the design: [overview and glossary](docs_v2/README.md),
+  [roadmap](docs_v2/01-roadmap.md), professions, economy, land, law, politics, warfare and the
+  abstract simulation. Each document ends with implementation notes.
+- `docs/dev/ARCHITECTURE.md` — packages, tick flow and an API cheat sheet.
+
+## Features
+
+- **Households and economy** — ten fixed professions passed on to children, home chests,
+  gatherings with prices, taxes and wages, credit and debt notes, conscription of the idle poor,
+  births paid by the parents.
+- **Land** — an irregular territory grown by construction, country domains split by chunk, plots
+  and empty houses sold as deed maps, terraforming, demolition of illegal builds, layered walls,
+  lamp posts, search parties founding daughter villages.
+- **Law** — offences seen by witnesses, warnings through vanilla gossip, war on the player,
+  surrender with a white flag, peace treaties bought from the elder.
+- **Countries and the abstract world** — capitals, loyalty and orders, diplomacy, border
+  purchases; unloaded villages keep living through ledgers, and caravans travel between them.
+- **Warfare** — campaigns with outposts and sieges (abstract or live: soldiers break, tunnel or
+  climb the walls ring by ring), conquest, war weariness and peace terms, warrior classes, night
+  watch, cavalry, the golem cap, border watch, night operations (theft, arson, killing) and
+  offensives and coalitions against a strong player's base.
+
+Every subsystem has a section with an `enabled` switch in `config/better_than_village.json`
+(created on first start).
 
 ## Build
 
@@ -17,15 +49,21 @@ Requires JDK 21.
 ./gradlew build   # jar in build/libs/
 ```
 
-Configuration: `config/better_than_village.json` (created on first start).
-
 ## Commands
 
-- `/btv status` — colony dump at your position.
-- `/btv jobs` — construction plots, roads, walls, builder targets.
-- `/btv repair` (op) — audit completed houses and queue repairs.
-- `/btv house <biome> [template] [floor]` (op) — queue a house.
-- `/btv film ...` (op) — staged-demo tools (`on`, `supply`, `population`, `develop`, `expedition`, `rebalance`, …). Use on a world copy.
+All commands are for operators (permission level 2) and mostly serve debugging and tests; run
+them at or near a village (`execute positioned <x> <y> <z> run btv …` from the console).
+
+- `/btv status`, `/btv villagers`, `/btv offers` — colony dump, villager AI states, trade offers.
+- `/btv jobs`, `/btv repair`, `/btv house <biome> [template] [floor]` — construction.
+- `/btv land [sell | illegal | grow <blocks>]` — territory and domain map, deed sales.
+- `/btv country [list | join | secede | loyalty | order | relation | war | peace | border | day]`
+  — countries and diplomacy.
+- `/btv world [step | caravan | stock | ledger]` — the abstract world.
+- `/btv war [launch | step | fortify | army | recruit | night | intel | offensive | player]` —
+  campaigns, armies, night operations and war on the player.
+- `/btv law …`, `/btv bot …` — law debugging and fake-player test bots.
+- `/btv film …` — staged-demo tools. Use on a world copy.
 
 ## Differences from the original
 
