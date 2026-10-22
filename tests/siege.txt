@@ -1,0 +1,64 @@
+// Phase 5: a live siege of a two-ring village near a player
+locate structure #minecraft:village
+forceload add {LX-176} {LZ-176} {LX} {LZ}
+forceload add {LX} {LZ-176} {LX+176} {LZ}
+forceload add {LX-176} {LZ} {LX} {LZ+176}
+forceload add {LX} {LZ} {LX+176} {LZ+176}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 2400
+#wait-log Sprint completed 600
+// B's warriors are recruited early and arm themselves from iron in their treasury
+execute positioned 768 100 384 run btv war recruit 10
+execute positioned 768 100 384 run btv world stock minecraft:iron_ingot 320
+execute positioned 768 100 384 run btv world stock minecraft:oak_log 64
+tick sprint 4800
+#wait-log Sprint completed 600
+// Two rings: the first ring, then the territory grows past it and a second ring goes up outside
+execute positioned {LX} 100 {LZ} run btv film walls
+#sleep 5
+execute positioned {LX} 100 {LZ} run btv war fortify
+execute positioned {LX} 100 {LZ} run btv land grow 24
+execute positioned {LX} 100 {LZ} run btv film walls
+#sleep 5
+execute positioned {LX} 100 {LZ} run btv war fortify
+execute positioned {LX} 100 {LZ} run btv film walls
+#sleep 5
+execute positioned {LX} 100 {LZ} run btv war fortify
+execute positioned {LX} 100 {LZ} run btv war army
+// A's golem is gone (the golem against an army was seen in an earlier run): the warriors defend alone
+execute positioned {LX} 100 {LZ} run kill @e[type=minecraft:iron_golem,distance=..200]
+// B raises an army and goes abstract; a player watches A
+execute positioned 768 100 384 run btv war army
+forceload remove 672 288 864 480
+btv bot spawn watcher {LX+20} 90 {LZ+20}
+#sleep 5
+execute positioned 768 100 384 run btv country war {LX} 100 {LZ} resources
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+btv country list

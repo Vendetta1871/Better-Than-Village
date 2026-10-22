@@ -1,0 +1,69 @@
+// Phase 4: two countries live, then abstract (no player), caravans, materialization, orders, diplomacy
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 4800
+#wait-log Sprint completed 600
+btv world
+btv country list
+// Both villages go abstract
+forceload remove all
+#sleep 5
+tick sprint 24000
+#wait-log Sprint completed 900
+btv world
+// Staged differences: A has arrows to spare, B torches; a strip on the route is loaded (a player watching)
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:arrow 128
+execute positioned 768 100 384 run btv world stock minecraft:torch 96
+forceload add 460 250 510 320
+execute positioned {LX} 100 {LZ} run btv world ledger
+execute positioned 768 100 384 run btv world ledger
+btv world caravan
+#sleep 3
+btv world
+tick sprint 6000
+#wait-log Sprint completed 600
+btv world
+tick sprint 6000
+#wait-log Sprint completed 600
+btv world
+tick sprint 6000
+#wait-log Sprint completed 600
+btv world
+btv country list
+execute positioned {LX} 100 {LZ} run btv world ledger
+execute positioned 768 100 384 run btv world ledger
+forceload remove all
+// Village A loads again: its ledger is applied to the real chests
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#sleep 20
+btv world
+execute positioned {LX} 100 {LZ} run btv world ledger
+forceload remove all
+#sleep 5
+// Diplomacy: bad relations turn into hostility; a war over a debt that does not exist ends the next day
+execute positioned {LX} 100 {LZ} run btv country relation 768 100 384 -60
+execute positioned {LX} 100 {LZ} run btv country day
+execute positioned {LX} 100 {LZ} run btv country war 768 100 384 debt
+execute positioned {LX} 100 {LZ} run btv country
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv country
+// Border: A's country buys land in B's domain once relations are good
+execute positioned {LX} 100 {LZ} run btv country relation 768 100 384 20
+execute positioned {LX} 100 {LZ} run btv country border 520 70 300
+btv world
+// Orders: B joins A's country with low loyalty and ignores the ruler
+execute positioned 768 100 384 run btv country join {LX} 100 {LZ} 10
+execute positioned 768 100 384 run btv country order tax 5
+execute positioned 768 100 384 run btv country order tax 5
+execute positioned 768 100 384 run btv country order tax 5
+execute positioned 768 100 384 run btv country order tax 5
+execute positioned 768 100 384 run btv country loyalty 80
+execute positioned 768 100 384 run btv country order tax 4
+tick sprint 24000
+#wait-log Sprint completed 900
+btv world
+execute positioned 768 100 384 run btv country

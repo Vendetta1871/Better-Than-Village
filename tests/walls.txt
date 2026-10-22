@@ -1,0 +1,18 @@
+locate structure #minecraft:village
+forceload add {LX-176} {LZ-176} {LX} {LZ}
+forceload add {LX} {LZ-176} {LX+176} {LZ}
+forceload add {LX-176} {LZ} {LX} {LZ+176}
+forceload add {LX} {LZ} {LX+176} {LZ+176}
+#wait-log Registered generated vanilla village 60
+#sleep 60
+tick sprint 24000
+#wait-log Sprint completed 1500
+execute positioned {LX} 100 {LZ} run btv land
+execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv land grow 24
+tick sprint 2400
+#wait-log Sprint completed 600
+execute positioned {LX} 100 {LZ} run btv land
+tick sprint 24000
+#wait-log Sprint completed 1500
+execute positioned {LX} 100 {LZ} run btv land

@@ -1,0 +1,10 @@
+// Survey of the villages around the test village (seed btv-test)
+execute positioned 208 100 192 run locate structure #minecraft:village
+execute positioned 700 100 192 run locate structure #minecraft:village
+execute positioned -300 100 192 run locate structure #minecraft:village
+execute positioned 208 100 700 run locate structure #minecraft:village
+execute positioned 208 100 -300 run locate structure #minecraft:village
+execute positioned 600 100 600 run locate structure #minecraft:village
+execute positioned -200 100 -200 run locate structure #minecraft:village
+execute positioned 600 100 -200 run locate structure #minecraft:village
+execute positioned -200 100 600 run locate structure #minecraft:village

@@ -1,0 +1,41 @@
+// Phase 5: a country conquers a neighbour with no player nearby
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 4800
+#wait-log Sprint completed 600
+execute positioned {LX} 100 {LZ} run btv war recruit 5
+execute positioned {LX} 100 {LZ} run btv war army
+execute positioned 768 100 384 run btv war army
+btv country list
+// Both villages go abstract
+forceload remove all
+#sleep 5
+tick sprint 2400
+#wait-log Sprint completed 600
+execute positioned {LX} 100 {LZ} run btv country war 768 100 384 resources
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 6000
+#wait-log Sprint completed 600
+btv war
+tick sprint 6000
+#wait-log Sprint completed 600
+btv war
+tick sprint 12000
+#wait-log Sprint completed 900
+btv war
+btv country list
+tick sprint 24000
+#wait-log Sprint completed 900
+btv war
+btv country list
+btv world
+tick sprint 24000
+#wait-log Sprint completed 900
+btv war
+btv country list

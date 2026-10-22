@@ -24,9 +24,8 @@ Warriors serve in **two shifts**:
 - **Risk.** The sleeping day shift is the main target of enemy saboteurs (see Night operations).
 - **Alarms.** Raise both shifts: sleepers wake up and arm.
 
-Reuses: combat, kiting, line-of-fire checks, shields, eating and retreating, patrols and gear
-rendering, old [02 §3](../docs/independent-villagers/02-integration-defense.md), plus the threat
-and alarm manager, old [02 §4](../docs/independent-villagers/02-integration-defense.md).
+Reuses from the `legacy` port: combat, kiting, line-of-fire checks, shields, eating and
+retreating, patrols and gear rendering, plus the threat and alarm manager.
 
 ### Classes
 
@@ -54,7 +53,7 @@ and alarm manager, old [02 §4](../docs/independent-villagers/02-integration-def
   never taken on campaigns or sent against the player.
 - **Upkeep and replacement** (iron) are paid by the treasury.
 
-Reuses: golem management, old [02 §3.6](../docs/independent-villagers/02-integration-defense.md),
+Reuses golem management from the `legacy` port,
 with the cap added.
 
 ## Outposts

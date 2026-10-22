@@ -94,8 +94,7 @@ Credit works both ways with the player, through the vanilla trade screen only.
 - **Ownership.** House ownership is stored per building, as owner UUID or "village". Taking
   from a home chest is theft from that villager ([05](05-law.md)).
 
-Replaces: the colony storage categories as the main stock (old
-[01-core §6](../docs/independent-villagers/01-core.md)). The treasury below is the only shared
+Replaces: the colony storage categories of the `legacy` port as the main stock. The treasury below is the only shared
 storage left.
 
 ## Gatherings (internal market)
@@ -148,8 +147,7 @@ Players get vanilla gossip discounts as well (see below).
   treaties ([05](05-law.md)), and pays out treasury debt notes.
 - **Credit offers.** Signing a note, repaying, collecting (see "Credit with the player").
 
-Reuses: the transaction primitive and merchant integration, old
-[06-society §1.1–1.3](../docs/independent-villagers/06-society.md). The stock source changes from
+Reuses from the `legacy` port: the transaction primitive and merchant integration. The stock source changes from
 colony storage to the villager's own chest.
 
 ## Taxes and treasury

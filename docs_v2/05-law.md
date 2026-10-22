@@ -87,9 +87,7 @@ Implementation notes (`law` package):
 - **Tests.** `/btv bot` drives a fake survival player (`debug.TestBot`) in headless tests:
   hold, place, break, attack, steal, trade with the elder; `/btv law` shows wars and gossip.
 
-Reuses: the land-notice state machine, old
-[06-society §3](../docs/independent-villagers/06-society.md), and griefing/theft detection, old
-[06-society §4](../docs/independent-villagers/06-society.md). Hostility points are replaced by
+Reuses from the `legacy` port: the land-notice state machine and griefing/theft detection. Hostility points are replaced by
 gossip.
 
 ## War against the player
@@ -100,7 +98,7 @@ gossip.
   - Every warrior and the golem of the country attacks the player on sight in that country's
     territories.
   - Villagers refuse to trade.
-  - Civilians take shelter (old [02 §6](../docs/independent-villagers/02-integration-defense.md)).
+  - Civilians take shelter, as in the `legacy` port.
 - **Phase 5 (offensive).** The country sends armies, builds outposts near the player's base and
   tries to storm it. Other countries may join, based on the player's strength score
   ([07](07-warfare.md)).

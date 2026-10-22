@@ -20,9 +20,8 @@ profession, so the market always has something to trade.
 
 ### Changes from the old roles
 
-The old docs and current code define the roles builder, guard, lumberjack, miner, farmer,
-fisherman, rancher, elder, founder and citizen
-(old [01-core §8](../docs/independent-villagers/01-core.md)).
+The `legacy` port defines the roles builder, guard, lumberjack, miner, farmer, fisherman,
+rancher, elder, founder and citizen.
 
 | Old role | New role | Notes |
 |---|---|---|
@@ -38,16 +37,8 @@ New roles: smith, healer, librarian.
 
 ### Reused mechanics
 
-| Profession | Old reference |
-|---|---|
-| Carpenter (felling, replanting) | old [03 §2](../docs/independent-villagers/03-gathering-navigation.md) |
-| Miner | old [03 §3](../docs/independent-villagers/03-gathering-navigation.md) |
-| Farmer | old [04 §2](../docs/independent-villagers/04-food.md) |
-| Herder fishing | old [04 §3](../docs/independent-villagers/04-food.md) |
-| Herder pens | old [04 §4](../docs/independent-villagers/04-food.md) |
-| Mason | old [05 §2–6](../docs/independent-villagers/05-construction.md) |
-| Warrior | old [02 §3](../docs/independent-villagers/02-integration-defense.md) |
-| Tool supply (all) | old [03 §1.6](../docs/independent-villagers/03-gathering-navigation.md), old [04 §6](../docs/independent-villagers/04-food.md) |
+The work of the carpenter (felling, replanting), miner, farmer, herder (fishing, pens), mason and
+warrior, and the tool supply of every trade, start from the `legacy` port.
 
 ## Profession details
 

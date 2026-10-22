@@ -1,0 +1,62 @@
+// Phase 5: war against the player: the base, the offensive, the storm, a coalition, night operations
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+forceload add {LX+150} {LZ-30} {LX+210} {LZ+30}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 2400
+#wait-log Sprint completed 600
+execute positioned {LX} 100 {LZ} run btv war recruit 5
+forceload remove 672 288 864 480
+btv bot spawn Raider {LX+180} 120 {LZ}
+#sleep 5
+// The base: a bed, chests with goods, a crafting table and a furnace
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~2 ~ ~ minecraft:chest
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~2 ~ ~2 minecraft:chest
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~-2 ~ ~ minecraft:crafting_table
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~-2 ~ ~2 minecraft:furnace
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~ ~ ~-3 minecraft:red_bed
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~3 ~ ~-3 minecraft:oak_planks
+execute as @e[name=Raider,limit=1] at @s run btv bot place Raider ~3 ~1 ~-3 minecraft:oak_planks
+execute as @e[name=Raider,limit=1] at @s run data get entity @s Pos
+execute as @e[name=Raider,limit=1] at @s run item replace block ~2 ~-1 ~ container.0 with minecraft:diamond 5
+execute as @e[name=Raider,limit=1] at @s run item replace block ~2 ~-1 ~2 container.0 with minecraft:iron_ingot 20
+execute as @e[name=Raider,limit=1] at @s run item replace block ~2 ~ ~2 container.0 with minecraft:iron_ingot 20
+execute as @e[name=Raider,limit=1] at @s run data get block ~2 ~-1 ~ Items
+btv war intel
+// War on the raider
+execute positioned {LX} 100 {LZ} run btv war player Raider
+btv war intel
+execute positioned {LX} 100 {LZ} run btv country relation 768 100 384 60
+btv war offensive
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+tick sprint 3000
+#wait-log Sprint completed 600
+btv war
+// A strong player: diamond armor; friends of the attacker join the war
+item replace entity @e[name=Raider,limit=1] armor.chest with minecraft:diamond_chestplate
+item replace entity @e[name=Raider,limit=1] armor.legs with minecraft:diamond_leggings
+item replace entity @e[name=Raider,limit=1] armor.head with minecraft:diamond_helmet
+item replace entity @e[name=Raider,limit=1] armor.feet with minecraft:diamond_boots
+btv war intel
+btv war offensive
+btv war
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+btv war intel
+// Night operations of a hostile neighbour, decided at once
+execute positioned {LX} 100 {LZ} run btv country relation 768 100 384 -60
+execute positioned {LX} 100 {LZ} run btv country day
+btv war night
+btv war
+tick sprint 12000
+#wait-log Sprint completed 900
+btv war

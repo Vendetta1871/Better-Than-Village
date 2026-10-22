@@ -39,7 +39,7 @@ Scope:
   - smith, healer, librarian: new work tasks.
 
 Replaces in the current code: `ColonyStorage` categories as the main stock, `RoleBalancer`, the
-abstract market (old [06-society §1.4](../docs/independent-villagers/06-society.md)).
+abstract market of the `legacy` port.
 
 Milestones (each one builds, passes a server test and is committed on its own):
 
@@ -115,7 +115,7 @@ Milestones:
 | 3.5 | Peace treaty from the elder's trade screen: price by strength, refusal while winning, a weary country pays; truce record; a paid debt ends a debt war | done (the truce only matters in phase 5) |
 
 Done when: each offence produces a warning, then war, then surrender or peace in a server test.
-Checked with a fake survival player (`/btv bot`) in `tools/tests/law.txt`.
+Checked with a fake survival player (`/btv bot`) in `tests/law.txt`.
 
 ## Phase 4 — Countries and the abstract world
 
@@ -146,7 +146,7 @@ Milestones:
 
 Done when: two countries trade by caravan with no player nearby, and a daughter village that
 ignores orders is either tolerated or suppressed (the latter only once phase 5 exists).
-Checked in `tools/tests/world.txt`.
+Checked in `tests/world.txt`.
 
 ## Phase 5 — Warfare
 
@@ -184,5 +184,5 @@ Milestones:
 | 5.7 | Night operations: theft, arson, killing; abstract rolls, live agents, spotting, incidents and revenge | done |
 | 5.8 | War against the player: presence and home blocks, the base, the strength score, offensives and coalitions, storming the base | done (bases are only raided near the player) |
 
-Checked in `tools/tests/war.txt` (conquest with no player) and `tools/tests/siege.txt` (live
+Checked in `tests/war.txt` (conquest with no player) and `tests/siege.txt` (live
 siege of a two-ring village).

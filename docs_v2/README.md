@@ -1,17 +1,15 @@
 # Better Than Village — design v2
 
-This folder is the design of **our fork**: what Better Than Village should become. It replaces
-the Independent Villagers behavioral reference (`../docs/independent-villagers/`) as the source
-of truth for *what* we build. The old reference stays in the repository: many mechanics
-(gathering, navigation, construction, combat) are reused. Every document here links to the old
-sections it builds on.
+This folder is the design of **our fork**: what Better Than Village should become. It is the source
+of truth for *what* we build. Many mechanics (gathering, navigation, construction, combat) are
+reused from the `legacy` port of Independent Villagers; the documents name the parts they build on.
 
 ## Branches
 
 | Branch | Contents |
 |---|---|
-| `legacy` | The Independent Villagers port as it was before the fork, with its docs (`docs/`) only. Frozen. |
-| `main` | The fork: new code and this design (`docs_v2/`). Once the fork is implemented, `docs/` is removed from `main`; the old reference then lives only on `legacy`. |
+| `legacy` | The Independent Villagers port as it was before the fork. Frozen. |
+| `main` | The fork: new code and this design (`docs_v2/`). |
 
 ## Vision
 

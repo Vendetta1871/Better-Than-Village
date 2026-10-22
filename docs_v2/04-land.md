@@ -37,8 +37,7 @@ Generated villages **split the land between them**. Their domains touch but neve
   looked up). The nearest bell is found among registered villages and structure starts from
   vanilla's village placement, so no chunk assignment changes later when another village loads.
 
-Reuses: territory radius growth from structures, old
-[01-core §3.3](../docs/independent-villagers/01-core.md). The fixed radius becomes the noisy
+Reuses from the `legacy` port: territory radius growth from structures. The fixed radius becomes the noisy
 shape, and a cap is added.
 
 ### Redrawing borders
@@ -79,7 +78,7 @@ After generation, domains change only by agreement or force:
   removed blocks go to the treasury as confiscated goods. Buying a plot that covers the build
   before the miner arrives makes it legal.
 
-Reuses: deed flows, old [06-society §2](../docs/independent-villagers/06-society.md). Deeds
+Reuses from the `legacy` port: deed flows. Deeds
 become maps instead of paper.
 
 ## Construction
@@ -107,9 +106,8 @@ Every building has an **owner**: a household, the village, or a player plot.
 - **Reachable sites only.** A site is accepted only if a villager standing by the bell can walk
   to its door; otherwise the search moves on (implemented in phase 1).
 
-Reuses the whole pipeline: site search, plans, the builder task, material fetching, roads and
-repair, old [05-construction §2, §3, §6](../docs/independent-villagers/05-construction.md),
-plus field and pen creation, old [04 §2.9, §4.7](../docs/independent-villagers/04-food.md).
+Reuses the whole pipeline of the `legacy` port: site search, plans, the builder task, material
+fetching, roads and repair, plus field and pen creation.
 The triggers change: planning now starts from commissions, not from automatic expansion.
 
 ## Terraforming and demolition (miner)
@@ -162,16 +160,14 @@ inside the territory.
   the ring crosses a road and on the bell's axes. Config `land.layered_walls` off: the ring moves
   out instead, as before.
 
-Reuses: ring layout, materials and gate control, old
-[05-construction §4](../docs/independent-villagers/05-construction.md). Change: rings are never
+Reuses from the `legacy` port: ring layout, materials and gate control. Change: rings are never
 demolished or moved; new rings are added.
 
 ## Lamp posts (carpenter)
 
 Instead of loose torches, the carpenter builds **lamp posts**: a 2–3 fence column with a
 torch, or a lantern once the smith sells them. They go along roads at regular spacing, on
-squares, at gates and wherever the old darkness scan finds dark spots (old
-[03 §4](../docs/independent-villagers/03-gathering-navigation.md)). Paid by the treasury as
+squares, at gates and wherever the darkness scan of the `legacy` port finds dark spots. Paid by the treasury as
 infrastructure.
 
 Implementation: posts are planned beside road blocks, on the square around the bell and inside
@@ -221,6 +217,5 @@ Implementation notes:
 - **Travel.** A settler unloaded for a minute stays home. A settler that cannot catch up with the
   leader for 30 s climbs out to it (teleport).
 
-Reuses: party travel, path recovery and founding, old
-[06-society §6](../docs/independent-villagers/06-society.md). Changes: the trigger, the party
+Reuses from the `legacy` port: party travel, path recovery and founding. Changes: the trigger, the party
 members, the site rule, and travel that is abstract when unloaded.

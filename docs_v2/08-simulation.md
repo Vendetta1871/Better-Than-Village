@@ -62,7 +62,7 @@ creates or destroys goods or emeralds.
 
 ## Reuse
 
-- The old offline catch-up, old [06-society §7](../docs/independent-villagers/06-society.md), is
+- The offline catch-up of the `legacy` port is
   the starting point for the economy formulas and the gradual "arrival".
 - Changes: the simulation runs continuously instead of in one catch-up on return, the 6-day cap
   goes away, and it is per household instead of per colony.
@@ -103,7 +103,7 @@ load chunks just to look.
   - force an abstract step;
   - force a village or group to materialize.
 
-  Headless server tests ([`tools/servertest.py`](../tools/servertest.py)) use them to check
+  Headless server tests ([`tests/servertest.py`](../tests/servertest.py)) use them to check
   phase "done" criteria.
 
 ## Implementation notes (phase 4)

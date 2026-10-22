@@ -1,0 +1,109 @@
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 50
+time set 1000
+tick sprint 1200
+#wait-log Sprint completed 300
+time set 1500
+execute positioned {LX} 100 {LZ} run btv bot spawn Rogue
+execute positioned {LX} 100 {LZ} run btv law tag-elder
+#sleep 3
+execute positioned {LX} 100 {LZ} run btv law
+// ---- weapon: warning, then war after the grace period
+btv bot hold Rogue minecraft:diamond_sword
+#wait-log warned Rogue for weapon 20
+#wait-log declares war on Rogue for weapon 60
+#wait-log \[bot Rogue\] hurt by 60
+// ---- surrender and peace
+btv bot hold Rogue minecraft:paper
+execute positioned {LX} 100 {LZ} run btv law
+#wait-log Rogue surrenders 20
+btv bot give Rogue minecraft:emerald 64
+btv bot give Rogue minecraft:emerald 64
+btv bot give Rogue minecraft:emerald 64
+btv bot give Rogue minecraft:emerald 64
+btv bot elder Rogue
+btv bot elder Rogue 0
+#wait-log peace between 10
+execute positioned {LX} 100 {LZ} run btv law
+// ---- trade refusal check after peace (should trade again)
+// ---- building: warning, then war
+execute as @e[name=Rogue,limit=1] at @s run btv bot place Rogue ~2 ~ ~ minecraft:cobblestone
+#wait-log warned Rogue for building 10
+#sleep 8
+execute as @e[name=Rogue,limit=1] at @s run btv bot place Rogue ~2 ~1 ~ minecraft:cobblestone
+#sleep 8
+execute as @e[name=Rogue,limit=1] at @s run btv bot place Rogue ~2 ~2 ~ minecraft:cobblestone
+#sleep 8
+execute as @e[name=Rogue,limit=1] at @s run btv bot place Rogue ~-2 ~ ~ minecraft:cobblestone
+#sleep 8
+execute as @e[name=Rogue,limit=1] at @s run btv bot place Rogue ~-2 ~1 ~ minecraft:cobblestone
+#wait-log declares war on Rogue for building 10
+#wait-log Rogue surrenders 10
+btv bot elder Rogue
+btv bot elder Rogue 0
+#wait-log peace between 10
+// ---- animals: warning, then war
+execute at @e[name=Rogue,limit=1] run summon cow ~3 ~ ~3
+execute at @e[name=Rogue,limit=1] run summon cow ~-3 ~ ~3
+#sleep 2
+damage @e[type=cow,limit=1,sort=random] 50 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log warned Rogue for animal 10
+#sleep 4
+damage @e[type=cow,limit=1,sort=random] 50 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log declares war on Rogue for animal 10
+#wait-log Rogue surrenders 10
+btv bot elder Rogue 0
+#wait-log peace between 10
+// ---- attacking a villager: warning, then war
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=nearest] 1 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log warned Rogue for attack 10
+#sleep 4
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=nearest] 1 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log declares war on Rogue for attack 10
+#wait-log Rogue surrenders 10
+btv bot elder Rogue 0
+#wait-log peace between 10
+// ---- theft: warning, then war
+btv bot steal Rogue 2
+#wait-log warned Rogue for theft 10
+#sleep 4
+btv bot steal Rogue 2
+#wait-log declares war on Rogue for theft 10
+#wait-log Rogue surrenders 10
+execute positioned {LX} 100 {LZ} run btv law
+execute positioned {LX} 100 {LZ} run btv bot tp Rogue {LX} 100 {LZ}
+// ---- weariness: the bot kills four villagers, the country pays for peace
+btv bot hold Rogue minecraft:stick
+#sleep 4
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=furthest,distance=..60] 100 minecraft:player_attack by @e[name=Rogue,limit=1]
+#sleep 1
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=furthest,distance=..60] 100 minecraft:player_attack by @e[name=Rogue,limit=1]
+#sleep 1
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=furthest,distance=..60] 100 minecraft:player_attack by @e[name=Rogue,limit=1]
+#sleep 1
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=furthest,distance=..60] 100 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log is weary 20
+btv bot hold Rogue minecraft:paper
+#sleep 3
+btv bot elder Rogue
+btv bot elder Rogue 0
+#wait-log peace between 10
+// ---- debt: overdue note, war, paid off
+execute positioned {LX} 100 {LZ} run btv law debt Rogue 5
+#wait-log declares war on Rogue for debt 10
+btv bot elder Rogue
+btv bot elder Rogue 1
+#wait-log peace between 10
+// ---- perfidy: war again (attack twice), white flag, then a blow under it
+btv bot hold Rogue minecraft:paper
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=nearest] 1 minecraft:player_attack by @e[name=Rogue,limit=1]
+#sleep 4
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=nearest] 1 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log declares war on Rogue for attack 10
+#wait-log Rogue surrenders 20
+execute at @e[name=Rogue,limit=1] run damage @e[type=villager,tag=!btv_elder,limit=1,sort=nearest] 1 minecraft:player_attack by @e[name=Rogue,limit=1]
+#wait-log perfidy by Rogue 10
+execute positioned {LX} 100 {LZ} run btv law
+execute positioned {LX} 100 {LZ} run btv status

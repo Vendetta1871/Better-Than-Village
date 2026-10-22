@@ -20,6 +20,7 @@ before the fork lives on the `legacy` branch.
   [roadmap](docs_v2/01-roadmap.md), professions, economy, land, law, politics, warfare and the
   abstract simulation. Each document ends with implementation notes.
 - `docs/dev/ARCHITECTURE.md` — packages, tick flow and an API cheat sheet.
+- `tests/` — headless server scenarios and their runner ([how to run](tests/README.md)).
 
 ## Features
 
