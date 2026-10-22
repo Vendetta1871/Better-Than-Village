@@ -157,5 +157,7 @@
   "message.better_than_village.politics.cause.border": "пограничный спор",
   "message.better_than_village.politics.cause.debt": "неуплаченный долг",
   "message.better_than_village.politics.cause.incidents": "повторяющиеся инциденты",
-  "message.better_than_village.politics.cause.rebellion": "мятеж"
+  "message.better_than_village.politics.cause.rebellion": "мятеж",
+  "message.better_than_village.war.conquest": "%s захватывает %s.",
+  "message.better_than_village.law.reason.coalition": "ты враг наших друзей"
 }

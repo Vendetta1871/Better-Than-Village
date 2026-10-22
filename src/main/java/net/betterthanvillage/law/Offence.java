@@ -10,7 +10,9 @@ public enum Offence {
     ATTACK(false),
     THEFT(false),
     /** An overdue debt note: warned by the creditor's village, war a day later unless paid (docs_v2/03-economy.md). */
-    DEBT(true);
+    DEBT(true),
+    /** Not an offence against this country: it joined another country's war on a strong player (docs_v2/07-warfare.md). */
+    COALITION(false);
 
     public final boolean continuous;
 

@@ -97,6 +97,15 @@ public final class Fortifications {
         return false;
     }
 
+    /** The village whose built wall gate stands at the position, or null. */
+    public static Colony wallGateOwner(ServerLevel level, BlockPos pos) {
+        for (Colony c : ColonyManager.data(level).colonies()) {
+            FortBlock b = c.fortifications.managed.get(pos);
+            if (b != null && b.state().getBlock() instanceof FenceGateBlock) return c;
+        }
+        return null;
+    }
+
     /** Within margin + 2 of a wall ring of the colony (any ring, docs_v2/04-land.md §Layered walls). */
     public static boolean isNearWall(Colony colony, BlockPos pos, int margin) {
         FortificationState f = colony.fortifications;
@@ -107,6 +116,59 @@ public final class Fortifications {
             if (Math.abs(d - ringDist(colony, r, dx, dz)) <= margin + 2) return true;
         }
         return false;
+    }
+
+    /** Territory radii of the village's rings, outermost first. */
+    public static List<Integer> ringRadii(Colony colony) {
+        List<Integer> out = rings(colony.fortifications);
+        out.sort(java.util.Comparator.reverseOrder());
+        return out;
+    }
+
+    /** Built rings (cached by the number of built wall blocks). */
+    private record BuiltRings(int managed, List<Integer> rings) {
+    }
+
+    /**
+     * Rings that actually stand, outermost first: a ring counts once a third of its columns are built (sieges and
+     * the strength model never count a wall that is only planned).
+     */
+    public static List<Integer> builtRings(Colony colony) {
+        FortificationState f = colony.fortifications;
+        if (colony.runtime.get("btv_built_rings") instanceof BuiltRings b && b.managed() == f.managed.size()) return b.rings();
+        Map<Integer, java.util.Set<Long>> columns = new HashMap<>();
+        for (BlockPos p : f.managed.keySet()) {
+            int r = ringOf(colony, p);
+            if (r >= 0) columns.computeIfAbsent(r, k -> new java.util.HashSet<>()).add(((long) p.getX() << 32) | (p.getZ() & 0xFFFFFFFFL));
+        }
+        List<Integer> out = new ArrayList<>();
+        for (int r : ringRadii(colony)) {
+            double planned = Math.PI * 2 * Math.max(8, r - RING_INSET);
+            if (columns.getOrDefault(r, java.util.Set.of()).size() >= planned / 3) out.add(r);
+        }
+        colony.runtime.put("btv_built_rings", new BuiltRings(f.managed.size(), out));
+        return out;
+    }
+
+    /** The ring (territory radius) a wall block at the position belongs to, or -1. */
+    public static int ringOf(Colony colony, BlockPos pos) {
+        double dx = pos.getX() - colony.core().getX(), dz = pos.getZ() - colony.core().getZ();
+        double d = Math.sqrt(dx * dx + dz * dz);
+        int best = -1;
+        double bestErr = 3;
+        for (int r : rings(colony.fortifications)) {
+            double err = Math.abs(d - ringDist(colony, r, dx, dz));
+            if (err <= bestErr) {
+                bestErr = err;
+                best = r;
+            }
+        }
+        return best;
+    }
+
+    /** Distance of a ring's wall from the core in the direction (dx, dz). */
+    public static double wallDistance(Colony colony, int r, double dx, double dz) {
+        return ringDist(colony, r, dx, dz);
     }
 
     /** Every ring of the colony: the old ones and the current (outermost) one. */
@@ -126,7 +188,9 @@ public final class Fortifications {
         if (!(mob.level() instanceof ServerLevel level) || !(mob instanceof Villager || mob instanceof IronGolem)) return false;
         BlockPos p = new BlockPos(x, y, z);
         if (!(context.getBlockState(p).getBlock() instanceof FenceGateBlock)) return false;
-        if (isWallGate(level, p)) return true;
+        Colony owner = wallGateOwner(level, p);
+        // Wall gates never let an enemy army through (docs_v2/07-warfare.md §Sieges).
+        if (owner != null) return !net.betterthanvillage.warfare.Campaigns.enemyOf(level, owner, mob);
         if (!(mob instanceof Villager v)) return false;
         if (ColonyManager.colonyAt(level, v.blockPosition()) == null && ColonyManager.foundingPartyColony(level, v.getUUID()) == null) return false;
         Colony at = ColonyManager.colonyAt(level, p);
@@ -510,6 +574,31 @@ public final class Fortifications {
     }
 
     /** Completion of a wall job (05 §4.4). */
+    /**
+     * Debug (tests of sieges): every planned wall block in loaded chunks is put up at once, without materials.
+     * Returns the blocks placed.
+     */
+    public static int buildNow(ServerLevel level, Colony colony) {
+        int n = 0;
+        for (FortBlock job : new ArrayList<>(colony.fortifications.pending.values())) {
+            if (!level.isLoaded(job.pos())) continue;
+            if (job.remove()) {
+                SafeEditScope.run(() -> level.setBlock(job.pos(), Blocks.AIR.defaultBlockState(), 3));
+                complete(level, colony, job, false);
+                continue;
+            }
+            BlockState here = level.getBlockState(job.pos());
+            if (!here.canBeReplaced() && here.getBlock() != job.state().getBlock()) {
+                complete(level, colony, job, false);
+                continue;
+            }
+            SafeEditScope.run(() -> level.setBlock(job.pos(), job.state(), 2));
+            complete(level, colony, job, true);
+            n++;
+        }
+        return n;
+    }
+
     static void complete(ServerLevel level, Colony colony, FortBlock job, boolean placed) {
         FortificationState f = colony.fortifications;
         Runtime rt = runtime(colony);
@@ -551,7 +640,7 @@ public final class Fortifications {
             BlockState s = level.getBlockState(b.pos());
             if (!(s.getBlock() instanceof FenceGateBlock) || s.getValue(FenceGateBlock.POWERED)) continue;
             boolean isOpen = s.getValue(FenceGateBlock.OPEN);
-            boolean colonist = wanted(level, b.pos());
+            boolean colonist = wanted(level, colony, b.pos());
             boolean want = colonist || playerAt(level, b.pos());
             if (want && !isOpen) {
                 SafeEditScope.run(() -> level.setBlock(b.pos(), s.setValue(FenceGateBlock.OPEN, true), 3));
@@ -568,11 +657,12 @@ public final class Fortifications {
         }
     }
 
-    private static boolean wanted(ServerLevel level, BlockPos gate) {
+    private static boolean wanted(ServerLevel level, Colony colony, BlockPos gate) {
         AABB box = new AABB(gate);
         AABB near = box.inflate(1);
         for (Mob mob : level.getEntitiesOfClass(Mob.class, box.inflate(6, 2, 6), e -> e.isAlive() && (e instanceof Villager || e instanceof IronGolem))) {
             if (mob instanceof Villager v && (v.isSleeping() || v.isTrading())) continue;
+            if (net.betterthanvillage.warfare.Campaigns.enemyOf(level, colony, mob)) continue;
             if (mob.getBoundingBox().intersects(near)) return true;
             Path path = mob.getNavigation().getPath();
             if (path != null && !path.isDone()) {

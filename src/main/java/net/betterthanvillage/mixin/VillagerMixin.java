@@ -83,6 +83,16 @@ public abstract class VillagerMixin {
         }
     }
 
+    /** Vanilla golem summoning is suppressed while the village has its golem (docs_v2/07-warfare.md §Iron golems). */
+    @Inject(method = "spawnGolemIfNeeded", at = @At("HEAD"), cancellable = true)
+    private void btv$golemCap(ServerLevel level, long time, int needed, CallbackInfo ci) {
+        Villager self = (Villager) (Object) this;
+        var colony = net.betterthanvillage.colony.ColonyManager.colonyOf(level, self);
+        if (colony != null && net.betterthanvillage.defense.GolemManager.villageGolems(level, colony) >= net.betterthanvillage.config.ColonyConfig.get().warfare.golem_cap) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "rewardTradeXp", at = @At("TAIL"))
     private void btv$afterUsing(MerchantOffer offer, CallbackInfo ci) {
         Villager self = (Villager) (Object) this;

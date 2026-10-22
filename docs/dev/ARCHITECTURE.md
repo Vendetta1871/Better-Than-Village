@@ -42,8 +42,9 @@ Fabric mod (MC 1.21.11). This project uses **Mojang mappings on MC 1.21.1**.
 | `economy` | economy (v2 phase 1) | `Commissions` (public works budget), `Household`/`Households`, `StockScope`, `Values`/`Needs`/`Market`/`Gathering`, `Treasury` (taxes, wages), `Debt`/`Credit`, `Conscription`, `BirthOrder`/`Births`, `Workshop`/`WorkshopTask`, `Chests` |
 | `society` | society | player trading (`Trading`, `PlayerCredit`, `TreatyTrade`), deeds, `LandSales` (deed maps, empty houses), land notices, theft, offline sim, colonization, film mode, commands |
 | `law` | law (v2 phase 3) | `Law` (offences, witnesses, warnings via vanilla gossip, escalation), `Witnesses`, `Offence`, `Wars`/`PlayerWar` (a country's war on a player, treaties and truces, losses, weariness), `Surrender` (white flag, ceasefire, perfidy, the elder's walk), `Treaties` (price, refusal, reparation, treaty book), `LawEvents` |
-| `world` | world (v2 phase 4) | `WorldScheduler` (time-budgeted steps of abstract villages, caravans, politics), `Ledger`/`Ledgers` (virtual chests of abstract villages, delta application on load), `AbstractEconomy` (gatherings on ledgers, market cleared on a worker), `Production` (a day of work per trade), `Caravan`/`Caravans` (treasury trade and order deliveries, abstract travel and live materialization), `SimWorkers` (worker threads for snapshot computation) |
+| `world` | world (v2 phase 4) | `Materializer` (stores travelling entities and spawns them again), `WorldScheduler` (time-budgeted steps of abstract villages, caravans, politics), `Ledger`/`Ledgers` (virtual chests of abstract villages, delta application on load), `AbstractEconomy` (gatherings on ledgers, market cleared on a worker), `Production` (a day of work per trade), `Caravan`/`Caravans` (treasury trade and order deliveries, abstract travel and live materialization), `SimWorkers` (worker threads for snapshot computation) |
 | `politics` | politics (v2 phase 4) | `Country`/`Countries` (capital by founding order, succession, ruler, strength, join/secede), `Politics` (daily step, loyalty, the ruler's patience), `Orders`/`Order` (redistribution, temporary tax, mobilization), `Diplomacy`/`Relation` (relations, alliance/peace/hostility/war, causes, declaration by strength), `Borders`/`BorderOffer` (buying border chunks for a search party), `PoliticsCommands` (`/btv country`, `/btv world`) |
+| `warfare` | warfare (v2 phase 5) | `Campaign`/`Campaigns` (armies: mobilization, march, outpost, siege, return; soldiers stored and materialized), `Battle` (abstract strength model), `Siege`/`SoldierTask` (live sieges: breaches, tunnels, staircases), `Outposts` (camps and border watch), `Conquest`, `Casualties` (deaths of unloaded villagers), `Weariness` (war weariness and peace terms), `Army`/`WarriorClass` (classes, shifts, horses, cavalry), `NightOps`/`NightOpTask` (night operations), `PlayerBases`/`PlayerIntel`/`PlayerRaid` (war on a player's base), `WarfareCommands` (`/btv war`) |
 | `debug` | tests | `TestBot`: a fake survival player for headless tests, driven by `/btv bot` (see `society.BotCommands`) |
 | `mixin.<subsystem>` | each | mixins, registered in `better_than_village.<subsystem>.mixins.json` (`client` mixins in `better_than_village.client.mixins.json`) |
 
@@ -85,6 +86,10 @@ tasks whose `ColonyTask.publicWork(v)` is true (houses, repairs, roads, walls, w
   colony far away and only travels).
 - Politics: `Countries.get/capital/ruler/villages/strength/join/secede`, `Diplomacy.relation/state/trades/declareWar/makePeace`,
   `Orders.issue`, `Borders.acquire`.
+- Warfare: `Campaigns.away/homeOf/enemyOf/defenderOf/launch/retreat` (a soldier on campaign belongs to its home village
+  wherever it stands; `ThreatManager.enemySoldier` makes it a threat to the village it attacks), `Battle.defenders`,
+  `Fortifications.builtRings`, `Casualties.killDefender/killVillager`, `world.Materializer` (stash and spawn of travellers,
+  shared with caravans).
 - Law: `Law.subject/warningActive`, `Wars.war/hostile/declare/peace`, `ThreatManager.engage/calm`
   (players are never alarm attackers: `ThreatManager.isWanted` means at war with the country and no white flag).
 

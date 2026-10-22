@@ -57,6 +57,8 @@ public final class Census {
         laborCensus(colony, adults);
         Gathering.step(level, colony, members);
         GolemManager.step(level, colony);
+        GolemManager.track(level, colony);
+        net.betterthanvillage.warfare.Army.census(level, colony, adults);
         jobHousekeeping(level, colony, now);
     }
 

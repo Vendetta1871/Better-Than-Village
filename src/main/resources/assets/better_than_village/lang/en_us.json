@@ -157,5 +157,7 @@
   "message.better_than_village.politics.cause.border": "a border dispute",
   "message.better_than_village.politics.cause.debt": "an unpaid debt",
   "message.better_than_village.politics.cause.incidents": "repeated incidents",
-  "message.better_than_village.politics.cause.rebellion": "a rebellion"
+  "message.better_than_village.politics.cause.rebellion": "a rebellion",
+  "message.better_than_village.war.conquest": "%s takes %s.",
+  "message.better_than_village.law.reason.coalition": "you are the enemy of our friends"
 }

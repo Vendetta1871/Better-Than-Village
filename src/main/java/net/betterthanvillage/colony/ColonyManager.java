@@ -85,6 +85,10 @@ public final class ColonyManager {
         if (caravan != null) {
             return caravan;
         }
+        Colony army = net.betterthanvillage.warfare.Campaigns.homeOf(level, id);
+        if (army != null) {
+            return army;
+        }
         Colony member = data(level).roleColony(id);
         if (member != null && member.withinXZ(villager.blockPosition(), MEMBER_MARGIN)) {
             return member;
@@ -236,6 +240,12 @@ public final class ColonyManager {
         boolean changed = false;
         for (Colony colony : data(level).colonies()) {
             changed |= colony.roles.remove(id) != null;
+            changed |= colony.warriorClasses.remove(id) != null;
+            changed |= colony.nightWatch.remove(id);
+            if (id.equals(colony.golem)) {
+                colony.golem = null;
+                changed = true;
+            }
             changed |= colony.pendingProfessions.remove(id) != null;
             changed |= Households.dissolve(level, colony, id);
             if (id.equals(colony.elder)) {
@@ -326,6 +336,11 @@ public final class ColonyManager {
             } else if (Math.floorMod(now + core.asLong(), 200L) == 0) {
                 net.betterthanvillage.world.Ledgers.capture(level, colony);
             }
+        }
+        // Wall blocks breached in an abstract siege come down once the village is live (docs_v2/07-warfare.md).
+        if (entityTicking && now % 20 == 0) {
+            net.betterthanvillage.warfare.Siege.applyBreaches(level, colony);
+            net.betterthanvillage.warfare.Outposts.tickWatch(level, colony);
         }
         boolean playerNear = false;
         double view = (level.getServer().getPlayerList().getViewDistance() + 1) * 16.0;

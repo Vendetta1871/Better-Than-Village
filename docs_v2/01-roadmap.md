@@ -140,8 +140,8 @@ Milestones:
 | 4.2 | Ledgers and the world scheduler: virtual chests for abstract villages, delta application on load, time-budgeted steps, worker threads for snapshot computation | done |
 | 4.3 | Abstract economy: gatherings, meals, wages, credit, production by trade and construction labour of unloaded villages | done (births and conscription happen live) |
 | 4.4 | Caravans between treasuries: planning, abstract travel, live materialization of the leader, trade and debts between villages | done |
-| 4.5 | Orders and loyalty: famine redistribution, temporary taxes, mobilization record; disobedience, the ruler's patience, toleration | done (suppression needs phase 5) |
-| 4.6 | Diplomacy: relations, alliance/peace/hostility/war, causes, declaration by strength, peace when the cause is gone | done (wars are not fought until phase 5) |
+| 4.5 | Orders and loyalty: famine redistribution, temporary taxes, mobilization record; disobedience, the ruler's patience, toleration | done (suppression came with phase 5) |
+| 4.6 | Diplomacy: relations, alliance/peace/hostility/war, causes, declaration by strength, peace when the cause is gone | done (fought since phase 5) |
 | 4.7 | Border purchase for search parties: offer, decision, payment or dispute | done |
 
 Done when: two countries trade by caravan with no player nearby, and a daughter village that
@@ -170,3 +170,19 @@ Scope ([07](07-warfare.md)):
 
 Done when: a country conquers a neighbour with no player nearby, and a live siege of a
 two-ring village plays out near a player.
+
+Milestones:
+
+| # | Milestone | Status |
+|---|---|---|
+| 5.1 | Campaigns: mobilization with a garrison, march, outpost, siege, return; soldiers stored and materialized like caravan leaders; `/btv war` | done |
+| 5.2 | Abstract battles: power by class, gear and health, wall rings, golem, healers; breaches written to the walls on load; deaths of unloaded villagers | done |
+| 5.3 | Live sieges: breaking gates and walls, tunnelling, staircases over walls, ring by ring; the fall of the bell | done |
+| 5.4 | Conquest: citizens, loot, debt notes, domain, the new elder, low loyalty; rebellion suppressed by war | done |
+| 5.5 | War weariness, peace requests, refusals and terms (tribute, border land, debts) | done |
+| 5.6 | Warriors: classes by situation and gear, horses and cavalry in the village, shifts, the golem cap; border watch outposts | done (campaigns fight on foot) |
+| 5.7 | Night operations: theft, arson, killing; abstract rolls, live agents, spotting, incidents and revenge | done |
+| 5.8 | War against the player: presence and home blocks, the base, the strength score, offensives and coalitions, storming the base | done (bases are only raided near the player) |
+
+Checked in `tools/tests/war.txt` (conquest with no player) and `tools/tests/siege.txt` (live
+siege of a two-ring village).

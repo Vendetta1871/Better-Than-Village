@@ -150,8 +150,9 @@ The `politics` package.
       target's plus its allies', or `politics.conquest_advantage` (1.5) times that for resources.
       Declining to defend an ally costs 30 with that ally.
     - A war ends with a plain truce (`politics.truce_days`, 5) when its cause is gone, or after
-      `politics.war_max_days` (10) days, since nothing is fought before phase 5. A peace also
-      settles the border dispute.
+      `politics.war_max_days` (30 since phase 5) days. A peace also settles the border dispute.
+      Since phase 5 wars are fought by campaigns and usually end by war weariness
+      ([07](07-warfare.md) §Implementation notes).
 - **Borders** (`Borders`). A search party that finds no site in its own domain or on free land
   asks to buy the chunks within the largest territory around a site in a foreign domain.
   - **Price.** `politics.border_price_per_chunk` (0.15 emeralds) per chunk, up to 4 times that close to the
@@ -170,3 +171,11 @@ The `politics` package.
     stage orders and diplomacy;
   - `border <pos>` makes a border offer;
   - `day` runs the daily step now.
+
+## Implementation notes (phase 5)
+
+- **Suppression.** When the ruler's patience runs out and the rest of the country is stronger than
+  the rebel village, the rebel secedes and the ruler declares war on it (cause `rebellion`).
+  Conquered back, it rejoins with `politics.conquered_loyalty`; if the ruler gives up, it stays a
+  country of its own.
+- **Conquest and peace terms** are in [07](07-warfare.md) §Implementation notes.

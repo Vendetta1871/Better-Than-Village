@@ -53,6 +53,24 @@ public final class Colony implements VillageCapability {
     /** Game tick the village last sent a trade caravan (docs_v2/08-simulation.md). */
     public long lastCaravan = Long.MIN_VALUE;
 
+    // ---- warfare (docs_v2/07-warfare.md) ----
+    /** Class of each warrior (ranged, infantry, cavalry). */
+    public final Map<UUID, net.betterthanvillage.warfare.WarriorClass> warriorClasses = new LinkedHashMap<>();
+    /** Warriors on night watch (the others serve by day). */
+    public final Set<UUID> nightWatch = new LinkedHashSet<>();
+    /** Horses in the herder's stables. */
+    public int horses;
+    /** Average gear tier of the warriors (0 bare-handed .. 3 diamond), seen when the village was last live. */
+    public double warriorGear = 1;
+    /** The village golem (at most one), seen when the village was last live; null if it has none. */
+    public UUID golem;
+    /** The border watch outpost facing a hostile neighbour or a player's base, or null. */
+    public BlockPos watchPost;
+    /** The watch outpost's blocks stand in the world. */
+    public boolean watchPostPlaced;
+    /** Wall blocks broken in an abstract siege, taken down when the village loads. */
+    public final Set<BlockPos> pendingBreaches = new LinkedHashSet<>();
+
     // ---- threat / offline ----
     public long lastThreatTick = NEVER;
     public long simulatedUntil = NEVER;
@@ -484,6 +502,18 @@ public final class Colony implements VillageCapability {
         CompoundTag conscriptTag = new CompoundTag();
         conscripts.forEach((id, since) -> conscriptTag.putLong(id.toString(), since));
         tag.put("conscripts", conscriptTag);
+        CompoundTag classTag = new CompoundTag();
+        warriorClasses.forEach((id, cls) -> classTag.putString(id.toString(), cls.key()));
+        tag.put("warrior_classes", classTag);
+        ListTag watch = new ListTag();
+        nightWatch.forEach(id -> watch.add(net.minecraft.nbt.NbtUtils.createUUID(id)));
+        tag.put("night_watch", watch);
+        tag.putInt("horses", horses);
+        tag.putDouble("warrior_gear", warriorGear);
+        if (watchPost != null) tag.putLong("watch_post", watchPost.asLong());
+        tag.putBoolean("watch_post_placed", watchPostPlaced);
+        NbtHelper.putUuid(tag, "golem", golem);
+        tag.putLongArray("pending_breaches", NbtHelper.packPositions(pendingBreaches));
         ListTag orders = new ListTag();
         birthOrders.forEach(o -> orders.add(o.save()));
         tag.put("birth_orders", orders);
@@ -675,6 +705,24 @@ public final class Colony implements VillageCapability {
                 c.conscripts.put(UUID.fromString(key), conscriptTag.getLong(key));
             } catch (IllegalArgumentException ignored) {
             }
+        }
+        CompoundTag classTag = tag.getCompound("warrior_classes");
+        for (String key : classTag.getAllKeys()) {
+            try {
+                c.warriorClasses.put(UUID.fromString(key), net.betterthanvillage.warfare.WarriorClass.byKey(classTag.getString(key)));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        ListTag watch = tag.getList("night_watch", Tag.TAG_INT_ARRAY);
+        for (int i = 0; i < watch.size() && i < 1024; i++) c.nightWatch.add(net.minecraft.nbt.NbtUtils.loadUUID(watch.get(i)));
+        c.horses = NbtHelper.clamp(tag.getInt("horses"), 0, 1024);
+        c.watchPost = tag.contains("watch_post") ? BlockPos.of(tag.getLong("watch_post")) : null;
+        c.watchPostPlaced = tag.getBoolean("watch_post_placed");
+        c.warriorGear = tag.contains("warrior_gear") ? Math.max(0, Math.min(4, tag.getDouble("warrior_gear"))) : 1;
+        c.golem = NbtHelper.uuid(tag, "golem");
+        for (BlockPos pos : NbtHelper.unpackPositions(tag.getLongArray("pending_breaches"))) {
+            if (c.pendingBreaches.size() >= 4096) break;
+            c.pendingBreaches.add(pos);
         }
         CompoundTag index = tag.getCompound("market_index");
         for (String key : index.getAllKeys()) {

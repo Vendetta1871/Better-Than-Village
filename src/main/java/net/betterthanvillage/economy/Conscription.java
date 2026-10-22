@@ -49,12 +49,14 @@ public final class Conscription {
         byService.sort(Comparator.comparingLong((UUID id) -> colony.conscripts.get(id)).reversed());
         for (UUID id : byService) {
             if ((long) warriors * wage * days <= treasury) break;
+            // A conscript on campaign serves until the army is home.
+            if (net.betterthanvillage.warfare.Campaigns.away(level, id)) continue;
             release(level, colony, id, members.get(id));
             warriors--;
         }
         for (UUID id : new ArrayList<>(colony.conscripts.keySet())) {
             Long since = colony.conscripts.get(id);
-            if (since != null && today - since >= 2 && tradePays(colony, colony.tradeOf(id))) {
+            if (since != null && today - since >= 2 && tradePays(colony, colony.tradeOf(id)) && !net.betterthanvillage.warfare.Campaigns.away(level, id)) {
                 release(level, colony, id, members.get(id));
                 warriors--;
             }

@@ -218,6 +218,7 @@ public final class Wars {
 
     /** A warrior or golem of a country at war with the player killed them. */
     public static void playerKilled(ServerLevel level, Player player, LivingEntity killer) {
+        net.betterthanvillage.warfare.PlayerRaid.playerKilled(level, player, killer);
         Colony colony = killer instanceof Villager v ? ColonyManager.colonyOf(level, v) : ColonyManager.colonyAt(level, killer.blockPosition());
         if (colony == null) return;
         PlayerWar w = war(level, colony.country, player.getUUID());

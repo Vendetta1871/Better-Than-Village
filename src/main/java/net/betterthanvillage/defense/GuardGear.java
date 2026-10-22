@@ -76,7 +76,8 @@ public final class GuardGear {
     }
 
     private static int reserve(Item material, int golemsNear) {
-        if (material == Items.IRON_INGOT) return Math.max(36, (4 - golemsNear) * 36);
+        // Iron for the golems the village may still build (docs_v2/07-warfare.md: one village golem by default).
+        if (material == Items.IRON_INGOT) return Math.max(36, (net.betterthanvillage.config.ColonyConfig.get().warfare.golem_cap - golemsNear) * 36);
         if (material == Items.DIAMOND) return 4;
         if (material == Items.COBBLESTONE) return 64;
         return 2;

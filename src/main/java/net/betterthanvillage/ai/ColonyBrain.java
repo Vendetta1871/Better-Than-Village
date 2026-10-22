@@ -26,7 +26,8 @@ public final class ColonyBrain {
     }
 
     public static void install(Brain<Villager> brain) {
-        brain.addActivity(ModRegistries.COLONY_TRAVEL.get(), ImmutableList.of());
+        brain.addActivity(ModRegistries.COLONY_TRAVEL.get(), ImmutableList.of(task(0, new net.betterthanvillage.warfare.SoldierTask()),
+                task(0, new net.betterthanvillage.warfare.NightOpTask())));
         brain.addActivity(ModRegistries.COLONY_SHELTER.get(), ImmutableList.of(task(0, new RaidShelterTask())));
         brain.addActivity(Activity.FIGHT, ImmutableList.of(task(0, new GuardCombatTask())));
         brain.addActivity(ModRegistries.COLONY_WORK.get(), ImmutableList.of(

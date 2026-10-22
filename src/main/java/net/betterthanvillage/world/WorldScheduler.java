@@ -57,6 +57,8 @@ public final class WorldScheduler {
             if (AbstractEconomy.step(level, colony)) NEXT.put(colony.id(), now + 1);
         }
         if (System.nanoTime() < deadline) Caravans.tick(level, now);
+        net.betterthanvillage.warfare.Campaigns.tick(level, now);
+        if (System.nanoTime() < deadline) net.betterthanvillage.warfare.NightOps.tick(level, now);
         if (System.nanoTime() < deadline) net.betterthanvillage.politics.Politics.tick(level, now, deadline);
     }
 

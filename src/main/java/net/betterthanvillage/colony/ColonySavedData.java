@@ -54,6 +54,14 @@ public final class ColonySavedData extends SavedData {
     public final Map<UUID, net.betterthanvillage.world.Ledger> ledgers = new LinkedHashMap<>();
     /** Next founding index handed to a new village. */
     public long nextFoundingIndex;
+    /** Armies on campaign (docs_v2/07-warfare.md). */
+    public final List<net.betterthanvillage.warfare.Campaign> campaigns = new ArrayList<>();
+    /** Villagers and golems killed while their chunks were not loaded: their entities are dropped when they load. */
+    public final java.util.Set<UUID> fallen = new java.util.LinkedHashSet<>();
+    /** Revenge a country may take on another (victim|culprit -> until tick) after catching its agent. */
+    public final Map<String, Long> revenge = new LinkedHashMap<>();
+    /** What the countries know about each player. */
+    public final Map<UUID, net.betterthanvillage.warfare.PlayerIntel> intel = new LinkedHashMap<>();
     /** Runtime only: recent player placements, pos -> (player, tick). */
     private final Map<Long, RecentPlacement> recentPlacements = new HashMap<>();
     /** Runtime only: the level this data belongs to (lazy pruning of player blocks). */
@@ -302,6 +310,18 @@ public final class ColonySavedData extends SavedData {
         ListTag ledgerList = new ListTag();
         ledgers.values().forEach(l -> ledgerList.add(l.save(registries)));
         tag.put("ledgers", ledgerList);
+        ListTag campaignList = new ListTag();
+        campaigns.forEach(c -> campaignList.add(c.save(registries)));
+        tag.put("campaigns", campaignList);
+        ListTag fallenList = new ListTag();
+        fallen.forEach(id -> fallenList.add(net.minecraft.nbt.NbtUtils.createUUID(id)));
+        tag.put("fallen", fallenList);
+        CompoundTag revengeTag = new CompoundTag();
+        revenge.forEach(revengeTag::putLong);
+        tag.put("revenge", revengeTag);
+        ListTag intelList = new ListTag();
+        intel.values().forEach(p -> intelList.add(p.save()));
+        tag.put("intel", intelList);
         return tag;
     }
 
@@ -393,6 +413,22 @@ public final class ColonySavedData extends SavedData {
         for (int i = 0; i < ledgerList.size(); i++) {
             var l = net.betterthanvillage.world.Ledger.load(ledgerList.getCompound(i), registries);
             if (l != null && data.colonies.containsKey(l.colony)) data.ledgers.put(l.colony, l);
+        }
+        ListTag campaignList = tag.getList("campaigns", Tag.TAG_COMPOUND);
+        for (int i = 0; i < campaignList.size(); i++) {
+            var c = net.betterthanvillage.warfare.Campaign.load(campaignList.getCompound(i), registries);
+            if (c != null) data.campaigns.add(c);
+        }
+        ListTag fallenList = tag.getList("fallen", Tag.TAG_INT_ARRAY);
+        for (int i = 0; i < fallenList.size() && data.fallen.size() < 65536; i++) {
+            data.fallen.add(net.minecraft.nbt.NbtUtils.loadUUID(fallenList.get(i)));
+        }
+        CompoundTag revengeTag = tag.getCompound("revenge");
+        for (String key : revengeTag.getAllKeys()) data.revenge.put(key, revengeTag.getLong(key));
+        ListTag intelList = tag.getList("intel", Tag.TAG_COMPOUND);
+        for (int i = 0; i < intelList.size(); i++) {
+            var p = net.betterthanvillage.warfare.PlayerIntel.load(intelList.getCompound(i));
+            if (p != null) data.intel.put(p.player, p);
         }
         net.betterthanvillage.world.Ledgers.markIndexDirty();
         return data;

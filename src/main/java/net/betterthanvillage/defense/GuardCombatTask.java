@@ -210,7 +210,9 @@ public final class GuardCombatTask extends ColonyTask {
         }
         boolean recentlyHurt = v.getLastHurtByMob() != null && v.tickCount - v.getLastHurtByMobTimestamp() <= 30;
         boolean visible = v.hasLineOfSight(target);
-        boolean preferRanged = d2 >= 25 && !recentlyHurt && visible;
+        // Archers shoot whenever they can; the other classes only fight in melee (docs_v2/07-warfare.md §Classes).
+        boolean archer = net.betterthanvillage.warfare.Army.classOf(colony, v.getUUID()) == net.betterthanvillage.warfare.WarriorClass.RANGED;
+        boolean preferRanged = archer && d2 >= 16 && visible && (d2 >= 25 || !recentlyHurt);
         if (now >= swapAt && swapWeapon(level, v, preferRanged ? s -> s.is(Items.BOW) : MELEE)) {
             swapAt = now + 20;
         }
@@ -255,63 +257,19 @@ public final class GuardCombatTask extends ColonyTask {
     }
 
     private static boolean swapWeapon(ServerLevel level, Villager v, Predicate<ItemStack> wanted) {
-        if (wanted.test(v.getMainHandItem())) return false;
-        SimpleContainer inv = v.getInventory();
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (s.isEmpty() || !wanted.test(s)) continue;
-            v.stopUsingItem();
-            ItemStack weapon = inv.removeItemNoUpdate(i);
-            ItemStack old = v.getMainHandItem();
-            v.setItemSlot(EquipmentSlot.MAINHAND, weapon);
-            if (!old.isEmpty()) {
-                ItemStack rest = inv.addItem(old);
-                if (!rest.isEmpty()) level.addFreshEntity(new ItemEntity(level, v.getX(), v.getY() + 0.5, v.getZ(), rest));
-            }
-            inv.setChanged();
-            return true;
-        }
-        return false;
+        return Combat.swapWeapon(level, v, wanted);
     }
 
     private void melee(ServerLevel level, Villager v, long now) {
-        ItemStack weapon = v.getMainHandItem();
-        DamageSource source = ColonyDamage.source(level, v, target, level.damageSources().mobAttack(v));
-        float base = (float) Math.max(1.0, ColonyDamage.attackDamage(weapon));
-        float amount = EnchantmentHelper.modifyDamage(level, weapon, target, source, base);
-        if (target.hurt(source, amount)) {
-            EnchantmentHelper.doPostAttackEffects(level, target, source);
-            if (!weapon.isEmpty() && weapon.getItem().hurtEnemy(weapon, target, v)) {
-                weapon.getItem().postHurtEnemy(weapon, target, v);
-            }
-        }
-        v.swing(InteractionHand.MAIN_HAND);
-        double speed = ColonyDamage.attackSpeed(weapon);
-        attackReadyAt = now + Mth.clamp((long) Math.ceil(20.0 / Math.max(0.1, speed)), 5L, 200L);
+        attackReadyAt = now + Combat.melee(level, v, target);
     }
 
-    /** No villager, golem or player (other than the target) blocks the eye-to-eye segment. */
     private boolean lineOfFireClear(ServerLevel level, Villager v) {
-        Vec3 from = v.getEyePosition();
-        Vec3 to = target.getEyePosition();
-        AABB box = new AABB(from, to).inflate(1.0);
-        for (Entity e : level.getEntities(v, box, e -> (e instanceof Villager || e instanceof IronGolem || e instanceof Player) && e != target)) {
-            if (e.getBoundingBox().inflate(0.4).clip(from, to).isPresent() || e.getBoundingBox().inflate(0.4).contains(from)) {
-                return false;
-            }
-        }
-        return true;
+        return Combat.lineOfFireClear(level, v, target);
     }
 
     private void shoot(ServerLevel level, Villager v) {
-        Arrow arrow = new Arrow(level, v, new ItemStack(Items.ARROW), v.getMainHandItem().copy());
-        double dx = target.getX() - arrow.getX();
-        double dz = target.getZ() - arrow.getZ();
-        double dy = target.getY() + target.getBbHeight() * 0.5 - arrow.getY() + Math.sqrt(dx * dx + dz * dz) * 0.18;
-        arrow.shoot(dx, dy, dz, 1.6f, 5.0f);
-        arrow.setBaseDamage(4.0);
-        level.addFreshEntity(arrow);
-        v.swing(InteractionHand.MAIN_HAND);
+        Combat.shoot(level, v, target);
     }
 
     /** Back away from the target, trying a lateral offset first. */

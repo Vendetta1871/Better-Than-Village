@@ -131,23 +131,33 @@ public final class ModEvents {
     private static void onEntityLeave(EntityLeaveLevelEvent event) {
         if (event.getLevel() instanceof ServerLevel level && event.getEntity() instanceof Villager v) {
             Entity.RemovalReason reason = v.getRemovalReason();
-            if (reason != null && reason.shouldDestroy() && !net.betterthanvillage.world.Caravans.stashing(v.getUUID())) {
+            if (reason != null && reason.shouldDestroy() && !net.betterthanvillage.world.Materializer.stashing(v.getUUID())) {
                 ColonyManager.forgetVillager(level, v.getUUID());
             }
         }
     }
 
-    /** A caravan leader's entity loaded away from its caravan is kept out (docs_v2/08-simulation.md §Materialization). */
+    /**
+     * Entities of travellers loaded away from their caravan or army are kept out (docs_v2/08-simulation.md
+     * §Materialization), and so are villagers and golems that died in abstract battles.
+     */
     private static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
-        if (event.getLevel() instanceof ServerLevel level && event.getEntity() instanceof Villager
-                && net.betterthanvillage.world.Caravans.onJoin(level, event.getEntity())) {
+        if (!(event.getLevel() instanceof ServerLevel level)) return;
+        Entity e = event.getEntity();
+        if (!(e instanceof Villager) && !(e instanceof net.minecraft.world.entity.animal.IronGolem)) return;
+        if (net.betterthanvillage.warfare.Casualties.onJoin(level, e) || net.betterthanvillage.warfare.Campaigns.onJoin(level, e)
+                || (e instanceof Villager && net.betterthanvillage.world.Caravans.onJoin(level, e))) {
             event.setCanceled(true);
         }
     }
 
     private static void onVillagerDeath(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
-        if (event.getEntity().level() instanceof ServerLevel level && event.getEntity() instanceof Villager v) {
-            net.betterthanvillage.world.Caravans.onDeath(level, v);
+        if (!(event.getEntity().level() instanceof ServerLevel level)) return;
+        if (event.getEntity() instanceof Villager v) net.betterthanvillage.world.Caravans.onDeath(level, v);
+        if (event.getEntity() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse) net.betterthanvillage.warfare.Army.horseDied(level, horse);
+        if (event.getEntity() instanceof Villager || event.getEntity() instanceof net.minecraft.world.entity.animal.IronGolem) {
+            net.betterthanvillage.warfare.Campaigns.onDeath(level, event.getEntity(), event.getSource().getEntity());
+            net.betterthanvillage.warfare.Army.onDeath(level, event.getEntity());
         }
     }
 
@@ -164,6 +174,10 @@ public final class ModEvents {
         net.betterthanvillage.law.Wars.clearCaches();
         net.betterthanvillage.debug.TestBot.clear();
         net.betterthanvillage.politics.Politics.clearCaches();
+        net.betterthanvillage.world.Materializer.clearCaches();
+        net.betterthanvillage.warfare.Campaigns.clearCaches();
+        net.betterthanvillage.warfare.PlayerRaid.clearCaches();
+        net.betterthanvillage.warfare.NightOps.clearCaches();
         PENDING_RINGS.clear();
     }
 }

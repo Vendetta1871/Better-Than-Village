@@ -102,6 +102,17 @@ public final class VillagerController {
         StarterWarehouseTask.clearStaleDisplay(v);
         ColonyRole role = colony.roleOf(v.getUUID());
 
+        if (net.betterthanvillage.warfare.Campaigns.isSoldier(level, v)) {
+            // A soldier on campaign: the campaign moves it, its soldier task fights (docs_v2/07-warfare.md).
+            if (VillagerUtil.currentActivity(v) != ModRegistries.COLONY_TRAVEL.get()) {
+                VillagerUtil.stopAllTasks(level, v);
+                Nav.reset(v);
+            }
+            if (v.isSleeping()) v.stopSleeping();
+            v.setTradingPlayer(null);
+            VillagerUtil.doExclusively(v, ModRegistries.COLONY_TRAVEL.get());
+            return;
+        }
         if (net.betterthanvillage.world.Caravans.isTraveller(level, v)) {
             // A caravan leader on the road: the caravan steers it (docs_v2/08-simulation.md).
             if (VillagerUtil.currentActivity(v) != ModRegistries.COLONY_TRAVEL.get()) {
@@ -156,7 +167,11 @@ public final class VillagerController {
                 ? (colony.lastThreatTick != Colony.NEVER && now - colony.lastThreatTick <= 200) || raidShelter || threat != null
                 : raidShelter || threatNearby(level, colony, v, now);
 
-        sleepController(level, colony, v, night, alarm);
+        // Warriors on night watch sleep by day and serve at night (docs_v2/07-warfare.md §Shifts).
+        boolean watch = role == ColonyRole.WARRIOR && colony.nightWatch.contains(v.getUUID());
+        boolean restTime = watch ? work : night;
+        boolean onDuty = watch ? (night || evening) : work;
+        sleepController(level, colony, v, restTime, alarm);
         if (v.isSleeping()) {
             v.getNavigation().stop();
             v.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
@@ -199,14 +214,16 @@ public final class VillagerController {
             };
         }
         // A guard under alarm fights before anything else (the evening food walk would leave the colony undefended).
-        boolean guardCombat = role == ColonyRole.WARRIOR && (engaged || alarm) && !(night && !alarm);
+        boolean guardCombat = role == ColonyRole.WARRIOR && (engaged || alarm) && !(restTime && !alarm);
         Activity chosen = null;
         if (guardCombat) {
             chosen = Activity.FIGHT;
         } else if (forcedIdle || eating) {
             chosen = Activity.IDLE;
-        } else if (night && !alarm) {
+        } else if (restTime && !alarm) {
             chosen = Activity.REST;
+        } else if (watch && onDuty && !alarm) {
+            chosen = Activity.IDLE;
         } else if (role == ColonyRole.WARRIOR && v.getHealth() < v.getMaxHealth() * 0.3f) {
             chosen = Activity.FIGHT;
         } else if (workNeeded) {
@@ -220,8 +237,11 @@ public final class VillagerController {
                 VillagerUtil.refreshActivities(level, v);
             }
         }
-        if (role == ColonyRole.WARRIOR && work && !alarm && (now + v.getId()) % 40 == 0 && !VillagerUtil.isRunning(v, GuardEquipmentTask.class)) {
+        if (role == ColonyRole.WARRIOR && onDuty && !alarm && (now + v.getId()) % 40 == 0 && !VillagerUtil.isRunning(v, GuardEquipmentTask.class)) {
             GuardPatrol.patrol(level, colony, v);
+        }
+        if (role == ColonyRole.WARRIOR && (now + v.getId()) % 20 == 0) {
+            net.betterthanvillage.warfare.Army.cavalry(level, colony, v, VillagerUtil.currentActivity(v) == Activity.FIGHT);
         }
     }
 

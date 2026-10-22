@@ -42,6 +42,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /** Iron golem management: count, census build, guard heal/build duty, golem tick and pillar breaker (02 §2.3, §3.6). */
@@ -61,8 +62,38 @@ public final class GolemManager {
         return level.getEntitiesOfClass(IronGolem.class, new AABB(colony.core()).inflate(colony.radius()), LivingEntity::isAlive);
     }
 
+    /** The village keeps at most this many golems of its own (player golems never count). */
     public static int desired(Colony colony) {
-        return Math.max(4, (colony.population() + 5) / 6);
+        return ColonyConfig.get().warfare.golem_cap;
+    }
+
+    /** The village's own golems: not player-built, not an army's, standing in its territory or away on campaign. */
+    public static int villageGolems(ServerLevel level, Colony colony) {
+        int n = 0;
+        for (IronGolem g : golems(level, colony)) {
+            if (!g.isPlayerCreated() && !g.getPersistentData().getBoolean(net.betterthanvillage.warfare.Campaigns.GOLEM_TAG)) n++;
+        }
+        if (colony.golem != null && net.betterthanvillage.warfare.Campaigns.away(level, colony.golem)) n++;
+        return n;
+    }
+
+    /** Census: remembers the village golem (the abstract strength model counts it while the village is unloaded). */
+    public static void track(ServerLevel level, Colony colony) {
+        if (colony.golem != null && net.betterthanvillage.warfare.Campaigns.away(level, colony.golem)) return;
+        UUID found = null;
+        for (IronGolem g : golems(level, colony)) {
+            if (g.isPlayerCreated() || g.getPersistentData().getBoolean(net.betterthanvillage.warfare.Campaigns.GOLEM_TAG)) continue;
+            if (ColonyManager.colonyAt(level, g.blockPosition()) != colony) continue;
+            if (g.getUUID().equals(colony.golem)) {
+                found = g.getUUID();
+                break;
+            }
+            if (found == null) found = g.getUUID();
+        }
+        if (!java.util.Objects.equals(found, colony.golem)) {
+            colony.golem = found;
+            ColonyManager.markDirty(level);
+        }
     }
 
     private static long serverTicks(ServerLevel level) {
@@ -70,7 +101,7 @@ public final class GolemManager {
     }
 
     public static boolean canBuild(ServerLevel level, Colony colony) {
-        return serverTicks(level) >= colony.nextGolemTick && golems(level, colony).size() < desired(colony);
+        return serverTicks(level) >= colony.nextGolemTick && villageGolems(level, colony) < desired(colony);
     }
 
     /** Any colony golem is hurt, or a new golem may be built and the storage holds its materials. */
@@ -335,6 +366,8 @@ public final class GolemManager {
 
     /** Regeneration, swimming, colony targeting and the pillar breaker, once per golem tick. */
     public static void tickGolem(ServerLevel level, IronGolem golem) {
+        // A golem on campaign follows its army (warfare.Siege), not the village it stands in.
+        if (golem.getPersistentData().getBoolean(net.betterthanvillage.warfare.Campaigns.GOLEM_TAG)) return;
         long now = level.getGameTime();
         Colony colony = ColonyManager.colonyAt(level, golem.blockPosition());
         if (colony != null && Math.floorMod(now + golem.getId(), 20L) == 0) {

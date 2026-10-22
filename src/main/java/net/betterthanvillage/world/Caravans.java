@@ -7,7 +7,6 @@ import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ColonyStorage;
-import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.colony.SpawnSpots;
 import net.betterthanvillage.config.ColonyConfig;
 import net.betterthanvillage.economy.Chests;
@@ -27,8 +26,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.Containers;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -67,10 +64,6 @@ public final class Caravans {
     /** Goods are worth carrying for profit where the market index is this much higher than at home. */
     private static final double ARBITRAGE = 1.15;
 
-    /** Our own spawns of leaders: the join listener lets them in. */
-    private static boolean spawning;
-    /** Leaders being stored into their caravan: their removal is no death. */
-    private static final Set<UUID> STASHING = new HashSet<>();
     /** Villages with a trade plan on a worker. */
     private static final Set<UUID> PLANNING = new HashSet<>();
     /** Leader -> caravan (rebuilt when caravans change). */
@@ -81,11 +74,9 @@ public final class Caravans {
     }
 
     public static void clearCaches() {
-        STASHING.clear();
         PLANNING.clear();
         BY_LEADER.clear();
         indexDirty = true;
-        spawning = false;
     }
 
     private static ColonyConfig.World cfg() {
@@ -122,7 +113,7 @@ public final class Caravans {
     }
 
     public static boolean stashing(UUID villager) {
-        return STASHING.contains(villager);
+        return Materializer.stashing(villager);
     }
 
     private static void add(ServerLevel level, Caravan c) {
@@ -359,7 +350,8 @@ public final class Caravans {
         UUID fallback = null;
         for (Household h : colony.households.values()) {
             UUID id = h.owner;
-            if (id.equals(colony.elder) || colony.isFounderParty(id) || ofLeader(level, id) != null) continue;
+            if (id.equals(colony.elder) || colony.isFounderParty(id) || ofLeader(level, id) != null
+                    || net.betterthanvillage.warfare.Campaigns.away(level, id)) continue;
             Entity e = level.getEntity(id);
             if (e != null && (!e.isAlive() || ((Villager) e).isSleeping() || ((Villager) e).getTradingPlayer() != null)) continue;
             if (colony.roleOf(id) == ColonyRole.WARRIOR && counts.getOrDefault(ColonyRole.WARRIOR, 0) > 1) return id;
@@ -445,16 +437,10 @@ public final class Caravans {
 
     /** The leader leaves the loaded world: its entity is stored in the caravan. */
     private static void stash(ServerLevel level, Caravan c, Villager v) {
-        CompoundTag tag = new CompoundTag();
-        if (!v.saveAsPassenger(tag)) return;
+        CompoundTag tag = Materializer.stash(v);
+        if (tag == null) return;
         c.leaderData = tag;
         c.live = false;
-        STASHING.add(v.getUUID());
-        try {
-            v.discard();
-        } finally {
-            STASHING.remove(v.getUUID());
-        }
         ColonyManager.markDirty(level);
         LOGGER.info("[caravan] {} leaves the loaded world at ({}, {})", shortId(c), (int) c.x, (int) c.z);
     }
@@ -475,31 +461,11 @@ public final class Caravans {
      * its id and trade; the original is dropped if it ever loads while the caravan is on the road.
      */
     private static Villager spawn(ServerLevel level, Caravan c, Colony home, BlockPos pos) {
-        Villager v;
-        if (c.leaderData != null) {
-            Entity e = EntityType.loadEntityRecursive(c.leaderData, level, ent -> {
-                ent.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, ent.getYRot(), 0);
-                return ent;
-            });
-            if (!(e instanceof Villager loaded)) return null;
-            v = loaded;
-        } else {
-            v = SpawnSpots.createVillager(level, pos, MobSpawnType.MOB_SUMMONED);
-            if (v == null) return null;
-            v.setUUID(c.leader);
-            c.standIn = true;
-        }
-        v.setPersistenceRequired();
-        spawning = true;
-        boolean added;
-        try {
-            added = level.addFreshEntity(v);
-        } finally {
-            spawning = false;
-        }
-        if (!added) return null;
+        boolean standIn = c.leaderData == null;
+        Villager v = Materializer.spawnVillager(level, c.leaderData, c.leader, pos, home);
+        if (v == null) return null;
+        if (standIn) c.standIn = true;
         c.leaderData = null;
-        Professions.applyRole(level, home, v);
         return v;
     }
 
@@ -508,7 +474,7 @@ public final class Caravans {
      * kept out of the world; its data is stored in the caravan if it has none. Returns true to cancel the join.
      */
     public static boolean onJoin(ServerLevel level, Entity e) {
-        if (spawning || !(e instanceof Villager v) || ColonyManager.data(level).caravans.isEmpty()) return false;
+        if (Materializer.spawning() || !(e instanceof Villager v) || ColonyManager.data(level).caravans.isEmpty()) return false;
         Caravan c = ofLeader(level, v.getUUID());
         if (c == null) return false;
         // The original is dropped: from now on the stand-in (or its stored data) is the villager.
@@ -572,14 +538,7 @@ public final class Caravans {
                 c.sold, c.bought, goods.size() - rest.size());
         if (c.standIn) {
             // The leader's original never left its home chunk: the stand-in (walking or stored) is no longer needed.
-            if (c.live && level.getEntity(c.leader) instanceof Villager standIn) {
-                STASHING.add(c.leader);
-                try {
-                    standIn.discard();
-                } finally {
-                    STASHING.remove(c.leader);
-                }
-            }
+            if (c.live && level.getEntity(c.leader) instanceof Villager standIn) Materializer.discard(standIn);
             remove(level, c);
             return;
         }

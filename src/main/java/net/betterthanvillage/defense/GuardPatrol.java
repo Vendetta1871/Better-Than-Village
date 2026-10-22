@@ -64,11 +64,12 @@ public final class GuardPatrol {
         CHECKED.clear();
     }
 
-    /** The living GUARD in the colony box with the smallest UUID, or null. */
+    /** The living, awake warrior in the colony box with the smallest UUID, or null. */
     public static Villager leader(ServerLevel level, Colony colony) {
         Villager best = null;
         for (Villager g : level.getEntitiesOfClass(Villager.class, ThreatManager.colonyBox(colony), LivingEntity::isAlive)) {
-            if (colony.roleOf(g.getUUID()) != ColonyRole.WARRIOR) continue;
+            // The patrol is led by a warrior on duty: the sleeping shift does not lead (docs_v2/07-warfare.md §Shifts).
+            if (colony.roleOf(g.getUUID()) != ColonyRole.WARRIOR || g.isSleeping()) continue;
             if (best == null || g.getUUID().compareTo(best.getUUID()) < 0) best = g;
         }
         return best;

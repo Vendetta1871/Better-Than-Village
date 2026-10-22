@@ -37,6 +37,7 @@ public final class ColonyConfig {
     public Law law = new Law();
     public World world = new World();
     public Politics politics = new Politics();
+    public Warfare warfare = new Warfare();
     public int config_version = 2;
 
     public static final class Village {
@@ -186,10 +187,51 @@ public final class ColonyConfig {
         public double conquest_advantage = 1.5;
         /** Emeralds per border chunk far from the owner's villages (up to 4 times that close to them). */
         public double border_price_per_chunk = 0.15;
-        /** Days without battles after which a declared war ends in a plain truce (until campaigns exist). */
-        public int war_max_days = 10;
+        /** Days after which a war between countries ends in a plain truce whatever happened. */
+        public int war_max_days = 30;
         /** Days of truce after a peace between countries. */
         public int truce_days = 5;
+    }
+
+    public static final class Warfare {
+        /** Wars between countries are fought by campaigns (off: declared wars only end by truce). */
+        public boolean campaigns = true;
+        /** Share of each village's warriors that stays home as a garrison (at least one stays). */
+        public double garrison_share = 0.34;
+        /** A campaign needs at least this many soldiers. */
+        public int min_army = 2;
+        /** Game ticks between the call to arms and the march. */
+        public int mobilize_ticks = 2000;
+        /** An army marches this many blocks per in-game hour while abstract. */
+        public int army_blocks_per_hour = 150;
+        /** The outpost stands this far outside the target's outermost ring. */
+        public int outpost_distance = 24;
+        /** Labour (soldier-hours times 10) an outpost takes. */
+        public int outpost_work = 60;
+        /** The attackers break off after losing their outpost this many times. */
+        public int outpost_max_losses = 3;
+        /** Base power of a warrior in the strength model; gear and class add to it. */
+        public double warrior_power = 2.0;
+        /** Each intact wall ring multiplies the defenders' power by 1 + this. */
+        public double ring_bonus = 0.35;
+        /** Power of a village golem (live, one golem holds off about five armed villagers). */
+        public double golem_power = 10.0;
+        /** At most this many village golems per village (player golems never count). */
+        public int golem_cap = 1;
+        /** Warriors may serve as cavalry on horses from the herder's stables (off: cavalry fights as infantry). */
+        public boolean cavalry = true;
+        /** Share of the warriors on night watch in peacetime (reinforced to two thirds in war). */
+        public double night_watch_share = 0.5;
+        /** Weariness a ruling elder tolerates before asking for peace (greed moves it by up to 30). */
+        public int weariness_tolerance = 50;
+        /** Chance per night that a hostile village sends an agent against a neighbour. */
+        public double night_ops_chance = 0.25;
+        /** Farthest target of a night operation. */
+        public int night_ops_range = 700;
+        /** Countries campaign against a player at war whose strength score is below theirs times this. */
+        public double player_offensive_ratio = 0.8;
+        /** A campaign against a player's base gives up after this many days. */
+        public int player_campaign_days = 3;
     }
 
     public static ColonyConfig get() {
@@ -256,6 +298,7 @@ public final class ColonyConfig {
         if (law == null) law = new Law();
         if (world == null) world = new World();
         if (politics == null) politics = new Politics();
+        if (warfare == null) warfare = new Warfare();
         if (config_version < 2) {
             roles.golems_break_attacker_pillars = true;
             config_version = 2;
@@ -316,6 +359,23 @@ public final class ColonyConfig {
         politics.border_price_per_chunk = clamp(politics.border_price_per_chunk, 0, 64.0);
         politics.war_max_days = clamp(politics.war_max_days, 1, 1000);
         politics.truce_days = clamp(politics.truce_days, 0, 100);
+        warfare.garrison_share = clamp(warfare.garrison_share, 0, 1);
+        warfare.min_army = clamp(warfare.min_army, 1, 64);
+        warfare.mobilize_ticks = clamp(warfare.mobilize_ticks, 0, 48000);
+        warfare.army_blocks_per_hour = clamp(warfare.army_blocks_per_hour, 20, 2000);
+        warfare.outpost_distance = clamp(warfare.outpost_distance, 8, 128);
+        warfare.outpost_work = clamp(warfare.outpost_work, 1, 10000);
+        warfare.outpost_max_losses = clamp(warfare.outpost_max_losses, 1, 100);
+        warfare.warrior_power = clamp(warfare.warrior_power, 0.1, 100);
+        warfare.ring_bonus = clamp(warfare.ring_bonus, 0, 10);
+        warfare.golem_power = clamp(warfare.golem_power, 0, 100);
+        warfare.golem_cap = clamp(warfare.golem_cap, 0, 16);
+        warfare.night_watch_share = clamp(warfare.night_watch_share, 0, 1);
+        warfare.weariness_tolerance = clamp(warfare.weariness_tolerance, 1, 1000);
+        warfare.night_ops_chance = clamp(warfare.night_ops_chance, 0, 1);
+        warfare.night_ops_range = clamp(warfare.night_ops_range, 64, 8192);
+        warfare.player_offensive_ratio = clamp(warfare.player_offensive_ratio, 0.01, 100);
+        warfare.player_campaign_days = clamp(warfare.player_campaign_days, 1, 100);
     }
 
     private static double clamp(double v, double lo, double hi) {

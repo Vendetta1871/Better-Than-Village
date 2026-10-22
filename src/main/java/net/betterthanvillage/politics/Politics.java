@@ -60,6 +60,7 @@ public final class Politics {
             Orders.daily(level, country);
         }
         Diplomacy.daily(level, day);
+        for (Colony c : new ArrayList<>(data.colonies())) net.betterthanvillage.warfare.Army.daily(level, c, day);
         data.setDirty();
     }
 
@@ -90,9 +91,10 @@ public final class Politics {
     }
 
     /**
-     * The ruler's response to an ignored order: while patience lasts the disobedience is tolerated; when it runs out,
-     * the ruler would send a punitive campaign, which needs warfare (phase 5): until then the ruler tolerates and the
-     * patience starts over.
+     * The ruler's response to an ignored order: while patience lasts the disobedience is tolerated. When it runs out
+     * the ruler suppresses the village (06 §Loyalty and rebellion): the village rises, becomes a country of its own
+     * and the ruler goes to war on it. Conquered back it rejoins with low loyalty; if the ruler fails, it stays free.
+     * A ruler too weak for it (or with campaigns off) tolerates and its patience starts over.
      */
     static void rulerResponds(ServerLevel level, Country country, Colony rebel) {
         if (country.patience > 0) {
@@ -100,10 +102,17 @@ public final class Politics {
                     Countries.villageName(rebel));
             return;
         }
-        LOGGER.info("[politics] the ruler of {} has lost patience with {}; without campaigns (phase 5) the ruler tolerates it",
-                Countries.plainName(level, country.id), Countries.villageName(rebel));
         country.patience = 50;
         ColonyManager.markDirty(level);
+        int rest = Countries.strength(level, country.id) - Countries.villageStrength(level, rebel);
+        if (!ColonyConfig.get().warfare.campaigns || rest < Countries.villageStrength(level, rebel) + 1) {
+            LOGGER.info("[politics] the ruler of {} has lost patience with {} but is too weak to suppress it", Countries.plainName(level, country.id),
+                    Countries.villageName(rebel));
+            return;
+        }
+        LOGGER.info("[politics] the ruler of {} suppresses the rebellion of {}", Countries.plainName(level, country.id), Countries.villageName(rebel));
+        Country free = Countries.secede(level, rebel);
+        Diplomacy.declareWar(level, country.id, free.id, Relation.Cause.REBELLION);
     }
 
     /** Debug lines: the country of the village. */

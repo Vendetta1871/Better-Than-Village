@@ -59,6 +59,9 @@ public final class DefenseEvents {
         Colony colony = victim instanceof Villager v ? ColonyManager.colonyOf(level, v) : ColonyManager.colonyAt(level, victim.blockPosition());
         if (colony == null) return;
         if (attacker instanceof Player player) {
+            // A soldier or night agent away from home is fair game: fighting it is no offence against its country
+            // (docs_v2/07-warfare.md §Night operations, Getting caught).
+            if (net.betterthanvillage.warfare.Campaigns.away(level, victim.getUUID()) && !colony.withinXZ(victim.blockPosition(), 0)) return;
             // Players answer to the law: a warning first, war on repeat (docs_v2/05-law.md).
             Law.attacked(level, colony, player, victim);
         } else {
@@ -75,6 +78,13 @@ public final class DefenseEvents {
         }
         Entity victim = hit.getEntity();
         if (!(victim instanceof Villager) && !(victim instanceof IronGolem)) return;
+        var army = net.betterthanvillage.warfare.Campaigns.ofSoldier(level, owner.getUUID());
+        if (army != null && army == net.betterthanvillage.warfare.Campaigns.ofSoldier(level, victim.getUUID())) {
+            // Soldiers of one army never shoot each other.
+            p.discard();
+            event.setCanceled(true);
+            return;
+        }
         Colony shooter = ColonyManager.colonyOf(level, owner);
         if (shooter == null || shooter.roleOf(owner.getUUID()) != ColonyRole.WARRIOR) return;
         if (ThreatManager.memberOf(level, shooter, victim)) {

@@ -78,7 +78,10 @@ public final class ThreatManager {
     }
 
     private static Colony colonyOfEntity(ServerLevel level, Entity e) {
-        return e instanceof Villager v ? ColonyManager.colonyOf(level, v) : ColonyManager.colonyAt(level, e.blockPosition());
+        if (e instanceof Villager v) return ColonyManager.colonyOf(level, v);
+        // A golem on campaign belongs to its own village wherever it stands.
+        Colony army = e instanceof IronGolem ? net.betterthanvillage.warfare.Campaigns.homeOf(level, e.getUUID()) : null;
+        return army != null ? army : ColonyManager.colonyAt(level, e.blockPosition());
     }
 
     /** True when the entity belongs to this colony (villagers by membership, others by position). */
@@ -115,8 +118,14 @@ public final class ThreatManager {
         return dx * dx + dz * dz <= r * r && Math.abs(e.getY() - colony.core().getY()) <= VERTICAL + margin;
     }
 
-    private static boolean validInside(Colony colony, LivingEntity e) {
-        return isValidHostile(e) && inColony(colony, e);
+    private static boolean validInside(ServerLevel level, Colony colony, LivingEntity e) {
+        return (isValidHostile(e) || enemySoldier(level, colony, e)) && inColony(colony, e);
+    }
+
+    /** A soldier (villager or golem) of an army at war with the village (docs_v2/07-warfare.md). */
+    public static boolean enemySoldier(ServerLevel level, Colony colony, LivingEntity e) {
+        return e != null && e.isAlive() && (e instanceof Villager || e instanceof IronGolem)
+                && net.betterthanvillage.warfare.Campaigns.enemyOf(level, colony, e);
     }
 
     /** Neutral mobs only count as threats while they target a colony villager or golem. */
@@ -169,7 +178,7 @@ public final class ThreatManager {
     }
 
     private static LivingEntity resolve(ServerLevel level, Colony colony, Threat t) {
-        return level.getEntity(t.entityId()) instanceof LivingEntity e && validInside(colony, e)
+        return level.getEntity(t.entityId()) instanceof LivingEntity e && validInside(level, colony, e)
                 && !isIgnored(colony, e, level.getGameTime()) ? e : null;
     }
 
@@ -193,30 +202,42 @@ public final class ThreatManager {
     private static List<Threat> compute(ServerLevel level, Colony colony, long now) {
         List<LivingEntity> attackers = new ArrayList<>();
         if (colony.assaultAttacker != null && now < colony.assaultUntil
-                && level.getEntity(colony.assaultAttacker) instanceof LivingEntity attacker && validInside(colony, attacker)) {
+                && level.getEntity(colony.assaultAttacker) instanceof LivingEntity attacker && validInside(level, colony, attacker)) {
             attackers.add(attacker);
         }
         // Players at war with the country are attacked on sight (docs_v2/05-law.md §War against the player).
         if (!ColonyManager.data(level).wars.isEmpty()) {
             for (Player p : level.players()) {
-                if (validInside(colony, p) && Wars.hostile(level, colony, p) && Witnesses.noticed(level, colony, p, Witnesses.WAR_SEE_RANGE)) {
+                if (validInside(level, colony, p) && Wars.hostile(level, colony, p) && Witnesses.noticed(level, colony, p, Witnesses.WAR_SEE_RANGE)) {
                     attackers.add(p);
                 }
             }
         }
         AABB box = colonyBox(colony);
         List<LivingEntity> friends = new ArrayList<>();
+        boolean armies = !ColonyManager.data(level).campaigns.isEmpty();
         for (Villager v : level.getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
+            if (armies && inColony(colony, v) && enemySoldier(level, colony, v)) {
+                // Enemy soldiers inside the territory are attackers.
+                attackers.add(v);
+                continue;
+            }
             if (!memberOf(level, colony, v)) continue;
             friends.add(v);
             // lastHurtByMob is also set by harmless hits (snowballs, blocked blows): players and
             // non-hostile creatures only become threats through the damage-filtered reportAttack
             LivingEntity attacker = v.getLastHurtByMob();
-            if (attacker instanceof Enemy && v.tickCount - v.getLastHurtByMobTimestamp() <= 100 && validInside(colony, attacker)) {
+            if (attacker instanceof Enemy && v.tickCount - v.getLastHurtByMobTimestamp() <= 100 && validInside(level, colony, attacker)) {
                 attackers.add(attacker);
             }
         }
-        friends.addAll(level.getEntitiesOfClass(IronGolem.class, box, LivingEntity::isAlive));
+        for (IronGolem g : level.getEntitiesOfClass(IronGolem.class, box, LivingEntity::isAlive)) {
+            if (armies && enemySoldier(level, colony, g)) {
+                if (inColony(colony, g)) attackers.add(g);
+            } else {
+                friends.add(g);
+            }
+        }
         List<LivingEntity> close = new ArrayList<>();
         if (!friends.isEmpty()) {
             for (Mob mob : level.getEntitiesOfClass(Mob.class, box, m -> m.isAlive() && m instanceof Enemy && !(m instanceof Creeper))) {
@@ -265,7 +286,7 @@ public final class ThreatManager {
 
     /** The target is still worth chasing: hostile, inside the colony (with hysteresis), a wanted player. */
     public static boolean keepsTarget(ServerLevel level, Colony colony, LivingEntity target) {
-        if (!isValidHostile(target) || !inColony(colony, target, BORDER_MARGIN)) return false;
+        if (!(isValidHostile(target) || enemySoldier(level, colony, target)) || !inColony(colony, target, BORDER_MARGIN)) return false;
         return !(target instanceof Player p) || isWanted(level, colony, p);
     }
 
@@ -309,7 +330,7 @@ public final class ThreatManager {
     /** A living attacker hurt a colony villager/golem: alarm and mobilize (02 §4 reportAttack). */
     public static void reportAttack(ServerLevel level, Colony colony, LivingEntity attacker) {
         // Players answer to the law (warning first, war on repeat), not to the alarm.
-        if (colony == null || attacker instanceof Player || !validInside(colony, attacker)) return;
+        if (colony == null || attacker instanceof Player || !validInside(level, colony, attacker)) return;
         long now = level.getGameTime();
         Map<Integer, Long> ignored = IGNORED.get(colony.id());
         if (ignored != null) ignored.remove(attacker.getId());

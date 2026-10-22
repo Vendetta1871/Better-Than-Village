@@ -123,6 +123,8 @@ public final class Diplomacy {
         r.since = level.getGameTime();
         r.cause = cause;
         r.aggressor = aggressor;
+        r.sideA.reset();
+        r.sideB.reset();
         adjust(r, -30);
         ColonyManager.markDirty(level);
         LOGGER.info("[politics] {} declares war on {} ({})", Countries.plainName(level, aggressor), Countries.plainName(level, target), cause.key());
@@ -131,11 +133,16 @@ public final class Diplomacy {
                 aggressor, target);
         Orders.mobilize(level, aggressor, target);
         Orders.mobilize(level, target, aggressor);
+        // The aggressor's army marches (docs_v2/07-warfare.md §Campaigns).
+        net.betterthanvillage.warfare.Campaigns.launch(level, aggressor, target);
     }
 
-    /** Peace between the countries with a plain truce (tribute and land transfers come with campaigns, phase 5). */
+    /** Peace between the countries: the truce starts, the armies go home (terms are settled by the caller). */
     public static void makePeace(ServerLevel level, Relation r, String terms) {
         if (r.state != Relation.State.WAR) return;
+        for (net.betterthanvillage.warfare.Campaign c : new ArrayList<>(ColonyManager.data(level).campaigns)) {
+            if (r.involves(c.attacker) && c.defender != null && r.involves(c.defender)) net.betterthanvillage.warfare.Campaigns.retreat(level, c, "peace");
+        }
         r.state = Relation.State.PEACE;
         r.since = level.getGameTime();
         r.cause = null;
@@ -152,7 +159,7 @@ public final class Diplomacy {
     }
 
     /** Tells the players inside the villages of either country. */
-    private static void announce(ServerLevel level, Component text, UUID a, UUID b) {
+    public static void announce(ServerLevel level, Component text, UUID a, UUID b) {
         for (ServerPlayer p : level.players()) {
             Colony c = ColonyManager.colonyAt(level, p.blockPosition());
             if (c != null && (a.equals(c.country) || b.equals(c.country))) p.displayClientMessage(text, false);
@@ -194,6 +201,7 @@ public final class Diplomacy {
                 case WAR -> {
                     if (!causeStands(level, r)) makePeace(level, r, "cause resolved");
                     else if ((now - r.since) / 24000L >= cfg().war_max_days) makePeace(level, r, "plain truce");
+                    else net.betterthanvillage.warfare.Weariness.daily(level, r);
                 }
                 case PEACE -> {
                     if (r.score <= cfg().hostility_score) setState(level, r, Relation.State.HOSTILITY);
@@ -209,6 +217,8 @@ public final class Diplomacy {
             }
         }
         for (java.util.UUID country : new ArrayList<>(data.countries.keySet())) decideWar(level, country);
+        net.betterthanvillage.warfare.Weariness.campaigns(level);
+        net.betterthanvillage.warfare.PlayerBases.daily(level);
         data.setDirty();
     }
 

@@ -76,6 +76,7 @@ public final class ColonyCommands {
                 .then(BotCommands.law())
                 .then(net.betterthanvillage.politics.PoliticsCommands.country())
                 .then(net.betterthanvillage.politics.PoliticsCommands.world())
+                .then(net.betterthanvillage.warfare.WarfareCommands.war())
                 .then(film()));
     }
 

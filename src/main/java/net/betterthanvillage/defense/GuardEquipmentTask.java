@@ -127,7 +127,10 @@ public final class GuardEquipmentTask extends ColonyTask {
         int logs = colony.cachedLogs;
         int iron = colony.cachedIron;
         int diamonds = colony.cachedDiamonds;
-        if (!carries(v, BOW) && (logs >= 4 || ColonyStorage.has(level, colony, BOW)
+        boolean ranged = ranged(colony, v);
+        // Gear follows the class (docs_v2/07-warfare.md §Classes): a warrior that is no archer returns its bow.
+        if (!ranged && carries(v, BOW)) return true;
+        if (ranged && !carries(v, BOW) && (logs >= 4 || ColonyStorage.has(level, colony, BOW)
                 || (logs >= 1 && ColonyStorage.count(level, colony, s -> s.is(Items.STRING)) >= 3))) {
             return true;
         }
@@ -166,8 +169,32 @@ public final class GuardEquipmentTask extends ColonyTask {
 
     // ---------------------------------------------------------------- steps
 
+    private static boolean ranged(Colony colony, Villager v) {
+        return net.betterthanvillage.warfare.Army.classOf(colony, v.getUUID()) == net.betterthanvillage.warfare.WarriorClass.RANGED;
+    }
+
+    /** A bow carried by a warrior that is no archer goes back to the treasury. */
+    private static boolean returnBow(ServerLevel level, Colony colony, Villager v) {
+        if (BOW.test(v.getMainHandItem())) {
+            depositFrom(level, colony, v, v.getMainHandItem());
+            return true;
+        }
+        SimpleContainer inv = v.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (BOW.test(inv.getItem(i))) {
+                ItemStack bow = inv.removeItemNoUpdate(i);
+                inv.setChanged();
+                ColonyStorage.deposit(level, colony, bow);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean weaponsAndShield(ServerLevel level, Colony colony, Villager v) {
-        if (!carries(v, BOW)) {
+        boolean ranged = ranged(colony, v);
+        if (!ranged && returnBow(level, colony, v)) return true;
+        if (ranged && !carries(v, BOW)) {
             ItemStack bow = ColonyStorage.withdrawOne(level, colony, BOW);
             if (!bow.isEmpty()) return give(level, colony, v, bow);
             if (ColonyStorage.count(level, colony, s -> s.is(Items.STRING)) >= 3 && ColonyStorage.count(level, colony, LOG) >= 1) {
