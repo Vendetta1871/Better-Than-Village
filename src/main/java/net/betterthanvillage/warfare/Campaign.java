@@ -86,6 +86,10 @@ public final class Campaign {
         public boolean standIn;
         /** Tick the soldier reaches the army (soldiers from other villages walk to the staging village first). */
         public long joinAt;
+        /** A cavalry soldier rides a horse lent by its village's stables. */
+        public boolean mounted;
+        /** The horse's entity data while it is out of the loaded world; null for a horse never seen (a fresh one). */
+        public CompoundTag horse;
         /** Runtime: the soldier is a real entity. */
         public transient boolean live;
         /** Runtime: progress check of a live soldier (tick, distance left). */
@@ -109,6 +113,8 @@ public final class Campaign {
             if (data != null) tag.put("data", data);
             tag.putBoolean("stand_in", standIn);
             tag.putLong("join_at", joinAt);
+            tag.putBoolean("mounted", mounted);
+            if (horse != null) tag.put("horse", horse);
             return tag;
         }
 
@@ -123,6 +129,8 @@ public final class Campaign {
             if (tag.contains("data")) s.data = tag.getCompound("data");
             s.standIn = tag.getBoolean("stand_in");
             s.joinAt = tag.getLong("join_at");
+            s.mounted = tag.getBoolean("mounted");
+            if (tag.contains("horse")) s.horse = tag.getCompound("horse");
             return s;
         }
     }

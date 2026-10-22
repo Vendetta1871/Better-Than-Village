@@ -9,6 +9,7 @@ import net.betterthanvillage.economy.Chests;
 import net.betterthanvillage.politics.Diplomacy;
 import net.betterthanvillage.world.Caravans;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -33,6 +34,7 @@ import java.util.UUID;
  * treasury's gear and the herder's horses allow; their two shifts; the stables; cavalry mounting in the village.
  */
 public final class Army {
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     /** Persistent-data key of a village horse: the colony id. */
     public static final String HORSE_TAG = "better_than_village_horse";
 
@@ -148,6 +150,23 @@ public final class Army {
         ColonyManager.markDirty(level);
     }
 
+    /**
+     * The marching warriors take the campaign mix: a quarter of them cavalry while the stables have horses (riders
+     * first), the rest keep their class. At home in war the mix is defensive, so it is set here when the army forms.
+     */
+    static void campaignClasses(Colony colony, List<UUID> marching) {
+        if (!cfg().cavalry || marching.isEmpty()) return;
+        int want = Math.min((int) Math.round(marching.size() * 0.25), colony.horses);
+        List<UUID> order = new ArrayList<>(marching);
+        order.sort(Comparator.comparingInt(id -> colony.warriorClasses.get(id) == WarriorClass.CAVALRY ? 0
+                : colony.warriorClasses.get(id) == WarriorClass.INFANTRY || !colony.warriorClasses.containsKey(id) ? 1 : 2));
+        for (int i = 0; i < order.size(); i++) {
+            UUID id = order.get(i);
+            if (i < want) colony.warriorClasses.put(id, WarriorClass.CAVALRY);
+            else if (colony.warriorClasses.get(id) == WarriorClass.CAVALRY) colony.warriorClasses.put(id, WarriorClass.INFANTRY);
+        }
+    }
+
     public static WarriorClass classOf(Colony colony, UUID id) {
         return colony.warriorClasses.getOrDefault(id, WarriorClass.INFANTRY);
     }
@@ -177,10 +196,11 @@ public final class Army {
     }
 
     /**
-     * A cavalry warrior mounts a free village horse when it has to fight in its village and dismounts after;
-     * mounted pathfinding stays inside the village (campaigns fight on foot).
+     * A cavalry warrior mounts a free village horse when it has to fight in its village and dismounts after. On
+     * campaign the soldier keeps the horse its stables lent it (see lendHorse).
      */
     public static void cavalry(ServerLevel level, Colony colony, Villager v, boolean fighting) {
+        if (Campaigns.isSoldier(level, v)) return;
         boolean mounted = v.getVehicle() instanceof AbstractHorse;
         boolean wants = fighting && cfg().cavalry && classOf(colony, v.getUUID()) == WarriorClass.CAVALRY && !v.isSleeping();
         if (mounted && !wants) {
@@ -203,6 +223,135 @@ public final class Army {
         else if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) v.getNavigation().moveTo(best, 0.8);
     }
 
+    // ---------------------------------------------------------------- cavalry on campaign
+
+    /** Persistent-data key of a horse on campaign: the rider's id. */
+    public static final String CAMPAIGN_HORSE_TAG = "better_than_village_campaign_horse";
+
+    /**
+     * The stables lend a horse to a cavalry soldier: the stables count one less while it is away. The horse the
+     * soldier rides now (a fight in the village) goes with it; otherwise a horse at the pen is led away.
+     */
+    static boolean lendHorse(ServerLevel level, Colony colony, Villager rider, Campaign.Soldier s) {
+        if (!cfg().cavalry || colony.horses <= 0) return false;
+        colony.horses--;
+        if (rider != null && rider.getVehicle() instanceof AbstractHorse ridden) {
+            ridden.getPersistentData().remove(HORSE_TAG);
+            ridden.getPersistentData().putString(CAMPAIGN_HORSE_TAG, s.id.toString());
+        } else {
+            if (ColonyManager.isLive(level, colony)) {
+                for (AbstractHorse h : horses(level, colony)) {
+                    if (h.isVehicle()) continue;
+                    CompoundTag data = net.betterthanvillage.world.Materializer.stash(h);
+                    if (data != null) s.horse = data;
+                    break;
+                }
+            }
+            // A rider in the world gets on now; one out of it when it appears with the army.
+            if (rider != null) mount(level, rider, s, rider.blockPosition());
+        }
+        ColonyManager.markDirty(level);
+        return true;
+    }
+
+    /** A cavalry soldier appearing in the world gets on its horse: the one it left with, or a fresh one of the stables. */
+    static void mount(ServerLevel level, Villager rider, Campaign.Soldier s, BlockPos pos) {
+        if (rider.getVehicle() instanceof AbstractHorse) return;
+        AbstractHorse horse = ownHorse(level, rider, 32);
+        if (horse == null && s.horse != null && net.betterthanvillage.world.Materializer.spawn(level, s.horse, pos) instanceof AbstractHorse h) horse = h;
+        if (horse == null) {
+            Horse fresh = EntityType.HORSE.create(level, null, pos, MobSpawnType.BREEDING, false, false);
+            if (fresh == null) return;
+            fresh.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0, 0);
+            fresh.setTamed(true);
+            fresh.equipSaddle(new ItemStack(Items.SADDLE), null);
+            CompoundTag tag = new CompoundTag();
+            if (!fresh.saveAsPassenger(tag)) return;
+            if (!(net.betterthanvillage.world.Materializer.spawn(level, tag, pos) instanceof AbstractHorse spawned)) return;
+            horse = spawned;
+        }
+        s.horse = null;
+        horse.setPersistenceRequired();
+        horse.getPersistentData().remove(HORSE_TAG);
+        horse.getPersistentData().putString(CAMPAIGN_HORSE_TAG, s.id.toString());
+        boolean rides = rider.startRiding(horse, true);
+        if (!rides) LOGGER.info("[war] soldier {} cannot mount its horse", rider.getUUID().toString().substring(0, 8));
+    }
+
+    /** The soldier is home: its horse goes back to the stables (the pen brings out a horse for it). */
+    static void returnHorse(ServerLevel level, Colony home, net.minecraft.world.entity.Entity rider, Campaign.Soldier s) {
+        if (!s.mounted) return;
+        if (rider != null && rider.getVehicle() instanceof AbstractHorse horse) net.betterthanvillage.world.Materializer.discard(horse);
+        s.mounted = false;
+        s.horse = null;
+        if (home != null) {
+            home.horses++;
+            ColonyManager.markDirty(level);
+        }
+    }
+
+    /**
+     * A villager rides by the horse's legs: the horse follows the rider's path (the rider only steers). Called after
+     * every navigation order of a mounted soldier.
+     */
+    public static void steer(ServerLevel level, Villager v) {
+        if (!(v.getVehicle() instanceof AbstractHorse)) remount(level, v);
+        if (!(v.getVehicle() instanceof AbstractHorse horse)) return;
+        net.minecraft.world.level.pathfinder.Path path = v.getNavigation().getPath();
+        BlockPos goal = path != null && !path.isDone() ? path.getTarget() : v.getNavigation().getTargetPos();
+        if (goal == null) return;
+        BlockPos current = horse.getNavigation().getTargetPos();
+        if (current != null && current.distSqr(goal) <= 4 && !horse.getNavigation().isDone()) return;
+        if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) {
+            horse.getNavigation().moveTo(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 1.3);
+        }
+    }
+
+    /** Moves a stuck soldier over an obstacle; a rider moves with its horse. */
+    static void hop(net.minecraft.world.entity.Entity e, double x, double y, double z) {
+        if (e.getVehicle() instanceof AbstractHorse horse) horse.teleportTo(x, y, z);
+        else e.teleportTo(x, y, z);
+    }
+
+    /** The soldier's own campaign horse standing within the distance, or null. */
+    static AbstractHorse ownHorse(ServerLevel level, net.minecraft.world.entity.Entity rider, double within) {
+        String id = rider.getUUID().toString();
+        for (AbstractHorse h : level.getEntitiesOfClass(AbstractHorse.class, rider.getBoundingBox().inflate(within),
+                h -> h.isAlive() && !h.isVehicle() && id.equals(h.getPersistentData().getString(CAMPAIGN_HORSE_TAG)))) {
+            return h;
+        }
+        return null;
+    }
+
+    /** A cavalry soldier that got off (a teleport over an obstacle, a fight) gets back on its horse nearby. */
+    private static void remount(ServerLevel level, Villager v) {
+        Campaign c = Campaigns.ofSoldier(level, v.getUUID());
+        Campaign.Soldier s = c == null ? null : c.soldier(v.getUUID());
+        if (s == null || !s.mounted) return;
+        AbstractHorse h = ownHorse(level, v, 24);
+        if (h == null) return;
+        if (h.distanceToSqr(v) <= 9) {
+            v.startRiding(h, true);
+        } else if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) {
+            h.getNavigation().moveTo(v, 1.3);
+        }
+    }
+
+    /** Height in blocks a horse clears with a full jump (vanilla jump strength curve). */
+    static double jumpHeight(AbstractHorse horse) {
+        double j = horse.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH);
+        return -0.1817584952 * j * j * j + 3.689713992 * j * j + 2.128599134 * j - 0.343930367;
+    }
+
+    /** A full jump of the horse toward the direction (a cavalry soldier taking a wall). */
+    static void jump(AbstractHorse horse, double ux, double uz) {
+        double j = horse.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH);
+        horse.getNavigation().stop();
+        horse.setYRot((float) (Math.atan2(-ux, uz) * 180 / Math.PI));
+        horse.setDeltaMovement(ux * 0.45, j, uz * 0.45);
+        horse.hasImpulse = true;
+    }
+
     /** A village horse or golem died. */
     public static void onDeath(ServerLevel level, LivingEntity dead) {
         if (dead instanceof IronGolem g) {
@@ -215,8 +364,24 @@ public final class Army {
         }
     }
 
-    /** A village horse died: the stables lose it. */
+    /** A village horse died: the stables lose it (a horse on campaign: its rider fights on foot). */
     public static void horseDied(ServerLevel level, AbstractHorse horse) {
+        String rider = horse.getPersistentData().getString(CAMPAIGN_HORSE_TAG);
+        if (!rider.isEmpty()) {
+            try {
+                UUID riderId = UUID.fromString(rider);
+                Campaign c = Campaigns.ofSoldier(level, riderId);
+                Campaign.Soldier s = c == null ? null : c.soldier(riderId);
+                if (s != null) {
+                    s.mounted = false;
+                    s.horse = null;
+                    s.cls = WarriorClass.INFANTRY;
+                    ColonyManager.markDirty(level);
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+            return;
+        }
         String id = horse.getPersistentData().getString(HORSE_TAG);
         if (id.isEmpty()) return;
         for (Colony c : ColonyManager.data(level).colonies()) {

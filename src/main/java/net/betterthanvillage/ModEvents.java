@@ -38,6 +38,7 @@ public final class ModEvents {
 
     public static void register(IEventBus bus) {
         bus.addListener(ModEvents::onLevelTick);
+        bus.addListener(net.betterthanvillage.economy.CureTask::onConverted);
         bus.addListener(ModEvents::onServerTick);
         bus.addListener(ModEvents::onChunkLoad);
         bus.addListener(ModEvents::onChunkUnload);
@@ -146,7 +147,8 @@ public final class ModEvents {
         Entity e = event.getEntity();
         if (!(e instanceof Villager) && !(e instanceof net.minecraft.world.entity.animal.IronGolem)) return;
         if (net.betterthanvillage.warfare.Casualties.onJoin(level, e) || net.betterthanvillage.warfare.Campaigns.onJoin(level, e)
-                || (e instanceof Villager && net.betterthanvillage.world.Caravans.onJoin(level, e))) {
+                || (e instanceof Villager && net.betterthanvillage.world.Caravans.onJoin(level, e))
+                || net.betterthanvillage.society.AbstractExpedition.onJoin(level, e)) {
             event.setCanceled(true);
         }
     }

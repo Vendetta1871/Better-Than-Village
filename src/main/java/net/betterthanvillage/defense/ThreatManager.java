@@ -102,6 +102,10 @@ public final class ThreatManager {
     public static boolean isValidHostile(LivingEntity e) {
         if (e == null || !e.isAlive()) return false;
         if (e instanceof Creeper || e instanceof Villager || e instanceof IronGolem) return false;
+        // A zombie villager being cured by a healer is no longer fought (economy.CureTask).
+        if (e instanceof net.minecraft.world.entity.monster.ZombieVillager z && (z.isConverting() || net.betterthanvillage.economy.CureTask.patient(z))) {
+            return false;
+        }
         return !(e instanceof Player p) || (!p.isCreative() && !p.isSpectator());
     }
 
@@ -119,7 +123,7 @@ public final class ThreatManager {
     }
 
     private static boolean validInside(ServerLevel level, Colony colony, LivingEntity e) {
-        return (isValidHostile(e) || enemySoldier(level, colony, e)) && inColony(colony, e);
+        return (isValidHostile(e) || enemySoldier(level, colony, e)) && inColony(colony, e) && !net.betterthanvillage.economy.CureTask.awaitsCure(level, colony, e);
     }
 
     /** A soldier (villager or golem) of an army at war with the village (docs_v2/07-warfare.md). */
@@ -287,6 +291,7 @@ public final class ThreatManager {
     /** The target is still worth chasing: hostile, inside the colony (with hysteresis), a wanted player. */
     public static boolean keepsTarget(ServerLevel level, Colony colony, LivingEntity target) {
         if (!(isValidHostile(target) || enemySoldier(level, colony, target)) || !inColony(colony, target, BORDER_MARGIN)) return false;
+        if (net.betterthanvillage.economy.CureTask.awaitsCure(level, colony, target)) return false;
         return !(target instanceof Player p) || isWanted(level, colony, p);
     }
 

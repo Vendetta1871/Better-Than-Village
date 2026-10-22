@@ -60,6 +60,13 @@ public final class HousePlanner {
                 colony.propertyLevel = 0;
             }
             if (order != null) order.job = job.id;
+            if (order != null && order.builtAbstract != 0) {
+                // Built while the village was abstract: the catch-up builder places it now.
+                job.catchup = true;
+                colony.catchupHouses = Math.min(4, colony.catchupHouses + 1);
+                colony.catchupLabor = Math.min(12000, colony.catchupLabor + site.w() * site.d() * 8);
+                colony.catchupExpires = Long.MAX_VALUE;
+            }
             colony.jobs.add(job);
             Territory.growToHold(colony, site.origin().getX(), site.origin().getZ(), site.origin().getX() + site.w() - 1,
                     site.origin().getZ() + site.d() - 1, 4);
@@ -176,6 +183,11 @@ public final class HousePlanner {
         }
         if (site == null) colony.houseSiteCursor = saved;
         return site;
+    }
+
+    /** A job for the template at an exact place (a house a player ordered on its plot). */
+    public static ConstructionJob jobAt(net.minecraft.resources.ResourceLocation template, SiteSearch.Spec spec, BlockPos origin, int rotation, int w, int d) {
+        return newJob(template, spec, new SiteSearch.Site(origin, rotation, w, d));
     }
 
     private static ConstructionJob newJob(net.minecraft.resources.ResourceLocation template, SiteSearch.Spec spec, SiteSearch.Site site) {

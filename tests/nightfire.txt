@@ -1,0 +1,38 @@
+// Arson by a night agent against a village nobody watches: the goods burn at once, the house when the village loads
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 2400
+#wait-log Sprint completed 600
+// B has warriors to spare for a night agent
+execute positioned 768 100 384 run btv war recruit 3
+forceload remove all
+#sleep 5
+execute positioned {LX} 100 {LZ} run btv country relation 768 100 384 -60
+execute positioned {LX} 100 {LZ} run btv country day
+execute positioned {LX} 100 {LZ} run btv country
+// Three nights of arson attempts (an agent may be caught or come back empty-handed)
+time set 13000
+btv war night arson
+tick sprint 24000
+#wait-log Sprint completed 900
+btv war
+time set 13000
+btv war night arson
+tick sprint 24000
+#wait-log Sprint completed 900
+time set 13000
+btv war night arson
+tick sprint 24000
+#wait-log Sprint completed 900
+btv war
+// Village A loads: the fires break out
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+forceload add 672 288 864 480
+#sleep 30
+#wait-log breaks out 60
+tick sprint 1200
+#wait-log Sprint completed 600
+btv war

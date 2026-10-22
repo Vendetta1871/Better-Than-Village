@@ -102,12 +102,18 @@ public final class HouseConstructionTask extends ColonyTask {
         if (!ColonyManager.terrainChangesAllowed(level) || colony.roleOf(v.getUUID()) != ColonyRole.MASON) return false;
         if (!HousePlanner.established(level, colony) || !colony.hasStorage() || !colony.roadQueue.isEmpty()) return false;
         if (Damage.hasActionableRepair(level, colony) || Fortifications.isWallBuilder(level, colony, v)) return false;
+        // Paid houses (a player's order, a house the parents paid for) come before the village's own.
         ConstructionJob candidate = null;
+        boolean candidatePaid = false;
         for (ConstructionJob j : colony.jobs) {
             if ((j.status == JobStatus.QUEUED || j.status == JobStatus.BUILDING) && (j.builder == null || j.builder.equals(v.getUUID()))
                     && !j.catchup && !onCooldown(j, v.getUUID(), now)) {
-                candidate = j;
-                break;
+                boolean paid = BuildPriority.paid(colony, j);
+                if (candidate == null || (paid && !candidatePaid)) {
+                    candidate = j;
+                    candidatePaid = paid;
+                }
+                if (candidatePaid) break;
             }
         }
         if (candidate == null || !HousePlanner.protectPen(level, colony, candidate)) return false;
@@ -187,6 +193,16 @@ public final class HouseConstructionTask extends ColonyTask {
 
     @Override
     protected void tick(ServerLevel level, Villager v, long now) {
+        // A house a player ordered goes up on the player's own plot (docs_v2/04-land.md §Plots and houses).
+        Protection.buildingFor = job == null ? null : job.owner;
+        try {
+            build(level, v, now);
+        } finally {
+            Protection.buildingFor = null;
+        }
+    }
+
+    private void build(ServerLevel level, Villager v, long now) {
         Colony colony = colony(level, v);
         if (colony == null || job == null) return;
         if (!HousePlanner.protectPen(level, colony, job)) {
@@ -334,7 +350,8 @@ public final class HouseConstructionTask extends ColonyTask {
 
     /** Area protection (land plot, beacon nearby) stops the whole plot; any other protected position only skips its step. */
     static boolean areaProtected(ServerLevel level, BlockPos pos) {
-        return ColonyManager.data(level).inLand(pos) || Protection.beaconNear(level, pos);
+        var data = ColonyManager.data(level);
+        return (data.inLand(pos) && !Protection.ownPlot(data, pos)) || Protection.beaconNear(level, pos);
     }
 
     private boolean execute(ServerLevel level, Colony colony, Villager v, BuildPlan.Step s, long now) {

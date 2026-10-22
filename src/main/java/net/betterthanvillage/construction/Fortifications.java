@@ -536,7 +536,9 @@ public final class Fortifications {
                 List<Villager> builders = sortedBuilders(level, colony);
                 if (!builders.isEmpty()) {
                     Villager last = builders.get(builders.size() - 1);
-                    boolean single = builders.size() == 1 && colony.hasActiveConstruction();
+                    // A lone mason builds what the elder puts first (BuildPriority); walls that only come down always go.
+                    boolean single = builders.size() == 1 && colony.hasActiveConstruction()
+                            && colony.buildPriority != BuildPriority.Choice.WALLS;
                     if (!(single && !removal)) {
                         rt.builder = last.getUUID();
                         rt.builderHasJob = selectJob(level, colony, last.blockPosition(), single) != null;
@@ -549,7 +551,7 @@ public final class Fortifications {
 
     /** Material the wall leaves in storage: houses come first while one is under construction. */
     static int stockReserve(Colony colony) {
-        return colony.hasActiveConstruction() ? 128 : 32;
+        return colony.hasActiveConstruction() && colony.buildPriority != BuildPriority.Choice.WALLS ? 128 : 32;
     }
 
     /** Requires a single builder with an active project to stay near the current works. */

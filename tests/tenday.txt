@@ -3,14 +3,18 @@ forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
 #wait-log Registered generated vanilla village 60
 #sleep 50
 execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv jobs
 tick sprint 72000
 #wait-log Sprint completed 1500
 execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv jobs
 tick sprint 72000
 #wait-log Sprint completed 1500
 execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv jobs
 tick sprint 96000
 #wait-log Sprint completed 2000
 execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv jobs
 execute positioned {LX} 100 {LZ} run btv offers
 execute positioned {LX} 100 {LZ} run btv villagers

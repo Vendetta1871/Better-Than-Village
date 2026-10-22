@@ -53,7 +53,10 @@ public final class LandWork {
     static final class State {
         final Set<BlockPos> demolition = new LinkedHashSet<>();
         final java.util.Map<BlockPos, Integer> pits = new java.util.LinkedHashMap<>();
+        /** Doorway fixes for unreachable houses (Access): true places fill, false takes the block down. */
+        final java.util.Map<BlockPos, Boolean> access = new java.util.LinkedHashMap<>();
         long nextPlan;
+        long nextAccess;
         int anchorCursor;
     }
 
@@ -80,6 +83,28 @@ public final class LandWork {
         s.nextPlan = now + PLAN_INTERVAL;
         planDemolition(level, colony, s, now);
         planPits(level, colony, s);
+        if (now >= s.nextAccess) {
+            s.nextAccess = now + Access.CHECK_INTERVAL;
+            Access.plan(level, colony, s, now);
+        }
+    }
+
+    public static int accessCount(Colony colony) {
+        return state(colony).access.size();
+    }
+
+    /** The nearest doorway fix for a miner at from (blocks to take down first), or null. */
+    static java.util.Map.Entry<BlockPos, Boolean> nextAccess(ServerLevel level, Colony colony, BlockPos from) {
+        State s = state(colony);
+        s.access.entrySet().removeIf(e -> e.getValue() ? !level.getBlockState(e.getKey()).canBeReplaced() : level.getBlockState(e.getKey()).isAir());
+        return s.access.entrySet().stream().filter(e -> level.isLoaded(e.getKey()))
+                .min(Comparator.<java.util.Map.Entry<BlockPos, Boolean>>comparingInt(e -> e.getValue() ? 1 : 0)
+                        .thenComparingDouble(e -> e.getKey().distSqr(from)))
+                .orElse(null);
+    }
+
+    static void accessDone(Colony colony, BlockPos pos) {
+        state(colony).access.remove(pos);
     }
 
     // ---------------------------------------------------------------- demolition

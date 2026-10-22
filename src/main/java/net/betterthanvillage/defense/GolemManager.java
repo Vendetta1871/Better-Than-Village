@@ -364,17 +364,13 @@ public final class GolemManager {
 
     // ---------------------------------------------------------------- golem tick (MobEntity.mobTick TAIL)
 
-    /** Regeneration, swimming, colony targeting and the pillar breaker, once per golem tick. */
+    /** Swimming, colony targeting and the pillar breaker, once per golem tick. */
     public static void tickGolem(ServerLevel level, IronGolem golem) {
         // A golem on campaign follows its army (warfare.Siege), not the village it stands in.
         if (golem.getPersistentData().getBoolean(net.betterthanvillage.warfare.Campaigns.GOLEM_TAG)) return;
         long now = level.getGameTime();
+        // No regeneration of its own: villagers repair a golem with iron ingots (Duty).
         Colony colony = ColonyManager.colonyAt(level, golem.blockPosition());
-        if (colony != null && Math.floorMod(now + golem.getId(), 20L) == 0) {
-            if (golem.getHealth() < golem.getMaxHealth()) golem.heal(2f);
-            golem.addEffect(new MobEffectInstance(MobEffects.ABSORPTION, 240, 0, false, false), golem);
-            golem.setAbsorptionAmount(Math.min(golem.getMaxAbsorption(), golem.getAbsorptionAmount() + 1f));
-        }
         // only a submerged golem is pushed up (wading through a stream or farm channel is left alone)
         if (golem.isUnderWater()) {
             Vec3 goal;

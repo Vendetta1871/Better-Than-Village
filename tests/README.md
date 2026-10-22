@@ -50,3 +50,12 @@ freeze. `/btv status`, `/btv villagers` and `/btv land` dump the colony at a pos
 | `war.txt` | A country conquers a neighbour with no player near |
 | `siege.txt` | A live siege of a two-ring village |
 | `player.txt` | War on the player: the base, the offensive, the storm, a coalition, night operations |
+| `playeraway.txt` | A campaign raids the player's base while the player is far away |
+| `nightfire.txt` | Arson by an abstract village burns real blocks once the target loads |
+| `cavalry.txt` | Riders and the village golem join a campaign |
+| `credit.txt` | A player buys on credit, repays, and defaults into war |
+| `houseorder.txt` | A player buys a plot and orders a house on it; the masons build it |
+| `access.txt` | The miner clears the way to a house the villagers cannot walk into |
+| `cure.txt` | A villager calls the healer, who cures zombie villagers day and night; with no cure the warriors fight |
+| `expedition.txt` | A search party travels as a record and founds a village |
+| `growth.txt` | Births and conscription of an unloaded village |

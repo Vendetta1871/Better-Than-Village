@@ -49,9 +49,9 @@ Milestones (each one builds, passes a server test and is committed on its own):
 | 1.2 | Households: bed and house ownership, home chests, starting capital; the village stock that is left is the treasury | done |
 | 1.3 | Household stock: work tasks take from and deliver to the worker's own chest; public work uses the treasury | done |
 | 1.4 | Gatherings, prices and player trade from the villager's own stock; taxes and wages; the abstract market removed | done |
-| 1.5 | Credit and debt notes; conscription and the idle poor | done (credit with the player untested without a client) |
+| 1.5 | Credit and debt notes; conscription and the idle poor | done (credit with the player tested by a bot; paying a debt with someone else's note untested) |
 | 1.6 | Births paid by the parents: plot, house and workplace, then the child | done |
-| 1.7 | New work: carpenter processing and lamp posts, ore from stone, smith, healer and librarian tasks | done (zombie cures open) |
+| 1.7 | New work: carpenter processing and lamp posts, ore from stone, smith, healer and librarian tasks | done |
 
 Done when: a generated village runs for 10+ in-game days on a headless server. Its emerald
 total changes only through player trades, everyone eats, and births happen only when a house
@@ -80,12 +80,12 @@ Milestones:
 |---|---|---|
 | 2.1 | Territory: a noisy shape seeded by the village, grown by construction up to a maximum area; every "inside the village" test uses it | done |
 | 2.2 | Domain: countries, per-chunk ownership, the lazy Voronoi split between generated villages with a cap; `/btv land` map | done |
-| 2.3 | Plots and empty houses sold by the elder as deed maps; villagers keep off player plots | done (player-commissioned houses removed) |
+| 2.3 | Plots and empty houses sold by the elder as deed maps; villagers keep off player plots | done (player-ordered houses, for a fee) |
 | 2.4 | Commissioned construction: houses only for births, treasury commissions for infrastructure, builders paid per job | done (pay per unit of work; fields grow by the farmers' own tilling) |
-| 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | done: demolition, pit filling; open: paths to unreachable houses, road tunnels |
-| 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | done (a lone mason still builds houses before walls) |
+| 2.5 | Miner terraforming within limits, paths to unreachable houses, demolition of illegal builds with confiscation | done |
+| 2.6 | Layered walls: the first ring on the territory border, new rings outside, old rings kept, gates at roads, around plots | done (the elder sets walls or paid houses first) |
 | 2.7 | Lamp posts by the carpenter along roads, on squares, at gates and on dark spots | done |
-| 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | done (travel is live only; foreign land is never chosen until phase 4) |
+| 2.8 | Expansion: trigger at the maximum territory, search party, site in the own domain or on unowned land, daughter village of the same country | done (search parties also travel as records) |
 
 Done when: a village fills its maximum territory, builds a second wall ring and founds a daughter
 village, and an illegal player build in the territory is demolished.
@@ -138,7 +138,7 @@ Milestones:
 |---|---|---|
 | 4.1 | Countries: founding order, capital and its succession, the ruler, strength; daughter villages join with their loyalty; `/btv country` | done |
 | 4.2 | Ledgers and the world scheduler: virtual chests for abstract villages, delta application on load, time-budgeted steps, worker threads for snapshot computation | done |
-| 4.3 | Abstract economy: gatherings, meals, wages, credit, production by trade and construction labour of unloaded villages | done (births and conscription happen live) |
+| 4.3 | Abstract economy: gatherings, meals, wages, credit, production by trade and construction labour of unloaded villages | done |
 | 4.4 | Caravans between treasuries: planning, abstract travel, live materialization of the leader, trade and debts between villages | done |
 | 4.5 | Orders and loyalty: famine redistribution, temporary taxes, mobilization record; disobedience, the ruler's patience, toleration | done (suppression came with phase 5) |
 | 4.6 | Diplomacy: relations, alliance/peace/hostility/war, causes, declaration by strength, peace when the cause is gone | done (fought since phase 5) |
@@ -180,9 +180,9 @@ Milestones:
 | 5.3 | Live sieges: breaking gates and walls, tunnelling, staircases over walls, ring by ring; the fall of the bell | done |
 | 5.4 | Conquest: citizens, loot, debt notes, domain, the new elder, low loyalty; rebellion suppressed by war | done |
 | 5.5 | War weariness, peace requests, refusals and terms (tribute, border land, debts) | done |
-| 5.6 | Warriors: classes by situation and gear, horses and cavalry in the village, shifts, the golem cap; border watch outposts | done (campaigns fight on foot) |
+| 5.6 | Warriors: classes by situation and gear, horses and cavalry in the village, shifts, the golem cap; border watch outposts | done (cavalry rides on campaigns; natural golems are off by default) |
 | 5.7 | Night operations: theft, arson, killing; abstract rolls, live agents, spotting, incidents and revenge | done |
-| 5.8 | War against the player: presence and home blocks, the base, the strength score, offensives and coalitions, storming the base | done (bases are only raided near the player) |
+| 5.8 | War against the player: presence and home blocks, the base, the strength score, offensives and coalitions, storming the base | done |
 
 Checked in `tests/war.txt` (conquest with no player) and `tests/siege.txt` (live
 siege of a two-ring village).

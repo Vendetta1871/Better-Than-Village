@@ -1,0 +1,42 @@
+// Cavalry on campaign: riders keep their horses on the march and jump a wall where the horse clears it
+locate structure #minecraft:village
+forceload add {LX-176} {LZ-176} {LX} {LZ}
+forceload add {LX} {LZ-176} {LX+176} {LZ}
+forceload add {LX-176} {LZ} {LX} {LZ+176}
+forceload add {LX} {LZ} {LX+176} {LZ+176}
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 30
+tick sprint 2400
+#wait-log Sprint completed 600
+// B: ten warriors, iron for their gear and eight horses in the stables
+execute positioned 768 100 384 run btv war recruit 10
+execute positioned 768 100 384 run btv world stock minecraft:iron_ingot 320
+execute positioned 768 100 384 run btv war horses 8
+tick sprint 2400
+#wait-log Sprint completed 600
+execute positioned 768 100 384 run btv war army
+// A: one ring of walls, no golem
+execute positioned {LX} 100 {LZ} run btv film walls
+#sleep 5
+execute positioned {LX} 100 {LZ} run btv war fortify
+execute positioned {LX} 100 {LZ} run kill @e[type=minecraft:iron_golem,distance=..200]
+forceload remove 672 288 864 480
+btv bot spawn watcher {LX+20} 90 {LZ+20}
+#sleep 5
+execute positioned 768 100 384 run btv country war {LX} 100 {LZ} resources
+btv war
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+tick sprint 6000
+#wait-log Sprint completed 900
+btv war

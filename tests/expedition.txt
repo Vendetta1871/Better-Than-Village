@@ -1,0 +1,41 @@
+// A crowded village nobody watches sends a search party as a record; the site loads on arrival and the village is founded
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+tick sprint 2400
+#wait-log Sprint completed 400
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~ ~ ~
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~1 ~ ~
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~ ~ ~1
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~1 ~ ~1
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~-1 ~ ~
+execute positioned {LX} 100 {LZ} run summon minecraft:villager ~ ~ ~-1
+tick sprint 1200
+#wait-log Sprint completed 400
+execute positioned {LX} 100 {LZ} run btv land grow 100
+execute positioned {LX} 100 {LZ} run btv status
+// Nobody watches the village any more
+forceload remove all
+#sleep 5
+tick sprint 24000
+#wait-log Sprint completed 1500
+#wait-log search party .* leaves 5
+btv world
+// Slower time while the site loads (chunk generation does not keep up with a sprint)
+tick sprint 4000
+#wait-log Sprint completed 900
+tick rate 100
+#wait-log search party .* (reaches|turns back) 600
+tick rate 20
+btv world
+tick sprint 600
+#wait-log Sprint completed 300
+btv world
+tick sprint 1200
+#wait-log Sprint completed 300
+btv world
+tick sprint 12000
+#wait-log Sprint completed 1500
+btv world
+btv country list

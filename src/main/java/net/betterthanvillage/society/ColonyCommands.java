@@ -72,6 +72,10 @@ public final class ColonyCommands {
                                     ok(ctx.getSource(), Component.literal("Territory radius " + c.radius()));
                                     return 1;
                                 }))))
+                .then(Commands.literal("path").requires(s -> s.hasPermission(2)).then(Commands.argument("pos", BlockPosArgument.blockPos())
+                        .executes(ctx -> path(ctx, BlockPosArgument.getBlockPos(ctx, "pos"), null))
+                        .then(Commands.argument("from", BlockPosArgument.blockPos())
+                                .executes(ctx -> path(ctx, BlockPosArgument.getBlockPos(ctx, "pos"), BlockPosArgument.getBlockPos(ctx, "from"))))))
                 .then(BotCommands.bot())
                 .then(BotCommands.law())
                 .then(net.betterthanvillage.politics.PoliticsCommands.country())
@@ -105,6 +109,86 @@ public final class ColonyCommands {
             counts.merge(c.roleOf(v.getUUID()), 1, Integer::sum);
         }
         return counts;
+    }
+
+    /**
+     * Debug: can a villager of the village walk from the bell to the position? Prints the path's end and the ground
+     * between that end and the position (column height and top block).
+     */
+    private static int path(CommandContext<CommandSourceStack> ctx, net.minecraft.core.BlockPos to, net.minecraft.core.BlockPos from) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) return 0;
+        Villager walker = null;
+        double best = Double.MAX_VALUE;
+        for (Villager v : ColonyManager.adultMembers(level, c)) {
+            double d = v.blockPosition().distSqr(c.core());
+            if (d < best) {
+                best = d;
+                walker = v;
+            }
+        }
+        if (walker == null) {
+            source.sendFailure(Component.literal("No villager"));
+            return 0;
+        }
+        if (from != null) {
+            // A villager standing at from (not added to the world) walks instead.
+            Villager probe = net.minecraft.world.entity.EntityType.VILLAGER.create(level);
+            if (probe == null) return 0;
+            probe.moveTo(from.getX() + 0.5, from.getY(), from.getZ() + 0.5, 0, 0);
+            probe.setOnGround(true);
+            walker = probe;
+        }
+        net.minecraft.world.level.pathfinder.Path p = walker.getNavigation().createPath(to, 1);
+        net.minecraft.core.BlockPos end = p == null ? walker.blockPosition() : p.getEndNode() == null ? walker.blockPosition() : p.getEndNode().asBlockPos();
+        ok(source, Component.literal("Path from " + walker.blockPosition().toShortString() + " to " + to.toShortString() + ": "
+                + (p == null ? "none" : (p.canReach() ? "reaches" : "ends short") + ", " + p.getNodeCount() + " nodes, end " + end.toShortString())));
+        StringBuilder line = new StringBuilder();
+        int n = Math.max(Math.abs(to.getX() - end.getX()), Math.abs(to.getZ() - end.getZ()));
+        for (int i = 0; i <= n; i++) {
+            int x = end.getX() + (int) Math.round((to.getX() - end.getX()) * (double) i / Math.max(1, n));
+            int z = end.getZ() + (int) Math.round((to.getZ() - end.getZ()) * (double) i / Math.max(1, n));
+            int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+            String block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(level.getBlockState(new net.minecraft.core.BlockPos(x, y, z)).getBlock()).getPath();
+            line.append(x).append(',').append(z).append(" y").append(y).append(' ').append(block).append("; ");
+        }
+        ok(source, Component.literal("Ground: " + line));
+        // Block names in the row through the target (x -3..3), layers y-2..y+1.
+        StringBuilder names = new StringBuilder("Blocks:");
+        for (int dy = -2; dy <= 1; dy++) {
+            names.append(" y").append(to.getY() + dy).append(" [");
+            for (int dx = -3; dx <= 3; dx++) {
+                net.minecraft.core.BlockPos q = to.offset(dx, dy, 0);
+                var st = level.getBlockState(q);
+                names.append(net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(st.getBlock()).getPath());
+                if (st.hasProperty(net.minecraft.world.level.block.StairBlock.FACING)) names.append('>').append(st.getValue(net.minecraft.world.level.block.StairBlock.FACING).getName());
+                names.append(dx < 3 ? ", " : "");
+            }
+            names.append(']');
+        }
+        ok(source, Component.literal(names.toString()));
+        var type = net.minecraft.world.level.pathfinder.WalkNodeEvaluator.getPathTypeStatic(walker, to);
+        ok(source, Component.literal("Path type at target: " + type + ", malus " + walker.getPathfindingMalus(type)));
+        // The 13x13 neighbourhood of the target, layer by layer: solid, passable, air, doors, stairs, water.
+        for (int dy = -2; dy <= 2; dy++) {
+            StringBuilder around = new StringBuilder("y" + (to.getY() + dy) + " x" + (to.getX() - 6) + ".." + (to.getX() + 6) + ":");
+            for (int dz = -6; dz <= 6; dz++) {
+                around.append(" ");
+                for (int dx = -6; dx <= 6; dx++) {
+                    net.minecraft.core.BlockPos q = to.offset(dx, dy, dz);
+                    var st = level.getBlockState(q);
+                    char ch = st.isAir() ? '.' : !st.getFluidState().isEmpty() ? '~' : st.getBlock() instanceof net.minecraft.world.level.block.DoorBlock ? 'D'
+                            : st.getBlock() instanceof net.minecraft.world.level.block.StairBlock ? 'S'
+                            : st.getCollisionShape(level, q).isEmpty() ? ',' : '#';
+                    if (q.equals(end)) ch = 'E';
+                    around.append(ch);
+                }
+            }
+            ok(source, Component.literal(around.toString()));
+        }
+        return 1;
     }
 
     private static void ok(CommandSourceStack source, Component text) {

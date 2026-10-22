@@ -89,13 +89,22 @@ public final class NightOps {
 
     /** Debug: the elders decide on their night operations now (every allowed one is sent). */
     public static int force(ServerLevel level) {
-        return plan(level, level.getGameTime(), Math.floorDiv(level.getDayTime(), 24000L), true);
+        return force(level, null);
+    }
+
+    /** Debug: as force, with the operation chosen where it is allowed (null: any). */
+    public static int force(ServerLevel level, Op only) {
+        return plan(level, level.getGameTime(), Math.floorDiv(level.getDayTime(), 24000L), true, only);
     }
 
     private record Candidate(Colony village, BlockPos base, UUID player, UUID country, EnumSet<Op> ops, boolean war) {
     }
 
     private static int plan(ServerLevel level, long now, long day, boolean forced) {
+        return plan(level, now, day, forced, null);
+    }
+
+    private static int plan(ServerLevel level, long now, long day, boolean forced, Op only) {
         ColonySavedData data = ColonyManager.data(level);
         Random rnd = new Random(level.getSeed() ^ day * 0x9E3779B97F4A7C15L);
         int sent = 0;
@@ -123,6 +132,10 @@ public final class NightOps {
             UUID agent = pickAgent(level, home);
             if (agent == null) continue;
             List<Op> ops = new ArrayList<>(pick.ops());
+            if (only != null) {
+                if (!ops.contains(only)) continue;
+                ops = List.of(only);
+            }
             Op op = ops.get(rnd.nextInt(ops.size()));
             launch(level, home, pick, op, agent, now);
             sent++;
@@ -226,8 +239,7 @@ public final class NightOps {
         Random rnd = new Random(c.id.getLeastSignificantBits() ^ now);
         Colony target = c.target == null ? null : ColonyManager.data(level).colony(c.target);
         if (c.kind == Campaign.Kind.NIGHT && target == null) {
-            // Player bases are only raided near the player.
-            finish(level, c, "nothing to do at the base without its owner near");
+            // A player's base is never a record: Campaigns holds its area loaded and the agent works there live.
             return;
         }
         double skill = 2 + agent.gear * 0.5;
@@ -260,6 +272,9 @@ public final class NightOps {
             case ARSON -> {
                 Household h = victimHouse(target, rnd);
                 int burnt = 0;
+                // The house itself burns when the village loads (the fire needs the world).
+                BlockPos house = h == null ? null : h.bed != null ? h.bed : h.chests.isEmpty() ? null : h.chests.get(0);
+                if (house != null && target.pendingFires.size() < 64) target.pendingFires.add(house);
                 if (h != null) {
                     for (ColonyStorage.Slot slot : ColonyStorage.usable(level, h)) {
                         for (int i = 0; i < slot.container().getContainerSize(); i++) {
@@ -283,6 +298,20 @@ public final class NightOps {
                 }
             }
         }
+    }
+
+    /** Fires set by abstract operations break out once the village is live: a few flames by each burnt house. */
+    public static void applyFires(ServerLevel level, Colony colony) {
+        if (colony.pendingFires.isEmpty()) return;
+        for (var it = colony.pendingFires.iterator(); it.hasNext(); ) {
+            BlockPos pos = it.next();
+            if (!level.isLoaded(pos)) continue;
+            int lit = 0;
+            for (int i = 0; i < 3; i++) if (PlayerRaid.arson(level, pos.offset(i * 2 - 2, 0, 0))) lit++;
+            it.remove();
+            LOGGER.info("[night] the fire set in {} breaks out at {} ({} flames)", Countries.villageName(colony), pos.toShortString(), lit);
+        }
+        ColonyManager.markDirty(level);
     }
 
     /** Emeralds (up to the cap), else the most valuable goods, into the agent's loot. Returns the items taken. */

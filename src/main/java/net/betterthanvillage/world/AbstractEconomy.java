@@ -93,6 +93,8 @@ public final class AbstractEconomy {
             Treasury.payWages(level, colony);
             Credit.accrue(level, colony);
             Credit.defaults(level, colony, Map.of());
+            net.betterthanvillage.economy.Conscription.abstractStep(level, colony);
+            net.betterthanvillage.economy.Births.abstractStep(level, colony);
             long day = Math.floorDiv(index, 2L);
             for (Household h : new ArrayList<>(colony.households.values())) {
                 produced += Production.day(level, colony, h, day);

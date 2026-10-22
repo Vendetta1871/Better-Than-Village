@@ -23,6 +23,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.IronGolem;
@@ -243,11 +244,18 @@ public final class Campaigns {
             int keep = Math.max(1, (int) Math.ceil(warriors.size() * cfg().garrison_share));
             double dist = Math.sqrt(v.core().distSqr(origin.core()));
             long join = v == origin ? now : now + (long) (dist / cfg().army_blocks_per_hour * 1000);
-            for (UUID id : warriors.subList(0, Math.max(0, warriors.size() - keep))) {
+            List<UUID> marching = warriors.subList(0, Math.max(0, warriors.size() - keep));
+            Army.campaignClasses(v, marching);
+            for (UUID id : marching) {
                 Campaign.Soldier s = new Campaign.Soldier(id, v.id(), false);
                 s.cls = v.warriorClasses.getOrDefault(id, WarriorClass.INFANTRY);
                 s.gear = level.getEntity(id) instanceof Villager w ? Battle.gearOf(w) : v.warriorGear;
                 s.joinAt = join;
+                // Cavalry rides a horse of its village's stables; without one it marches as infantry.
+                if (s.cls == WarriorClass.CAVALRY) {
+                    if (Army.lendHorse(level, v, level.getEntity(id) instanceof Villager w ? w : null, s)) s.mounted = true;
+                    else s.cls = WarriorClass.INFANTRY;
+                }
                 c.soldiers.add(s);
             }
         }
@@ -255,11 +263,19 @@ public final class Campaigns {
             LOGGER.info("[war] {} cannot raise an army ({} soldiers)", Countries.plainName(level, c.attacker), c.soldiers.size());
             return false;
         }
-        if (origin.golem != null && level.getEntity(origin.golem) instanceof IronGolem g && g.isAlive() && !g.isPlayerCreated()) {
-            Campaign.Soldier s = new Campaign.Soldier(g.getUUID(), origin.id(), true);
-            s.hp = g.getHealth() / g.getMaxHealth();
-            c.soldiers.add(s);
-            g.getPersistentData().putBoolean(GOLEM_TAG, true);
+        // The village's golem marches too, a costly unit built from iron; a golem in its unloaded village joins as a
+        // record and walks with the army once its chunk loads (onJoin takes its data).
+        if (origin.golem != null && !data.fallen.contains(origin.golem) && !away(level, origin.golem)) {
+            if (level.getEntity(origin.golem) instanceof IronGolem g) {
+                if (g.isAlive() && !g.isPlayerCreated()) {
+                    Campaign.Soldier s = new Campaign.Soldier(g.getUUID(), origin.id(), true);
+                    s.hp = g.getHealth() / g.getMaxHealth();
+                    c.soldiers.add(s);
+                    g.getPersistentData().putBoolean(GOLEM_TAG, true);
+                }
+            } else if (!ColonyManager.isLive(level, origin)) {
+                c.soldiers.add(new Campaign.Soldier(origin.golem, origin.id(), true));
+            }
         }
         c.started = c.phaseSince = now;
         c.x = origin.core().getX() + 0.5;
@@ -389,6 +405,8 @@ public final class Campaigns {
                 if (c.outpostBuilt) setPhase(level, c, Campaign.Phase.SIEGE);
             }
             case SIEGE -> {
+                // A player's base is raided for real even with its owner away: the army holds the area loaded.
+                if (c.target == null && c.base != null) holdBase(level, c);
                 BlockPos at = outpostSurface(level, c);
                 if (c.kind == Campaign.Kind.NIGHT) {
                     if (c.live) NightOps.tickLive(level, c, now);
@@ -409,6 +427,16 @@ public final class Campaigns {
             case HOME -> comeHome(level, c);
         }
         if (data.campaigns.contains(c) && c.phase != Campaign.Phase.HOME) materialize(level, c, now);
+    }
+
+    /**
+     * Keeps the player's base and the army's position loaded during the storm (docs_v2/07-warfare.md §War against
+     * the player): the soldiers appear and loot and burn the base as they would with the player watching.
+     */
+    private static void holdBase(ServerLevel level, Campaign c) {
+        net.betterthanvillage.world.SiteLoader.load(level, c.base);
+        BlockPos at = BlockPos.containing(c.x, 64, c.z);
+        if (at.distSqr(new BlockPos(c.base.getX(), 64, c.base.getZ())) > 24 * 24) net.betterthanvillage.world.SiteLoader.load(level, at);
     }
 
     /** Why the campaign cannot go on (target gone, peace, the player's war over), or null. */
@@ -532,11 +560,13 @@ public final class Campaigns {
         } else {
             Nav.approach(level, v, to, speed);
         }
+        Army.steer(level, v);
     }
 
     private static void walk(ServerLevel level, Mob m, BlockPos to, double speed) {
         if (m instanceof Villager v) {
             Nav.approach(level, v, to, speed);
+            Army.steer(level, v);
         } else if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) {
             m.getNavigation().moveTo(to.getX() + 0.5, to.getY(), to.getZ() + 0.5, 1.0);
         }
@@ -551,7 +581,7 @@ public final class Campaigns {
             if (dist > s.progressDist - 4 && s.progressTick != 0) {
                 double hop = Math.min(12, dist);
                 BlockPos to = surface(level, (int) Math.floor(x + (gx - x) / dist * hop), (int) Math.floor(z + (gz - z) / dist * hop));
-                v.teleportTo(to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
+                Army.hop(v, to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
                 Nav.reset(v);
             }
             s.progressTick = now;
@@ -564,11 +594,31 @@ public final class Campaigns {
     private static void stash(ServerLevel level, Campaign c, Campaign.Soldier s, LivingEntity e) {
         s.hp = Math.max(0.05, e.getHealth() / e.getMaxHealth());
         if (e instanceof Villager v) s.gear = Battle.gearOf(v);
+        net.minecraft.world.entity.animal.horse.AbstractHorse horse = e.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse ridden
+                ? ridden : s.mounted ? Army.ownHorse(level, e, 32) : null;
+        if (horse != null) {
+            CompoundTag h = Materializer.stash(horse);
+            if (h != null) s.horse = h;
+        }
         CompoundTag tag = Materializer.stash(e);
         if (tag == null) return;
         s.data = tag;
         s.live = false;
         ColonyManager.markDirty(level);
+    }
+
+    /** The golem left its unloaded village as a record: it walks as a stand-in with its id and abstract wounds. */
+    private static Entity golemStandIn(ServerLevel level, Campaign.Soldier s, BlockPos pos) {
+        IronGolem g = EntityType.IRON_GOLEM.create(level);
+        if (g == null) return null;
+        g.setUUID(s.id);
+        g.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0, 0);
+        g.setHealth((float) Math.max(1, g.getMaxHealth() * s.hp));
+        CompoundTag tag = new CompoundTag();
+        if (!g.saveAsPassenger(tag)) return null;
+        Entity e = Materializer.spawn(level, tag, pos);
+        if (e != null) s.standIn = true;
+        return e;
     }
 
     /** Soldiers not in the world walk again where the army stands in entity-ticking chunks. */
@@ -579,11 +629,10 @@ public final class Campaigns {
         for (Campaign.Soldier s : c.present(now)) {
             i++;
             if (s.live || level.getEntity(s.id) != null) continue;
-            if (s.golem && s.data == null) continue;
             BlockPos pos = surface(level, at.getX() + (i % 5) - 2, at.getZ() + (i / 5) - 2);
             Entity e;
             if (s.golem) {
-                e = Materializer.spawn(level, s.data, pos);
+                e = s.data != null ? Materializer.spawn(level, s.data, pos) : golemStandIn(level, s, pos);
                 if (e instanceof IronGolem g) g.getPersistentData().putBoolean(GOLEM_TAG, true);
             } else {
                 boolean standIn = s.data == null;
@@ -596,6 +645,7 @@ public final class Campaigns {
             }
             if (e == null) continue;
             if (e instanceof LivingEntity le) le.setHealth(Math.max(1, (float) (le.getMaxHealth() * s.hp)));
+            if (s.mounted && e instanceof Villager rider) Army.mount(level, rider, s, pos);
             s.data = null;
             s.live = true;
             c.live = true;
@@ -750,6 +800,7 @@ public final class Campaigns {
         for (Campaign.Soldier s : new ArrayList<>(c.soldiers)) {
             Entity e = level.getEntity(s.id);
             boolean live = e instanceof LivingEntity le && le.isAlive();
+            if (s.mounted && s.home.equals(c.origin)) Army.returnHorse(level, origin, e, s);
             if (s.standIn) {
                 // The original never left its home chunk: the stand-in is no longer needed.
                 if (live) Materializer.discard(e);
@@ -786,6 +837,7 @@ public final class Campaigns {
             if (spot == null) continue;
             Entity e = s.golem ? Materializer.spawn(level, s.data, spot) : Materializer.spawnVillager(level, s.data, s.id, spot, home);
             if (e == null) continue;
+            if (s.mounted) Army.returnHorse(level, home, null, s);
             release(level, s, e);
             c.soldiers.remove(s);
             markIndex();
@@ -825,15 +877,19 @@ public final class Campaigns {
         long now = level.getGameTime();
         for (Campaign c : ColonyManager.data(level).campaigns) {
             Colony target = c.target == null ? null : ColonyManager.data(level).colony(c.target);
-            int live = 0, stored = 0;
+            int live = 0, stored = 0, mounted = 0, riding = 0, golems = 0;
             for (Campaign.Soldier s : c.soldiers) {
                 if (s.live) live++;
                 else if (s.data != null) stored++;
+                if (s.mounted) mounted++;
+                if (s.golem) golems++;
+                if (level.getEntity(s.id) instanceof Villager v && v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse) riding++;
             }
             out.add("campaign " + shortId(c) + " " + c.kind.key() + " of " + Countries.plainName(level, c.attacker) + " against "
                     + (target != null ? Countries.villageName(target) : c.base != null ? "base " + c.base.toShortString() : "-")
                     + ": " + c.phase.key() + (c.live ? " live" : " abstract") + " at (" + (int) c.x + ", " + (int) c.z + "), soldiers "
-                    + c.present(now).size() + "/" + c.soldiers.size() + " (" + live + " live, " + stored + " stored), power "
+                    + c.present(now).size() + "/" + c.soldiers.size() + " (" + live + " live, " + stored + " stored, " + golems + " golem, "
+                    + mounted + " cavalry, " + riding + " riding), power "
                     + Math.round(Battle.armyPower(c, now) * 10) / 10.0 + "/" + Math.round(c.initialPower * 10) / 10.0 + ", outpost "
                     + (c.outpost == null ? "-" : c.outpost.getX() + "," + c.outpost.getZ() + " " + c.outpostWork + "/" + cfg().outpost_work
                     + (c.outpostBuilt ? " built" : "") + (c.outpostPlaced ? " placed" : "") + " lost " + c.outpostLosses)

@@ -46,12 +46,16 @@ retreating, patrols and gear rendering, plus the threat and alarm manager.
 
 ## Iron golems
 
-- **Limit.** At most **one village golem** per village. Vanilla golem summoning by villagers is
-  suppressed while the village has one alive.
-- **Use.** The village golem guards the territory and can be sent on campaigns.
+- **Built, never summoned.** Vanilla golem summoning by villagers is off
+  (`warfare.natural_golems`). A village builds its golem from 36 iron and a pumpkin of its
+  treasury, so a golem is a costly unit. Farmers start with pumpkin seeds and grow pumpkins for it.
+  A golem generated with the village counts as built.
+- **Limit.** At most **one village golem** per village.
+- **No regeneration.** A golem heals only when a warrior repairs it with an iron ingot of the
+  treasury (25 health per ingot, as a player does).
+- **Use.** The village golem guards the territory and marches with its village's campaigns.
 - **Player golems** do not count toward the limit. The village never commands them: they are
   never taken on campaigns or sent against the player.
-- **Upkeep and replacement** (iron) are paid by the treasury.
 
 Reuses golem management from the `legacy` port,
 with the cap added.
@@ -232,8 +236,14 @@ The `warfare` package. Settings are in the `warfare` section of the config.
     stronger (a counter-attack).
   - **Mobilization.** Every village that obeyed the call to arms sends its warriors beyond the
     garrison (`warfare.garrison_share`, 0.34, at least one stays). The staging village's golem
-    joins if it stands in a loaded village. Warriors of other villages reach the staging village
-    after the walk there. A campaign needs `warfare.min_army` (2) soldiers.
+    joins: from a loaded village as itself, from an abstract one as a record that walks as a
+    stand-in with its id when the army comes into a loaded area. Warriors of other villages reach
+    the staging village after the walk there. A campaign needs `warfare.min_army` (2) soldiers.
+  - **Cavalry.** A cavalry soldier takes a horse from its village's stables (the stables count one
+    less until it is back); without a horse it marches as infantry. The horse is stored and
+    materialized with its rider, and a fresh saddled horse appears for a rider whose horse was
+    never in the world. A rider steers: the horse follows the rider's path. A dead horse leaves
+    its rider on foot. Back home the horse returns to the stables.
   - **Phases.** Mobilize (`warfare.mobilize_ticks`, 2000), march, outpost, siege, return, home.
   - **March.** Abstractly the army moves `warfare.army_blocks_per_hour` (150) blocks an in-game
     hour. It stops `warfare.outpost_distance` (24) blocks outside the target's outermost ring, on
@@ -277,6 +287,9 @@ The `warfare` package. Settings are in the `warfare` section of the config.
     is broken first. Otherwise, by turns, a soldier breaks the ring's blocks of a column and its
     neighbours at feet and head height, digs a tunnel two blocks under the wall where the ground
     is diggable, or builds a coarse dirt staircase to the top of the wall and drops inside.
+  - **Jumping.** A rider whose horse clears the wall (the vanilla jump curve of the horse's jump
+    strength, half a block of headroom) jumps it from a run-up outside, if the wall is at most two
+    blocks thick and the ground inside is free. No block is broken.
   - **Getting stuck.** A soldier that makes no progress for 15 s tries another tactic. Without
     mob griefing it climbs over.
   - **Gates.** Wall gates never open for, nor path through, enemy soldiers.
@@ -319,9 +332,11 @@ The `warfare` package. Settings are in the `warfare` section of the config.
   - **Horses.** A village with a herder breeds a horse every other day while it has fewer than a
     third of its warriors in horses (10 wheat each). Live villages keep them, tamed and saddled,
     at the pen. Cavalry mounts a village horse to fight in its own village and dismounts after;
-    campaigns fight on foot. `warfare.cavalry` switches it off.
-  - **Golem.** At most `warfare.golem_cap` (1) village golem; vanilla summoning is suppressed while
-    it lives. The census remembers its id for the strength model.
+    on campaign it keeps its horse (see Campaigns). `warfare.cavalry` switches it off; the debug
+    command `/btv war horses <n>` sets the stables.
+  - **Golem.** At most `warfare.golem_cap` (1) village golem, built from iron and a pumpkin;
+    vanilla summoning is off (`warfare.natural_golems`). It does not regenerate; warriors repair it
+    with iron. The census remembers its id for the strength model.
 - **Night operations** (`NightOps`, `NightOpTask`). An agent is a campaign of one (kind `night`).
   - **When and against whom.** At dusk each village may send one against a village of another
     country within `warfare.night_ops_range` (700), or the base of a player its country is at war
@@ -332,8 +347,11 @@ The `warfare` package. Settings are in the `warfare` section of the config.
     else a spare warrior.
   - **Abstract.** Success is skill (2 + gear/2) against 1 + the night watch + the golem.
     - **Success.** A theft takes up to 16 emeralds (or valuables). Arson burns about half of a
-      household's goods. A killing takes a day-shift warrior, else the elder, else an adult.
+      household's goods at once, and the house itself catches fire when the village next loads
+      (`Colony.pendingFires`). A killing takes a day-shift warrior, else the elder, else an adult.
     - **Failure.** The agent is caught (killed) 60% of the time; otherwise it slips away.
+  - **A player's base** is never a record: the area around it is held loaded during the night
+    (`world.SiteLoader`), and the agent works there live even with the player away.
   - **Live.** The agent walks to the treasury chest, a house bed (to light a fire nearby) or the
     nearest sleeper (warriors first), and acts. Someone awake who sees it within 16 blocks spots
     it, and the village's warriors attack it. An agent that is hurt runs, and at dawn an
@@ -356,12 +374,16 @@ The `warfare` package. Settings are in the `warfare` section of the config.
   - **The storm.** The outpost goes up near the base. Soldiers fight the player, carry the base's
     chests off (player-placed ones first) and set the base on fire. The loot goes to the staging
     village's treasury. The campaign gives up after `warfare.player_campaign_days` (3).
+  - **The player away.** During the storm the army holds the base and its own position loaded
+    (`world.SiteLoader`, a ticket that expires by itself), so the base is looted and burnt for real
+    even when its owner is far away.
 - **Debug.** `/btv war` shows campaigns, war accounts and the nearest village's army. Subcommands:
   - `launch <pos>` sends a campaign;
   - `step` runs the hourly campaign step now;
   - `fortify` puts up every planned wall block in loaded chunks;
   - `army` shows and reassigns classes;
   - `recruit <n>` conscripts adults;
-  - `night` sends every allowed night operation now;
+  - `night [theft|arson|kill]` sends every allowed night operation now (of that kind);
+  - `horses <n>` sets the nearest village's stables;
   - `intel` samples players now;
   - `offensive` decides offensives against players now.

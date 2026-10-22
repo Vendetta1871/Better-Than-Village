@@ -36,6 +36,15 @@ public final class Conscription {
 
     /** Morning step after wages. */
     public static void step(ServerLevel level, Colony colony, Map<UUID, Villager> members) {
+        step(level, colony, members, true);
+    }
+
+    /** The same step for an abstract village (docs_v2/08-simulation.md): every household is home, children by record. */
+    public static void abstractStep(ServerLevel level, Colony colony) {
+        step(level, colony, Map.of(), false);
+    }
+
+    private static void step(ServerLevel level, Colony colony, Map<UUID, Villager> members, boolean live) {
         long today = Credit.day(level);
         int wage = Math.max(1, cfg().warrior_wage);
         int days = cfg().conscription_budget_days;
@@ -66,7 +75,8 @@ public final class Conscription {
             h.idlePoor = false;
             ColonyRole trade = colony.tradeOf(h.owner);
             Villager v = members.get(h.owner);
-            if (v == null || v.isBaby() || colony.conscripts.containsKey(h.owner) || colony.isFounderParty(h.owner)) continue;
+            boolean child = v != null ? v.isBaby() : colony.pendingProfessions.containsKey(h.owner);
+            if ((live && v == null) || child || colony.conscripts.containsKey(h.owner) || colony.isFounderParty(h.owner)) continue;
             if (trade == ColonyRole.WARRIOR || trade == ColonyRole.ELDER || !trade.isProfession()) continue;
             if (today - h.lastIncomeDay >= cfg().conscription_idle_days) idle.add(h);
         }

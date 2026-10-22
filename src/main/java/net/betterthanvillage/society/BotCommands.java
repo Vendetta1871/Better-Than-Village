@@ -104,6 +104,44 @@ final class BotCommands {
                         .executes(ctx -> trade(ctx, villager(ctx), -1))
                         .then(Commands.argument("index", IntegerArgumentType.integer(0, 63))
                                 .executes(ctx -> trade(ctx, villager(ctx), IntegerArgumentType.getInteger(ctx, "index")))))))
+                .then(Commands.literal("deed").then(name().then(Commands.argument("pos", BlockPosArgument.blockPos()).executes(ctx -> {
+                    // Debug: the bot uses the land deed it carries on the ground at the position (marks its plot).
+                    TestBot bot = bot(ctx);
+                    ServerLevel level = ctx.getSource().getLevel();
+                    BlockPos asked = BlockPosArgument.getBlockPos(ctx, "pos");
+                    BlockPos pos = surface(level, asked).below();
+                    // Where the deed is refused, the nearest valid plot centre within 48 blocks is taken.
+                    Colony at = ColonyManager.colonyAt(level, asked);
+                    if (at != null && !Deeds.plotValid(level, at, bot.getUUID(), pos)) {
+                        BlockPos found = null;
+                        for (int r = 4; r <= 48 && found == null; r += 4) {
+                            for (int dx = -r; dx <= r && found == null; dx += 4) {
+                                for (int dz = -r; dz <= r && found == null; dz += 4) {
+                                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                                    BlockPos c = surface(level, asked.offset(dx, 0, dz)).below();
+                                    if (Deeds.plotValid(level, at, bot.getUUID(), c)) found = c;
+                                }
+                            }
+                        }
+                        if (found != null) pos = found;
+                    }
+                    var inv = bot.getInventory();
+                    for (int i = 0; i < inv.getContainerSize(); i++) {
+                        if (!Deeds.isLandDeed(inv.getItem(i))) continue;
+                        ItemStack held = bot.getMainHandItem();
+                        bot.setItemInHand(InteractionHand.MAIN_HAND, inv.getItem(i).copy());
+                        inv.setItem(i, ItemStack.EMPTY);
+                        Deeds.onUseOnBlock(level, bot, InteractionHand.MAIN_HAND, pos);
+                        ItemStack after = bot.getMainHandItem();
+                        bot.setItemInHand(InteractionHand.MAIN_HAND, held);
+                        inv.add(after);
+                        boolean plot = ColonyManager.data(level).landAt(pos) != null && bot.getUUID().equals(ColonyManager.data(level).landAt(pos).owner());
+                        return ok(ctx, plot ? "Plot at " + pos.toShortString() : "Deed refused at " + pos.toShortString());
+                    }
+                    return ok(ctx, "No land deed");
+                }))))
+                .then(Commands.literal("deal").then(name().then(Commands.argument("kind", StringArgumentType.word())
+                        .executes(ctx -> deal(ctx, StringArgumentType.getString(ctx, "kind"))))))
                 .then(Commands.literal("elder").then(name()
                         .executes(ctx -> trade(ctx, elder(ctx), -1))
                         .then(Commands.argument("index", IntegerArgumentType.integer(0, 63))
@@ -186,17 +224,22 @@ final class BotCommands {
         int wanted = IntegerArgumentType.getInteger(ctx, "count");
         int taken = 0;
         boolean valuable = false;
-        for (int i = 0; i < c.getContainerSize() && taken < wanted; i++) {
-            ItemStack s = c.getItem(i);
-            if (s.isEmpty()) continue;
-            ItemStack part = c.removeItem(i, Math.min(wanted - taken, s.getCount()));
-            valuable |= Theft.valuable(part);
-            taken += part.getCount();
-            if (!bot.getInventory().add(part)) bot.drop(part, false);
+        StringBuilder takenNames = new StringBuilder();
+        // Common goods first (a petty theft is warned), valuables only when nothing else is left.
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < c.getContainerSize() && taken < wanted; i++) {
+                ItemStack s = c.getItem(i);
+                if (s.isEmpty() || (pass == 0 && Theft.valuable(s))) continue;
+                ItemStack part = c.removeItem(i, Math.min(wanted - taken, s.getCount()));
+                valuable |= Theft.valuable(part);
+                takenNames.append(' ').append(part.getCount()).append(' ').append(part.getItem());
+                taken += part.getCount();
+                if (!bot.getInventory().add(part)) bot.drop(part, false);
+            }
         }
         c.setChanged();
         Theft.taken(level, colony, bot, taken, valuable);
-        return ok(ctx, "Took " + taken + " items from " + pos.toShortString());
+        return ok(ctx, "Took " + taken + " items from " + pos.toShortString() + ":" + takenNames);
     }
 
     /** Lists the villager's offers to the bot, or makes one trade as the trade screen would. */
@@ -232,11 +275,17 @@ final class BotCommands {
         if (c == null) return null;
         java.util.Set<BlockPos> all = new java.util.LinkedHashSet<>(c.storages);
         all.addAll(c.managedStorages.keySet());
+        // The nearest one holding common goods (a petty theft), else the nearest at all.
         BlockPos best = null;
         double bestD = Double.MAX_VALUE;
         for (BlockPos p : all) {
             if (!level.isLoaded(p) || !(level.getBlockEntity(p) instanceof Container box) || box.isEmpty() || Theft.storageOwner(level, p) == null) continue;
-            double d = p.distSqr(bot.blockPosition());
+            boolean common = false;
+            for (int i = 0; i < box.getContainerSize() && !common; i++) {
+                ItemStack s = box.getItem(i);
+                common = !s.isEmpty() && !Theft.valuable(s);
+            }
+            double d = p.distSqr(bot.blockPosition()) + (common ? 0 : 1e9);
             if (d < bestD) {
                 bestD = d;
                 best = p;
@@ -282,6 +331,51 @@ final class BotCommands {
         } finally {
             v.setTradingPlayer(null);
         }
+    }
+
+    /**
+     * Debug: the bot takes the first offer of a kind (sell_on_credit, repay, pay_with_note, collect, ...) that any
+     * adult of the village near it makes, as a player would on the trade screen.
+     */
+    private static int deal(CommandContext<CommandSourceStack> ctx, String kindName) throws CommandSyntaxException {
+        TestBot bot = bot(ctx);
+        ServerLevel level = ctx.getSource().getLevel();
+        Trading.Kind kind;
+        try {
+            kind = Trading.Kind.valueOf(kindName.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("Unknown kind " + kindName));
+            return 0;
+        }
+        Colony c = ColonyManager.colonyAt(level, bot.blockPosition());
+        if (c == null) {
+            ctx.getSource().sendFailure(Component.literal("No village here"));
+            return 0;
+        }
+        for (Villager v : ColonyManager.adultMembers(level, c)) {
+            v.setTradingPlayer(null);
+            Trading.interact(level, v, bot, InteractionHand.MAIN_HAND);
+            try {
+                if (v.getTradingPlayer() != bot) continue;
+                var offers = v.getOffers();
+                for (int i = 0; i < offers.size(); i++) {
+                    MerchantOffer o = offers.get(i);
+                    Trading.Desc d = Trading.desc(v, o);
+                    if (d == null || d.kind() != kind || o.isOutOfStock() || !Trading.validate(level, v, o)) continue;
+                    if (!pay(bot, o.getItemCostA()) || (o.getItemCostB().isPresent() && !pay(bot, o.getItemCostB().get()))) continue;
+                    ItemStack result = o.assemble();
+                    String got = result.getCount() + " " + result.getItem();
+                    o.increaseUses();
+                    Trading.afterUsing(level, v, o);
+                    if (!bot.getInventory().add(result)) bot.drop(result, false);
+                    return ok(ctx, "Deal " + kind + " with " + c.roleOf(v.getUUID()).serializedName() + " " + v.getUUID().toString().substring(0, 8)
+                            + ": paid " + o.getCostA().getCount() + " " + o.getCostA().getItem() + ", got " + got);
+                }
+            } finally {
+                v.setTradingPlayer(null);
+            }
+        }
+        return ok(ctx, "No " + kind + " offer");
     }
 
     /** Removes the cost from the bot's inventory if it has all of it. */

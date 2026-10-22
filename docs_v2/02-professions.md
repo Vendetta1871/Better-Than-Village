@@ -90,8 +90,17 @@ warrior, and the tool supply of every trade, start from the `legacy` port.
 - **Crafts.** Makes tools, armor and weapons. Sells to households and the treasury.
 
 ### Healer
-- **Zombie cures.** Cures zombie villagers the vanilla way: a splash potion of weakness, then a
-  golden apple.
+- **Zombie cures.** Cures zombie villagers with what a player uses: a splash potion of weakness,
+  then a golden apple. Implementation (`CureTask`): a villager of the village who sees a zombie
+  villager calls the healer, and the warriors leave the zombie alone while the call stands. The
+  healer gets up even at night and goes to it with the cure from its home chest or the treasury
+  (which then pays it for the work): it throws the potion from up to 8 blocks away, so the zombie
+  hardly hurts anyone on the way, and cures it at once with the apple (no minutes of shaking). The
+  cured villager joins the village. With no healer, no cure at hand, or a call unanswered for a
+  minute, the warriors fight the zombie as any monster. The
+  workshop makes the cure: a fermented spider eye from a spider eye, sugar and a brown mushroom;
+  three splash potions of weakness from three bottles and the eye; a golden apple (masters) from
+  8 gold ingots and an apple.
 - **Support.** Sells healing and buff potions to the treasury for warriors. In fights, throws
   harmful splash potions at enemies.
 - **Simplification.** Brews without Nether ingredients, but buys them when offered.

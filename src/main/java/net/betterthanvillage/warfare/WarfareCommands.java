@@ -74,10 +74,23 @@ public final class WarfareCommands {
                     ColonyManager.markDirty(level);
                     return ok(ctx, "Recruited " + n + ": " + Army.warriors(level, c).size() + " warriors");
                 })))
+                .then(Commands.literal("horses").then(Commands.argument("count", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0, 64)).executes(ctx -> {
+                    // Debug: the stables hold this many horses (cavalry classes follow).
+                    Colony c = here(ctx);
+                    if (c == null) return fail(ctx, "No village");
+                    c.horses = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "count");
+                    Army.assign(ctx.getSource().getLevel(), c);
+                    ColonyManager.markDirty(ctx.getSource().getLevel());
+                    return ok(ctx, "Stables: " + c.horses + " horses");
+                })))
                 .then(Commands.literal("night").executes(ctx -> {
                     int n = NightOps.force(ctx.getSource().getLevel());
                     return ok(ctx, "Sent " + n + " agents");
-                }))
+                }).then(Commands.argument("op", com.mojang.brigadier.arguments.StringArgumentType.word()).executes(ctx -> {
+                    NightOps.Op op = NightOps.Op.byKey(com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "op"));
+                    int n = NightOps.force(ctx.getSource().getLevel(), op);
+                    return ok(ctx, "Sent " + n + " agents (" + op.key() + ")");
+                })))
                 .then(Commands.literal("intel").executes(ctx -> {
                     ServerLevel level = ctx.getSource().getLevel();
                     PlayerBases.tick(level, 0);

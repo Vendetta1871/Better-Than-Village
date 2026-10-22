@@ -70,6 +70,10 @@ public final class Colony implements VillageCapability {
     public boolean watchPostPlaced;
     /** Wall blocks broken in an abstract siege, taken down when the village loads. */
     public final Set<BlockPos> pendingBreaches = new LinkedHashSet<>();
+    /** The elder's choice of what the masons build first (BuildPriority). */
+    public net.betterthanvillage.construction.BuildPriority.Choice buildPriority = net.betterthanvillage.construction.BuildPriority.Choice.HOUSES;
+    /** Houses set on fire by an abstract night operation: the fire breaks out when the village loads. */
+    public final Set<BlockPos> pendingFires = new LinkedHashSet<>();
 
     // ---- threat / offline ----
     public long lastThreatTick = NEVER;
@@ -128,6 +132,13 @@ public final class Colony implements VillageCapability {
     public long founderStartedTick;
     public int founderVisits;
     public int founderCapital;
+    /**
+     * The search party travels as a record (docs_v2/08-simulation.md): it left an abstract village and arrives at
+     * founderArriveTick; members that loaded meanwhile are kept out of the world with their data in founderData.
+     */
+    public boolean founderAbstract;
+    public long founderArriveTick;
+    public final Map<UUID, CompoundTag> founderData = new LinkedHashMap<>();
     public long nextFounderTick;
     public UUID propertyOwner;
     public int propertyLevel;
@@ -444,6 +455,11 @@ public final class Colony implements VillageCapability {
         tag.putLong("founder_started_tick", founderStartedTick);
         tag.putInt("founder_visits", founderVisits);
         tag.putInt("founder_capital", founderCapital);
+        tag.putBoolean("founder_abstract", founderAbstract);
+        tag.putLong("founder_arrive_tick", founderArriveTick);
+        CompoundTag founderDataTag = new CompoundTag();
+        founderData.forEach((id, data) -> founderDataTag.put(id.toString(), data));
+        tag.put("founder_data", founderDataTag);
         tag.putLong("next_founder_tick", nextFounderTick);
         NbtHelper.putUuid(tag, "property_owner", propertyOwner);
         tag.putInt("property_level", propertyLevel);
@@ -514,6 +530,8 @@ public final class Colony implements VillageCapability {
         tag.putBoolean("watch_post_placed", watchPostPlaced);
         NbtHelper.putUuid(tag, "golem", golem);
         tag.putLongArray("pending_breaches", NbtHelper.packPositions(pendingBreaches));
+        tag.putLongArray("pending_fires", NbtHelper.packPositions(pendingFires));
+        tag.putString("build_priority", buildPriority.name());
         ListTag orders = new ListTag();
         birthOrders.forEach(o -> orders.add(o.save()));
         tag.put("birth_orders", orders);
@@ -641,6 +659,15 @@ public final class Colony implements VillageCapability {
         c.founderStartedTick = tag.getLong("founder_started_tick");
         c.founderVisits = Math.max(0, tag.getInt("founder_visits"));
         c.founderCapital = Math.max(0, tag.getInt("founder_capital"));
+        c.founderAbstract = tag.getBoolean("founder_abstract");
+        c.founderArriveTick = tag.getLong("founder_arrive_tick");
+        CompoundTag founderDataTag = tag.getCompound("founder_data");
+        for (String key : founderDataTag.getAllKeys()) {
+            try {
+                c.founderData.put(UUID.fromString(key), founderDataTag.getCompound(key));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
         c.nextFounderTick = tag.getLong("next_founder_tick");
         c.propertyOwner = NbtHelper.uuid(tag, "property_owner");
         c.propertyLevel = NbtHelper.clamp(tag.getInt("property_level"), 0, 3);
@@ -723,6 +750,14 @@ public final class Colony implements VillageCapability {
         for (BlockPos pos : NbtHelper.unpackPositions(tag.getLongArray("pending_breaches"))) {
             if (c.pendingBreaches.size() >= 4096) break;
             c.pendingBreaches.add(pos);
+        }
+        try {
+            c.buildPriority = net.betterthanvillage.construction.BuildPriority.Choice.valueOf(tag.getString("build_priority"));
+        } catch (IllegalArgumentException ignored) {
+        }
+        for (BlockPos pos : NbtHelper.unpackPositions(tag.getLongArray("pending_fires"))) {
+            if (c.pendingFires.size() >= 64) break;
+            c.pendingFires.add(pos);
         }
         CompoundTag index = tag.getCompound("market_index");
         for (String key : index.getAllKeys()) {

@@ -340,6 +340,7 @@ public final class ColonyManager {
         // Wall blocks breached in an abstract siege come down once the village is live (docs_v2/07-warfare.md).
         if (entityTicking && now % 20 == 0) {
             net.betterthanvillage.warfare.Siege.applyBreaches(level, colony);
+            net.betterthanvillage.warfare.NightOps.applyFires(level, colony);
             net.betterthanvillage.warfare.Outposts.tickWatch(level, colony);
         }
         boolean playerNear = false;

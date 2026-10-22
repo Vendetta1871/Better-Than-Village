@@ -1,0 +1,24 @@
+// An abstract village orders births, its masons build the houses as a record; on load the houses stand and children are born
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+tick sprint 2400
+#wait-log Sprint completed 400
+execute positioned {LX} 100 {LZ} run btv status
+forceload remove all
+#sleep 5
+tick sprint 96000
+#wait-log Sprint completed 2400
+execute positioned {LX} 100 {LZ} run btv world ledger
+btv world
+// The village loads again
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#sleep 30
+tick sprint 6000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint 24000
+#wait-log Sprint completed 1500
+execute positioned {LX} 100 {LZ} run btv status

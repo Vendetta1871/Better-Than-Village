@@ -114,6 +114,11 @@ public final class HouseCatalog {
         return new SiteSearch.Spec(Math.max(1, size.getX()), Math.max(1, size.getZ()), Math.max(1, size.getY()), entrance, facing);
     }
 
+    /** Every dwelling of the biome (houses with a bed). */
+    public static List<Entry> homes(ServerLevel level, String biome) {
+        return get(level, biome).homes();
+    }
+
     /** Round-robin dwelling for the given count of completed plots (05 §2.2). */
     public static Entry home(ServerLevel level, String biome, int completed) {
         List<Entry> homes = get(level, biome).homes();

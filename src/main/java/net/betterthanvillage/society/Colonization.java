@@ -57,9 +57,9 @@ import java.util.function.Predicate;
 
 /** Founder expeditions (06 §6): start, settler selection, site search, travel, founding and deaths. */
 public final class Colonization {
-    private static final int SETTLERS = 5;
+    static final int SETTLERS = 5;
     /** A party smaller than this does not leave: the future elder, a warrior and one more. */
-    private static final int MIN_SETTLERS = 3;
+    static final int MIN_SETTLERS = 3;
     /** Founding sites lie MIN_SITE_DISTANCE..MAX_SITE_DISTANCE blocks from the home core. */
     static final int MIN_SITE_DISTANCE = 288;
     static final int MAX_SITE_DISTANCE = 448;
@@ -91,6 +91,8 @@ public final class Colonization {
                 advance(level, colony);
             } else if (level.isPositionEntityTicking(colony.core()) && !FilmMode.isOn(level)) {
                 tryStart(level, colony);
+            } else if (!ColonyManager.isLive(level, colony) && net.betterthanvillage.world.WorldScheduler.enabled()) {
+                AbstractExpedition.tryStart(level, colony);
             }
         }
     }
@@ -115,7 +117,9 @@ public final class Colonization {
             ColonyManager.markDirty(level);
             return;
         }
-        loadCargo(level, colony, settlers);
+        List<UUID> ids = new ArrayList<>();
+        for (Villager v : settlers) ids.add(v.getUUID());
+        loadCargo(level, colony, ids);
         depart(level, colony, settlers, site, now);
     }
 
@@ -170,7 +174,7 @@ public final class Colonization {
     }
 
     /** Emeralds in a villager's home chests. */
-    private static int purse(ServerLevel level, Colony colony, UUID villager) {
+    static int purse(ServerLevel level, Colony colony, UUID villager) {
         Household h = colony.households.get(villager);
         return h == null ? 0 : net.betterthanvillage.economy.Chests.count(ColonyStorage.usable(level, h), st -> st.is(Items.EMERALD));
     }
@@ -180,7 +184,7 @@ public final class Colonization {
      * emeralds from its home chests (paid out again to its household in the new village, or at home if the party
      * comes back).
      */
-    private static void loadCargo(ServerLevel level, Colony colony, List<Villager> settlers) {
+    static void loadCargo(ServerLevel level, Colony colony, List<UUID> settlers) {
         colony.founderCargo.clear();
         take(level, colony, s -> s.is(Items.EMERALD), ColonyConfig.get().land.expansion_grant);
         take(level, colony, s -> s.is(ItemTags.LOGS), 32);
@@ -188,13 +192,13 @@ public final class Colonization {
         take(level, colony, FOOD, 32);
         colony.founderCargoReserved = true;
         colony.founderPurses.clear();
-        for (Villager v : settlers) {
-            Household h = colony.households.get(v.getUUID());
+        for (UUID id : settlers) {
+            Household h = colony.households.get(id);
             if (h == null) continue;
             List<ColonyStorage.Slot> home = ColonyStorage.usable(level, h);
             int held = net.betterthanvillage.economy.Chests.count(home, st -> st.is(Items.EMERALD));
             int n = net.betterthanvillage.economy.Chests.total(net.betterthanvillage.economy.Chests.take(home, st -> st.is(Items.EMERALD), held));
-            if (n > 0) colony.founderPurses.put(v.getUUID(), n);
+            if (n > 0) colony.founderPurses.put(id, n);
         }
     }
 
@@ -271,7 +275,7 @@ public final class Colonization {
     }
 
     /** No village's largest territory comes within the new village's largest territory of the site. */
-    private static boolean roomToGrow(ServerLevel level, BlockPos pos) {
+    static boolean roomToGrow(ServerLevel level, BlockPos pos) {
         int ownMax = (int) Math.sqrt(ColonyConfig.get().land.territory_max_area / Math.PI);
         for (Colony c : ColonyManager.data(level).colonies()) {
             long reach = Math.max(c.radius(), Territory.maxRadius(c)) + ownMax;
@@ -291,7 +295,7 @@ public final class Colonization {
         return !coreNear(level, pos, false);
     }
 
-    private static boolean coreNear(ServerLevel level, BlockPos pos, boolean horizontal) {
+    static boolean coreNear(ServerLevel level, BlockPos pos, boolean horizontal) {
         for (Colony c : ColonyManager.data(level).colonies()) {
             long dx = c.core().getX() - pos.getX(), dy = horizontal ? 0 : c.core().getY() - pos.getY(), dz = c.core().getZ() - pos.getZ();
             if (dx * dx + dy * dy + dz * dz < CORE_SPACING_SQ) return true;
@@ -371,6 +375,11 @@ public final class Colonization {
     }
 
     static void advance(ServerLevel level, Colony colony) {
+        if (colony.founderAbstract) {
+            AbstractExpedition.advance(level, colony);
+            return;
+        }
+        AbstractExpedition.hold(level, colony);
         long now = level.getGameTime();
         if (timedOut(level, colony, now)) {
             deliverCargo(level, colony, colony, colony.core());
@@ -532,7 +541,7 @@ public final class Colonization {
     }
 
     /** A standable spot 1..3 blocks from pos, or null. */
-    private static BlockPos standNear(ServerLevel level, BlockPos pos) {
+    static BlockPos standNear(ServerLevel level, BlockPos pos) {
         for (int r = 1; r <= 3; r++) {
             for (int dx = -r; dx <= r; dx++) {
                 for (int dz = -r; dz <= r; dz++) {
@@ -566,7 +575,7 @@ public final class Colonization {
     }
 
     /** Consumes n resources: cargo (stone, logs, food) if reserved, else home storage (logs, stone or food). */
-    private static boolean consumeCapital(ServerLevel level, Colony colony, int n) {
+    static boolean consumeCapital(ServerLevel level, Colony colony, int n) {
         if (colony.founderCargoReserved) {
             int total = 0;
             for (int c : colony.founderCargo.values()) total += c;
@@ -621,7 +630,7 @@ public final class Colonization {
     }
 
     /** Puts the whole cargo into the given colony's storages; overflow is dropped at the drop point + 1. */
-    private static void deliverCargo(ServerLevel level, Colony owner, Colony into, BlockPos dropAt) {
+    static void deliverCargo(ServerLevel level, Colony owner, Colony into, BlockPos dropAt) {
         for (Map.Entry<Item, Integer> e : owner.founderCargo.entrySet()) {
             int left = e.getValue();
             while (left > 0) {
@@ -687,6 +696,10 @@ public final class Colonization {
         colony.founderReturning = false;
         colony.nextFounderTick = now + 24000;
         colony.runtime.remove(BRIDGE_KEY);
+        colony.founderAbstract = false;
+        colony.founderArriveTick = 0;
+        colony.founderData.clear();
+        AbstractExpedition.ended(colony);
         if (applyVisuals) {
             for (UUID id : members) {
                 Villager v = villager(level, id);
@@ -783,7 +796,7 @@ public final class Colonization {
 
     // ---------------------------------------------------------------- founding (06 §6.6)
 
-    private static void found(ServerLevel level, Colony home, Villager founder) {
+    static void found(ServerLevel level, Colony home, Villager founder) {
         BlockPos target = home.founderTarget;
         if (!suitable(level, target) || home.founderCompanions.isEmpty()) return;
         if (!Protection.terrainModifiable(level, target) || Protection.isProtectedBlock(level, target.below())

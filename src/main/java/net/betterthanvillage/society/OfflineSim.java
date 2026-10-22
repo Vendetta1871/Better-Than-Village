@@ -230,7 +230,7 @@ public final class OfflineSim {
         int marked = 0;
         for (ConstructionJob job : colony.jobs) {
             if (marked >= n) break;
-            if (!eligible(job)) continue;
+            if (!eligible(job) || CatchupConstruction.handedOver(colony).contains(job.id)) continue;
             marked++;
             job.catchup = true;
             if (job.builder != null) {

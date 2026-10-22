@@ -1,0 +1,31 @@
+// A player buys a plot and orders a house on it from the elder; the masons build it and it is the player's
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+tick sprint 2400
+#wait-log Sprint completed 400
+btv bot spawn Buyer {LX} 130 {LZ}
+#sleep 3
+btv bot give Buyer minecraft:emerald 64
+btv bot deal Buyer permission
+btv bot deed Buyer {LX-40} 100 {LZ+30}
+execute positioned {LX} 100 {LZ} run btv status
+btv bot give Buyer minecraft:emerald 64
+btv bot give Buyer minecraft:emerald 64
+btv bot elder Buyer
+btv bot deal Buyer house_order
+execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv jobs
+execute positioned {LX} 100 {LZ} run btv status

@@ -38,7 +38,7 @@ public final class Production {
 
     /** One day of the household's worker. Returns the number of items produced. */
     public static int day(ServerLevel level, Colony colony, Household h, long day) {
-        if (!h.hasChest() || Caravans.away(level, h.owner)) return 0;
+        if (!h.hasChest() || Caravans.away(level, h.owner) || colony.isFounderParty(h.owner)) return 0;
         List<ColonyStorage.Slot> home = ColonyStorage.usable(level, h);
         if (home.isEmpty()) return 0;
         Work w = new Work(level, colony, h, home, day);
@@ -104,10 +104,13 @@ public final class Production {
                 }
             }
             case MASON -> {
-                if (construction(colony) > 0) {
+                // Birth houses first (paid by the parents), then the village's unfinished plots.
+                int used = net.betterthanvillage.economy.Births.build(level, colony, MASON_BLOCKS);
+                if (used == 0 && construction(colony) > 0) {
                     colony.catchupLabor = Math.min(12000, colony.catchupLabor + MASON_BLOCKS);
-                    h.labor = Math.min(1_000_000, h.labor + MASON_BLOCKS);
+                    used = MASON_BLOCKS;
                 }
+                h.labor = Math.min(1_000_000, h.labor + used);
             }
             default -> {
             }
@@ -124,6 +127,7 @@ public final class Production {
         for (ConstructionJob job : colony.jobs) {
             if (job.owner != null || job.completedOnce || job.status == JobStatus.COMPLETE) continue;
             if (job.status != JobStatus.QUEUED && job.status != JobStatus.BUILDING) continue;
+            if (net.betterthanvillage.construction.CatchupConstruction.handedOver(colony).contains(job.id)) continue;
             job.catchup = true;
             if (job.builder != null) job.releaseBuilder();
             n++;

@@ -144,6 +144,7 @@ public final class Gathering {
             Credit.defaults(level, colony, byId);
             Conscription.step(level, colony, byId);
             Births.step(level, colony, byId);
+            net.betterthanvillage.construction.BuildPriority.decide(level, colony);
         }
         // Debts due are paid first, by every household (the elder collects them), before anyone buys.
         int repaid = 0;

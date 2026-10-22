@@ -83,9 +83,16 @@ public abstract class VillagerMixin {
         }
     }
 
-    /** Vanilla golem summoning is suppressed while the village has its golem (docs_v2/07-warfare.md §Iron golems). */
+    /**
+     * Vanilla golem summoning is off (villages build their golems, docs_v2/07-warfare.md §Iron golems); with
+     * natural_golems on it is only suppressed while the village has its golems.
+     */
     @Inject(method = "spawnGolemIfNeeded", at = @At("HEAD"), cancellable = true)
     private void btv$golemCap(ServerLevel level, long time, int needed, CallbackInfo ci) {
+        if (!net.betterthanvillage.config.ColonyConfig.get().warfare.natural_golems) {
+            ci.cancel();
+            return;
+        }
         Villager self = (Villager) (Object) this;
         var colony = net.betterthanvillage.colony.ColonyManager.colonyOf(level, self);
         if (colony != null && net.betterthanvillage.defense.GolemManager.villageGolems(level, colony) >= net.betterthanvillage.config.ColonyConfig.get().warfare.golem_cap) {

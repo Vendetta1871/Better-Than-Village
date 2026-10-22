@@ -64,6 +64,7 @@ spawn-protection=0
 view-distance=6
 simulation-distance=6
 motd=btv-test
+max-tick-time=-1
 """)
     log_path = os.path.join(run, 'test-server.log')
     log = open(log_path, 'w')

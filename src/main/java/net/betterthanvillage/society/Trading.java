@@ -79,7 +79,9 @@ public final class Trading {
         /** A peace treaty bought from the elder (docs_v2/05-law.md §Peace treaties). */
         TREATY,
         /** A weary country pays the player for peace. */
-        TREATY_PAID
+        TREATY_PAID,
+        /** A house built on the player's plot, paid to the treasury (docs_v2/04-land.md §Plots and houses). */
+        HOUSE_ORDER
     }
 
     /**
@@ -195,6 +197,18 @@ public final class Trading {
             for (LandSales.HouseOffer house : LandSales.houseOffers(level, colony)) {
                 int price = house.beds() > 1 ? Prices.mediumHousePrice(colony) : Prices.smallHousePrice(colony);
                 permission(offers, descs, colony, house.map(), price, 1, 20);
+            }
+            // A house on a plot the player owns here, built by the village's masons.
+            if (player != null) {
+                for (HouseOrders.Candidate c : HouseOrders.offers(level, colony, player.getUUID())) {
+                    ItemStack contract = HouseOrders.contract(level, colony, c);
+                    int a = Math.min(64, c.price()), b = c.price() - a;
+                    MerchantOffer offer = b > 0
+                            ? new MerchantOffer(new ItemCost(Items.EMERALD, a), java.util.Optional.of(new ItemCost(Items.EMERALD, b)), contract, 1, 20, COLONY_MULTIPLIER)
+                            : new MerchantOffer(new ItemCost(Items.EMERALD, a), contract, 1, 20, COLONY_MULTIPLIER);
+                    offers.add(offer);
+                    descs.put(offer, new Desc(colony.id(), null, Kind.HOUSE_ORDER, Items.WRITTEN_BOOK, 1, c.price(), player.getUUID()));
+                }
             }
         }
         Household h = colony.households.get(v.getUUID());
@@ -405,6 +419,7 @@ public final class Trading {
             case BUY -> Chests.count(slots, s -> s.is(Items.EMERALD)) >= d.price() && Chests.room(slots, new ItemStack(d.item())) >= paid;
             case SELL_ON_CREDIT, REPAY, PAY_WITH_NOTE, COLLECT -> PlayerCredit.validate(level, colony, d, slots);
             case TREATY, TREATY_PAID -> TreatyTrade.validate(level, colony, d, slots);
+            case HOUSE_ORDER -> Chests.room(slots, emerald) >= d.price() && HouseOrders.stillValid(level, colony, d.debt(), offer.getResult()) != null;
         };
     }
 
@@ -434,7 +449,13 @@ public final class Trading {
         int paid = offer.getCostA().getCount();
         List<ColonyStorage.Slot> slots = slots(level, colony, d);
         Household h = d.owner() == null ? null : colony.households.get(d.owner());
-        if (d.kind() == Kind.TREATY || d.kind() == Kind.TREATY_PAID) {
+        if (d.kind() == Kind.HOUSE_ORDER) {
+            if (HouseOrders.place(level, colony, d.debt(), offer.getResult())) {
+                Chests.put(slots, List.of(new ItemStack(Items.EMERALD, d.price())));
+                colony.soldTrades++;
+                WorkTracker.status(v, LABEL_PERMISSION);
+            }
+        } else if (d.kind() == Kind.TREATY || d.kind() == Kind.TREATY_PAID) {
             TreatyTrade.settle(level, colony, v, d, slots);
         } else if (d.kind() == Kind.SELL_ON_CREDIT || d.kind() == Kind.REPAY || d.kind() == Kind.PAY_WITH_NOTE || d.kind() == Kind.COLLECT) {
             PlayerCredit.settle(level, colony, v, d, slots, h);

@@ -227,6 +227,8 @@ public final class Households {
             case FARMER -> {
                 kit.add(new ItemStack(Items.STONE_HOE));
                 kit.add(new ItemStack(Items.WHEAT_SEEDS, 16));
+                // Pumpkins for the village's golems (and the herder's hay is wheat).
+                kit.add(new ItemStack(Items.PUMPKIN_SEEDS, 4));
             }
             case HERDER -> {
                 kit.add(new ItemStack(Items.SHEARS));

@@ -144,6 +144,8 @@
   "message.better_than_village.law.peace.debt": "Долг уплачен: %s прекращает войну.",
   "message.better_than_village.law.treaty.title": "Мирный договор",
   "message.better_than_village.law.treaty.page": "МИРНЫЙ ДОГОВОР\n\nМежду %s и %s.\nПодписан в день %s.\n%s\nПеремирие до дня %s.",
+  "message.better_than_village.land.order.title": "Договор на дом",
+  "message.better_than_village.land.order.page": "ДОГОВОР НА ДОМ\n\n%s строит дом (%s) на вашем участке у %s.\nОплачено: %s изумрудов.\nДом ваш, когда достроен.",
   "message.better_than_village.law.treaty.paid_by_player": "Игрок заплатил %s изумрудов.",
   "message.better_than_village.law.treaty.paid_by_country": "Деревня заплатила игроку %s изумрудов.",
   "commands.better_than_village.status.law": "Закон: украдено предметов=%s; %s",

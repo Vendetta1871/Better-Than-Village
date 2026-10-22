@@ -112,7 +112,7 @@ public final class SiteSearch {
     }
 
     /** Rotation that turns the entrance toward the core (0 without an entrance). */
-    static int rotationFacing(Spec spec, int dx, int dz) {
+    public static int rotationFacing(Spec spec, int dx, int dz) {
         if (spec.facing() == null) return 0;
         Direction toCore = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? Direction.WEST : Direction.EAST) : (dz > 0 ? Direction.NORTH : Direction.SOUTH);
         for (Rotation r : Rotation.values()) {
@@ -162,6 +162,11 @@ public final class SiteSearch {
 
     /** Fit test (05 §2.3); returns (x0, Y, z0) or null. */
     public static BlockPos fit(ServerLevel level, Colony colony, int x0, int z0, int w, int d, int h) {
+        return fit(level, colony, x0, z0, w, d, h, null);
+    }
+
+    /** Fit test where the given player plot may hold the house (a house the player ordered on it). */
+    public static BlockPos fit(ServerLevel level, Colony colony, int x0, int z0, int w, int d, int h, LandPlot own) {
         BlockPos pen = colony.livestockPen;
         if (pen != null && x0 <= pen.getX() + 8 && x0 + w - 1 >= pen.getX() - 8 && z0 <= pen.getZ() + 8 && z0 + d - 1 >= pen.getZ() - 8) {
             return null;
@@ -188,7 +193,7 @@ public final class SiteSearch {
         BoundingBox near = new BoundingBox(x0 - 3, y - 4, z0 - 3, x0 + w + 2, y + h + 2, z0 + d + 2);
         ColonySavedData data = ColonyManager.data(level);
         for (LandPlot plot : data.land) {
-            if (plot.intersects(b)) return null;
+            if (plot != own && plot.intersects(b)) return null;
         }
         for (Colony c : data.colonies()) {
             for (ConstructionJob job : c.jobs) {

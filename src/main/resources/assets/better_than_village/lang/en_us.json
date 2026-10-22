@@ -144,6 +144,8 @@
   "message.better_than_village.law.peace.debt": "Your debt is paid: %s ends the war.",
   "message.better_than_village.law.treaty.title": "Peace treaty",
   "message.better_than_village.law.treaty.page": "PEACE TREATY\n\nBetween %s and %s.\nSigned on day %s.\n%s\nTruce until day %s.",
+  "message.better_than_village.land.order.title": "House contract",
+  "message.better_than_village.land.order.page": "HOUSE CONTRACT\n\n%s builds a %s on your plot at %s.\nPaid: %s emeralds.\nThe house is yours when it stands.",
   "message.better_than_village.law.treaty.paid_by_player": "The player paid %s emeralds.",
   "message.better_than_village.law.treaty.paid_by_country": "The village paid the player %s emeralds.",
   "commands.better_than_village.status.law": "Law: stolen items=%s; %s",

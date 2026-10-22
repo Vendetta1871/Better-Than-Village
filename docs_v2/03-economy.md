@@ -219,6 +219,9 @@ The flow:
 If there is no land left for a plot, no births happen. That pressure triggers expansion
 ([04](04-land.md)).
 
+A village nobody watches orders and builds births as a record; the house is placed and the child
+born when the village loads ([08](08-simulation.md)).
+
 ## Trade between villages
 
 The elder of each village runs **caravans** to other villages that are not at war with it:

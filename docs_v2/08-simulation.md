@@ -134,12 +134,22 @@ The `world` package.
   - In the morning every household eats, wages are paid, interest and defaults run, and every
     worker does a day of work from its own chests: inputs, the tool of its trade (worn out every
     8 days) and products, which pay the levy in kind.
-  - Masons add 240 blocks of labour to the village's unfinished commissioned construction. It is
-    placed by the catch-up builder when the village loads, and the births that wait for those
-    houses then happen live.
+  - **Births and conscription** run as in a live village, from the records: every household is
+    home, and a child is a household whose trade is still pending. Parents order births and pay
+    from their ledger chests (at most 4 open orders). A mason's day goes to the oldest birth house
+    first (480 blocks of labour finish it), then to the village's unfinished construction.
+  - The labour is placed by the catch-up builder when the village loads: a finished birth house
+    gets its site then and is placed at once, and the child is born by its bed, as old as the time
+    since the house was finished (an adult after a day). In a live village a catch-up house that
+    makes no progress for a minute (no material, an obstacle) goes to the masons for good.
+  - **Search parties** of crowded abstract villages travel as records ([04](04-land.md)).
   - Order matching runs on a worker thread on copies of the chests. Loans reserve a slot for
     their note with a placeholder. The result is applied only if the chests are unchanged;
     otherwise the market is cleared again on the server thread.
+- **Loading a site for a moment** (`SiteLoader`). What is decided as a record but needs blocks and
+  entities is done live by holding a small area loaded (a ticket expiring after 30 s, renewed while
+  needed): a search party founding its village, an army storming a player's base with the player
+  away, a night agent at such a base.
 - **Caravans** (`Caravan`, `Caravans`).
   - **Planning.** Every 200 ticks, each settled village with an elder and no caravan out plans a
     trade, at most every `world.caravan_interval_days` (2) days. A worker scores every village

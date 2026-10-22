@@ -27,6 +27,10 @@ public final class BirthOrder {
     public boolean workplaceDone;
     /** The child's generations in its trade (0: first of its line). */
     public int lineage;
+    /** Masons' labour put into the house while the village was abstract. */
+    public int abstractLabor;
+    /** Game tick the house was finished in the abstract world (0: not yet); the child is born when the village loads. */
+    public long builtAbstract;
 
     public BirthOrder(UUID id) {
         this.id = id;
@@ -46,6 +50,8 @@ public final class BirthOrder {
         tag.putLong("placed_day", placedDay);
         tag.putBoolean("workplace_done", workplaceDone);
         tag.putInt("lineage", lineage);
+        tag.putInt("abstract_labor", abstractLabor);
+        tag.putLong("built_abstract", builtAbstract);
         return tag;
     }
 
@@ -66,6 +72,8 @@ public final class BirthOrder {
         o.placedDay = tag.getLong("placed_day");
         o.workplaceDone = tag.getBoolean("workplace_done");
         o.lineage = NbtHelper.clamp(tag.getInt("lineage"), 0, 9);
+        o.abstractLabor = Math.max(0, tag.getInt("abstract_labor"));
+        o.builtAbstract = Math.max(0, tag.getLong("built_abstract"));
         return o;
     }
 }

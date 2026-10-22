@@ -1,0 +1,41 @@
+// Credit with the player, with a fake survival player: signing for goods, paying back, lending through a villager's note, collecting, default
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+tick sprint 2400
+#wait-log Sprint completed 400
+btv bot spawn Buyer {LX} 130 {LZ}
+#sleep 3
+btv bot give Buyer minecraft:writable_book 4
+// No emeralds: the villager lets the player sign for the goods (a book and quill becomes a debt note)
+btv bot deal Buyer sell_on_credit
+execute positioned {LX} 100 {LZ} run btv status
+execute as @e[name=Buyer,limit=1] run data get entity @s Inventory
+// The next day the player pays back and gets the note
+tick sprint 24000
+#wait-log Sprint completed 900
+btv bot give Buyer minecraft:emerald 16
+btv bot deal Buyer repay
+execute positioned {LX} 100 {LZ} run btv status
+// The player sells goods to a household that pays with its own note, then collects the note when due
+btv bot give Buyer minecraft:wheat 64
+btv bot give Buyer minecraft:bread 32
+btv bot give Buyer minecraft:cobblestone 64
+btv bot give Buyer minecraft:oak_log 32
+btv bot deal Buyer pay_with_note
+execute positioned {LX} 100 {LZ} run btv status
+tick sprint 72000
+#wait-log Sprint completed 1500
+btv bot deal Buyer collect
+execute positioned {LX} 100 {LZ} run btv status
+// Default: the player signs again and never pays; once overdue the village's country declares war
+execute as @e[name=Buyer,limit=1] run clear @s minecraft:emerald
+btv bot deal Buyer sell_on_credit
+tick sprint 96000
+#wait-log Sprint completed 1800
+execute positioned {LX} 100 {LZ} run btv law
+tick sprint 72000
+#wait-log Sprint completed 1800
+execute positioned {LX} 100 {LZ} run btv law
+execute positioned {LX} 100 {LZ} run btv status

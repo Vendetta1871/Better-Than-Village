@@ -1,5 +1,6 @@
 package net.betterthanvillage.economy;
 
+import com.mojang.logging.LogUtils;
 import net.betterthanvillage.colony.Colony;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonyRole;
@@ -23,6 +24,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,12 +39,17 @@ import java.util.UUID;
  * owns its bed and household from the first day. The treasury pays only to keep a small village alive.
  */
 public final class Births {
+    private static final Logger LOGGER = LogUtils.getLogger();
     /** Each parent keeps at least this many emeralds after paying. */
     private static final int PARENT_RESERVE = 2;
     /** An order without a site after this many days is cancelled and refunded. */
     private static final int SITE_DAYS = 3;
     /** Below this many adults the treasury pays for births. */
     private static final int MIN_VIABLE_ADULTS = 4;
+    /** Orders an abstract village keeps open at most (finished houses waiting for the village to load). */
+    private static final int MAX_ABSTRACT_ORDERS = 4;
+    /** Masons' labour (blocks) an abstract birth house takes: about two mason-days. */
+    static final int HOUSE_LABOR = 480;
 
     private Births() {
     }
@@ -75,27 +82,70 @@ public final class Births {
             }
         }
         if (colony.birthOrders.isEmpty() && level.getGameTime() >= colony.nextBreedingTick) {
-            order(level, colony, members, today);
+            List<UUID> adults = new ArrayList<>();
+            for (Villager v : members.values()) {
+                if (!v.isBaby()) adults.add(v.getUUID());
+            }
+            order(level, colony, adults, members.size(), today);
         }
+    }
+
+    /**
+     * Daily step of an abstract village (docs_v2/08-simulation.md): parents order births from their ledger chests as
+     * in the loaded world. The masons' days build the houses (see {@link #build}); a finished order waits for the
+     * village to load, where its house is placed by the catch-up builder and the child is born.
+     */
+    public static void abstractStep(ServerLevel level, Colony colony) {
+        long today = Credit.day(level);
+        boolean waiting = false;
+        for (BirthOrder o : colony.birthOrders) {
+            // The site is searched when the village loads: the three days to find it start then.
+            if (o.job == null) o.placedDay = today;
+            waiting |= o.builtAbstract == 0;
+        }
+        if (waiting || colony.birthOrders.size() >= MAX_ABSTRACT_ORDERS || level.getGameTime() < colony.nextBreedingTick) return;
+        List<UUID> adults = new ArrayList<>();
+        int population = 0;
+        for (Household h : colony.households.values()) {
+            population++;
+            if (!colony.pendingProfessions.containsKey(h.owner)) adults.add(h.owner);
+        }
+        // Finished orders are children the village already counts on.
+        population += colony.birthOrders.size();
+        order(level, colony, adults, population, today);
+    }
+
+    /**
+     * An abstract mason's day on the oldest unfinished birth house. Returns the labour used (0 when no house waits).
+     */
+    public static int build(ServerLevel level, Colony colony, int labor) {
+        for (BirthOrder o : colony.birthOrders) {
+            if (o.builtAbstract != 0 || o.job != null) continue;
+            int used = Math.min(labor, HOUSE_LABOR - o.abstractLabor);
+            o.abstractLabor += used;
+            if (o.abstractLabor >= HOUSE_LABOR) {
+                o.builtAbstract = Math.max(1, level.getGameTime());
+                LOGGER.info("[world] {} finishes a house for a {} child", net.betterthanvillage.politics.Countries.villageName(colony),
+                        o.profession.serializedName());
+            }
+            ColonyManager.markDirty(level);
+            return used;
+        }
+        return 0;
     }
 
     // ---------------------------------------------------------------- ordering
 
-    private static void order(ServerLevel level, Colony colony, Map<UUID, Villager> members, long today) {
-        int population = 0;
-        List<Villager> adults = new ArrayList<>();
-        for (Villager v : members.values()) {
-            population++;
-            if (!v.isBaby()) adults.add(v);
-        }
+    private static void order(ServerLevel level, Colony colony, List<UUID> adults, int population, long today) {
         if (population >= ColonyConfig.get().village.max_population_per_bell || !ColonyManager.terrainChangesAllowed(level)) return;
         int price = price();
         // Candidate pairs: fed, not idle poor, with a household; the richest two that can pay.
         List<Household> able = new ArrayList<>();
         java.util.Map<Household, Integer> cash = new java.util.HashMap<>();
-        for (Villager v : adults) {
-            Household h = colony.households.get(v.getUUID());
+        for (UUID id : adults) {
+            Household h = colony.households.get(id);
             if (h == null || !h.hasChest() || h.idlePoor || h.hungryDays > 0 || colony.isFounderParty(h.owner)) continue;
+            if (net.betterthanvillage.warfare.Campaigns.away(level, h.owner)) continue;
             int e = Households.emeralds(level, h);
             cash.put(h, e);
             if (e > PARENT_RESERVE) able.add(h);
@@ -129,7 +179,8 @@ public final class Births {
         ColonyRole missing = null;
         for (ColonyRole r : Professions.GUARANTEED) {
             boolean has = colony.pendingProfessions.containsValue(r);
-            for (Villager v : adults) has |= colony.tradeOf(v.getUUID()) == r;
+            for (UUID id : adults) has |= colony.tradeOf(id) == r;
+            for (BirthOrder o : colony.birthOrders) has |= o.profession == r;
             if (!has) {
                 missing = r;
                 break;
@@ -200,10 +251,10 @@ public final class Births {
      * village needs it (or needs nothing): the child is then a master, one generation more than that parent.
      * Otherwise the child takes the missing trade as the first of its line.
      */
-    static Choice chooseProfession(Colony colony, List<Villager> adults, UUID a, UUID b, net.minecraft.util.RandomSource random) {
+    static Choice chooseProfession(Colony colony, List<UUID> adults, UUID a, UUID b, net.minecraft.util.RandomSource random) {
         java.util.EnumMap<ColonyRole, Integer> deficit = new java.util.EnumMap<>(ColonyRole.class);
         for (ColonyRole r : ColonyRole.TRADES) deficit.put(r, desired(r, adults.size()));
-        for (Villager v : adults) deficit.computeIfPresent(colony.tradeOf(v.getUUID()), (r, n) -> n - 1);
+        for (UUID id : adults) deficit.computeIfPresent(colony.tradeOf(id), (r, n) -> n - 1);
         for (ColonyRole r : colony.pendingProfessions.values()) deficit.computeIfPresent(r, (k, n) -> n - 1);
         for (BirthOrder o : colony.birthOrders) deficit.computeIfPresent(o.profession, (k, n) -> n - 1);
         for (Household h : colony.households.values()) {
@@ -256,7 +307,9 @@ public final class Births {
         if (spot == null) return;
         Villager baby = SpawnSpots.createVillager(level, spot, MobSpawnType.BREEDING);
         if (baby == null) return;
-        baby.setAge(-24000);
+        // A child born of an abstract house has been growing since the house was finished.
+        long grown = o.builtAbstract == 0 ? 0 : Math.max(0, level.getGameTime() - o.builtAbstract);
+        baby.setAge((int) Math.min(0, -24000 + grown));
         if (!level.addFreshEntity(baby)) return;
         if (bed != null) {
             BlockPos owned = bed;

@@ -35,7 +35,9 @@ public final class LandWorkTask extends ColonyTask {
     static final String STATUS_NO_FILL = "нет земли или булыжника для засыпки";
     private static final Predicate<ItemStack> FILL = s -> s.is(Items.DIRT) || s.is(Items.COBBLESTONE) || s.is(Items.COBBLED_DEEPSLATE);
     /** The miner works on a block from this far (horizontal), whatever its height. */
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     private static final int REACH = 3;
+    static final String STATUS_ACCESS = "проход к дому";
     private static final int MAX_HEIGHT = 8;
 
     private final BlockWorkTimer timer = new BlockWorkTimer();
@@ -52,7 +54,7 @@ public final class LandWorkTask extends ColonyTask {
     /** The miner has land work to do (the mining task then yields to it). */
     public static boolean wanted(ServerLevel level, Villager v, Colony colony) {
         if (v.isSleeping() || v.isTrading() || colony.roleOf(v.getUUID()) != ColonyRole.MINER || !ColonyManager.terrainChangesAllowed(level)) return false;
-        if (LandWork.demolitionCount(colony) == 0 && LandWork.pitCount(colony) == 0) return false;
+        if (LandWork.demolitionCount(colony) == 0 && LandWork.pitCount(colony) == 0 && LandWork.accessCount(colony) == 0) return false;
         return Commissions.canPay(level, colony);
     }
 
@@ -84,6 +86,11 @@ public final class LandWorkTask extends ColonyTask {
         BlockPos target = LandWork.nextDemolition(level, colony, v.blockPosition());
         if (target != null) {
             demolish(level, colony, v, target, now);
+            return;
+        }
+        var door = LandWork.nextAccess(level, colony, v.blockPosition());
+        if (door != null) {
+            access(level, colony, v, door.getKey(), door.getValue(), now);
             return;
         }
         if (now % 5 != 0) return;
@@ -127,6 +134,45 @@ public final class LandWorkTask extends ColonyTask {
         }
         v.swing(InteractionHand.MAIN_HAND);
         WorkTracker.credit(v, STATUS_DEMOLISH, 1);
+        ColonyManager.markDirty(level);
+    }
+
+    /** A doorway fix of an unreachable house: a block taken down (to the treasury) or a step of fill put in. */
+    private void access(ServerLevel level, Colony colony, Villager v, BlockPos pos, boolean place, long now) {
+        WorkTracker.status(v, STATUS_ACCESS);
+        if (!near(v, pos)) {
+            if (now % 10 == 0) Nav.approach(level, v, pos, 0.65, 9);
+            if (Nav.isBlacklisted(v, pos, now)) LandWork.accessDone(colony, pos);
+            return;
+        }
+        v.getNavigation().stop();
+        v.getLookControl().setLookAt(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        if (place) {
+            if (!timer.tickAction(level, v, pos, ColonyConfig.get().work.placement_ticks)) return;
+            timer.reset();
+            ItemStack block = ColonyStorage.withdrawOne(level, colony, FILL);
+            if (block.isEmpty()) {
+                WorkTracker.status(v, STATUS_NO_FILL);
+                return;
+            }
+            BlockState state = block.is(Items.DIRT) ? Blocks.DIRT.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState();
+            SafeEditScope.run(() -> level.setBlock(pos, state, 3));
+        } else {
+            if (!timer.tick(level, v, pos, true)) return;
+            timer.reset();
+            BlockState state = level.getBlockState(pos);
+            List<ItemStack> drops = Block.getDrops(state, level, pos, level.getBlockEntity(pos), v, new ItemStack(Items.IRON_PICKAXE));
+            SafeEditScope.run(() -> level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3));
+            for (ItemStack d : drops) {
+                ColonyStorage.deposit(level, colony, d);
+                if (!d.isEmpty()) level.addFreshEntity(new ItemEntity(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, d));
+            }
+        }
+        LandWork.accessDone(colony, pos);
+        LOGGER.info("[village] a miner of {} {} {} on the way to a house", net.betterthanvillage.politics.Countries.villageName(colony),
+                place ? "fills" : "clears", pos.toShortString());
+        v.swing(InteractionHand.MAIN_HAND);
+        WorkTracker.credit(v, STATUS_ACCESS, 1);
         ColonyManager.markDirty(level);
     }
 

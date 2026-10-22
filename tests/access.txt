@@ -1,0 +1,20 @@
+// Paths to unreachable houses: the bed at (226, 120, 143) lies behind a doorway with a roof eave above its entrance steps
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+tick sprint 2400
+#wait-log Sprint completed 400
+execute positioned {LX} 100 {LZ} run btv path 226 120 143
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv path 226 120 143
+tick sprint 24000
+#wait-log Sprint completed 900
+execute positioned {LX} 100 {LZ} run btv path 226 120 143
+execute positioned {LX} 100 {LZ} run btv path 227 119 148
+execute positioned {LX} 100 {LZ} run btv path 226 119 148
+execute positioned {LX} 100 {LZ} run btv path 227 120 147
+execute positioned {LX} 100 {LZ} run btv path 227 120 145
+execute positioned {LX} 100 {LZ} run btv path 197 121 150
+execute positioned {LX} 100 {LZ} run btv status

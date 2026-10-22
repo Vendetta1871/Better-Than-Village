@@ -127,6 +127,8 @@ public final class ColonyConfig {
         public boolean layered_walls = true;
         /** Emeralds the treasury gives a search party to found a new village. */
         public int expansion_grant = 12;
+        /** A house a player orders on its plot costs 4 emeralds plus one per this many blocks (materials and work). */
+        public int house_order_blocks_per_emerald = 6;
     }
 
     /** docs_v2/05-law.md. */
@@ -218,6 +220,8 @@ public final class ColonyConfig {
         public double golem_power = 10.0;
         /** At most this many village golems per village (player golems never count). */
         public int golem_cap = 1;
+        /** Vanilla golem summoning by villagers (gossip, panic); off: villages only build golems from iron and a pumpkin. */
+        public boolean natural_golems = false;
         /** Warriors may serve as cavalry on horses from the herder's stables (off: cavalry fights as infantry). */
         public boolean cavalry = true;
         /** Share of the warriors on night watch in peacetime (reinforced to two thirds in war). */
@@ -321,6 +325,7 @@ public final class ColonyConfig {
         economy.elder_salary = clamp(economy.elder_salary, 0, 64);
         economy.warrior_wage = clamp(economy.warrior_wage, 0, 64);
         economy.labor_units_per_emerald = clamp(economy.labor_units_per_emerald, 1, 4096);
+        land.house_order_blocks_per_emerald = clamp(land.house_order_blocks_per_emerald, 1, 1000);
         economy.max_owed_wage_days = clamp(economy.max_owed_wage_days, 0, 100);
         economy.credit_base = clamp(economy.credit_base, 0, 1000);
         economy.credit_income_days = clamp(economy.credit_income_days, 0, 100);

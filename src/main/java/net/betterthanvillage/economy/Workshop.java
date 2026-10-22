@@ -118,12 +118,25 @@ public final class Workshop {
                 list.add(master(r("glistering melon", Items.GLISTERING_MELON_SLICE, 1, 2, in(Items.MELON_SLICE, 1), in(Items.GOLD_NUGGET, 8))));
                 // Brewed without Nether ingredients (deliberate simplification).
                 list.add(master(r("healing potions", used -> PotionContents.createItemStack(Items.POTION, Potions.HEALING).copyWithCount(3),
-                        s -> s.is(Items.POTION), 6, in(Items.GLASS_BOTTLE, 3), in(Items.GLISTERING_MELON_SLICE, 1))));
+                        s -> potion(s, Potions.HEALING), 6, in(Items.GLASS_BOTTLE, 3), in(Items.GLISTERING_MELON_SLICE, 1))));
+                // The cure of a zombie villager: a potion of weakness (a water bottle and a fermented spider eye, as in
+                // vanilla) and a golden apple.
+                list.add(r("fermented spider eye", Items.FERMENTED_SPIDER_EYE, 1, 1, in(Items.SPIDER_EYE, 1), in(Items.SUGAR, 1),
+                        in(Items.BROWN_MUSHROOM, 1)));
+                list.add(r("weakness potions", used -> PotionContents.createItemStack(Items.SPLASH_POTION, Potions.WEAKNESS).copyWithCount(3),
+                        s -> potion(s, Potions.WEAKNESS), 2, in(Items.GLASS_BOTTLE, 3), in(Items.FERMENTED_SPIDER_EYE, 1)));
+                list.add(master(r("golden apple", Items.GOLDEN_APPLE, 1, 1, in(Items.GOLD_INGOT, 8), in(Items.APPLE, 1))));
             }
             default -> {
             }
         }
         return list;
+    }
+
+    /** A potion (any kind of bottle) of the given effect. */
+    public static boolean potion(ItemStack s, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+        PotionContents c = s.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+        return c != null && c.is(potion);
     }
 
     /** The first recipe the chests can run now (inputs present, product under target), or null. */

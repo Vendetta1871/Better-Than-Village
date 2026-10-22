@@ -171,7 +171,9 @@ public final class VillagerController {
         boolean watch = role == ColonyRole.WARRIOR && colony.nightWatch.contains(v.getUUID());
         boolean restTime = watch ? work : night;
         boolean onDuty = watch ? (night || evening) : work;
-        sleepController(level, colony, v, restTime, alarm);
+        // A healer called to a zombie villager gets up and goes (economy.CureTask).
+        boolean called = role == ColonyRole.HEALER && net.betterthanvillage.economy.CureTask.called(level, colony);
+        sleepController(level, colony, v, restTime, alarm || called);
         if (v.isSleeping()) {
             v.getNavigation().stop();
             v.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
@@ -179,8 +181,8 @@ public final class VillagerController {
             VillagerUtil.doExclusively(v, Activity.REST);
             return;
         }
-        boolean eating = foodRoutine(level, colony, v, evening);
-        if (!eating && !(role == ColonyRole.WARRIOR && alarm) && Gathering.attend(level, colony, v)) {
+        boolean eating = !called && foodRoutine(level, colony, v, evening);
+        if (!eating && !called && !(role == ColonyRole.WARRIOR && alarm) && Gathering.attend(level, colony, v)) {
             return;
         }
         if (net.betterthanvillage.law.Surrender.elderWalk(level, v, colony)) {
@@ -218,6 +220,8 @@ public final class VillagerController {
         Activity chosen = null;
         if (guardCombat) {
             chosen = Activity.FIGHT;
+        } else if (called) {
+            chosen = ModRegistries.COLONY_WORK.get();
         } else if (forcedIdle || eating) {
             chosen = Activity.IDLE;
         } else if (restTime && !alarm) {

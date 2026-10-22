@@ -1,5 +1,7 @@
 package net.betterthanvillage.colony;
 
+import java.util.UUID;
+
 import net.betterthanvillage.construction.Fortifications;
 import net.betterthanvillage.registry.ModTags;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
@@ -71,6 +73,13 @@ public final class Protection {
     }
 
     /** A player's property: a bought plot or house, or a house built for a player. Villagers keep off it. */
+    /** The position lies on a plot of the player whose ordered house is being built. */
+    public static boolean ownPlot(ColonySavedData data, BlockPos pos) {
+        if (buildingFor == null) return false;
+        LandPlot plot = data.landAt(pos);
+        return plot != null && buildingFor.equals(plot.owner());
+    }
+
     public static boolean playerProperty(ServerLevel level, BlockPos pos) {
         return ColonyManager.data(level).inLand(pos) || inPlayerOwnedJob(level, pos);
     }
@@ -165,12 +174,15 @@ public final class Protection {
     // ---------------------------------------------------------------- terrain
 
     /** Protected for terrain edits: wall block, land plot, player block, block entity, builder_protected tag, beacon nearby. */
+    /** The owner of the house job the mason works on right now: its own plot is not protected from that work. */
+    public static UUID buildingFor;
+
     public static boolean isProtectedBlock(ServerLevel level, BlockPos pos) {
         ColonySavedData data = ColonyManager.data(level);
         if (Fortifications.isWallBlock(level, pos)) {
             return true;
         }
-        if (data.inLand(pos)) {
+        if (data.inLand(pos) && !ownPlot(data, pos)) {
             return true;
         }
         if (data.isPlayerBlock(pos)) {

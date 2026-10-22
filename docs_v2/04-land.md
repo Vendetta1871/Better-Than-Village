@@ -67,7 +67,12 @@ After generation, domains change only by agreement or force:
   - An empty house is sold as its deed map directly; the elder offers the two nearest to the bell.
     A house is empty when it has beds and nobody of the village sleeps, lives or stores anything in
     it, and no birth is waiting for it. The sold house becomes a plot covering it plus one block.
-  - The elder no longer takes orders for houses built for the player.
+  - **A house on the player's plot.** The elder also offers to build a house on a plot the player
+    owns in the village: the largest village house of the biome that fits the plot on clear ground,
+    entrance toward the bell. The price is 4 emeralds plus one per
+    `land.house_order_blocks_per_emerald` (6) blocks of the house, paid to the treasury. The player
+    gets a written contract, and the masons build the house on the plot as public work; it is the
+    player's. Ordering is never required: the player may build on the plot freely instead.
 - **Rights on a plot.** The player builds and breaks freely. Villagers do not interfere: no
   repairs, no terraforming, no lamp posts, no roads through it.
 - **The plot stays part of the village.** The walls enclose it, and warriors defend it against
@@ -126,8 +131,7 @@ inside the territory.
 - **Materials.** Fill uses real blocks: the miner's own spoil, or dirt or cobblestone bought at
   the gathering.
 - **Unreachable houses.** A house, bed or chest villagers cannot walk to (generated villages
-  have some on hillsides) gets a path cut or built to it: steps, a ramp or a tunnel. *(Not
-  implemented yet, nor are road tunnels.)*
+  have some on hillsides) gets a path cut or built to it: steps, a ramp or a tunnel.
 - **Implementation.**
   - *Demolition.* A player block in the territory outside the owner's property is condemned
     once the elder's notice was delivered to its owner and the grace period is over. Nothing is
@@ -138,6 +142,18 @@ inside the territory.
     rim with dirt or cobblestone of the treasury.
   - *Sites.* Masons still prepare their own sites; site search accepts at most 4 blocks of
     height difference, inside the 6-block limit.
+  - *Unreachable beds* (`Access`). Every 30 s the village checks one household bed: can a villager
+    by the bell walk next to it? The walk is planned the vanilla way, in up to four legs (each
+    from where the last ended, as a villager plans again on a long way). For a bed it cannot
+    reach, a search (`Trail`) finds a way from where the walk ended to a doorway of the house or
+    the bed's side that may dig and fill: two cells of head room through natural ground, leaves or
+    a roof eave above entrance steps (house blocks cost more), one block of fill for a missing
+    step. Land plots, player blocks, walls, beds and containers are never touched. The miner does
+    the changes. A bed is checked again a day later.
+  - *Road cuts and tunnels.* Where the road's route meets ground more than a block higher, it may
+    go on through the hill: on the level (a tunnel) or one block up (a cut climbing to the top).
+    The mason digs a passage two blocks high before laying the path; the earth goes to the
+    treasury. Nothing built, no player block, house or plot, and no water nearby.
   - The miner's land work is public work within the treasury's budget, and comes before mining.
 
 ## Layered walls
@@ -159,6 +175,12 @@ inside the territory.
   is planned and the old one is kept. Missing blocks of every ring are put back. Gates stand where
   the ring crosses a road and on the bell's axes. Config `land.layered_walls` off: the ring moves
   out instead, as before.
+- **Houses or walls first** (`BuildPriority`). Every morning the elder decides what the masons
+  build first. Danger puts the walls first: a war, hostile neighbours, a war on a player, or a
+  raid (not the monsters of every night). Otherwise a house paid for (by parents or a player)
+  comes first, and walls go up when no house waits. Walls that did not grow for a day give way to
+  a paid house. A lone mason follows the choice; with several, one builds walls and the others
+  houses. Among the houses, a mason takes a paid one before the village's own.
 
 Reuses from the `legacy` port: ring layout, materials and gate control. Change: rings are never
 demolished or moved; new rings are added.
@@ -212,10 +234,21 @@ Implementation notes:
   first of its line if no farmer came along. No starting capital is created for the new
   village.
 - **Site.** Loaded land 288–448 blocks away. The largest territories of the new and of every
-  existing village must not overlap. Inside a foreign domain is skipped until countries can
-  negotiate (phase 4).
+  existing village must not overlap. Inside a foreign domain the country offers to buy the land
+  ([06](06-politics.md)).
 - **Travel.** A settler unloaded for a minute stays home. A settler that cannot catch up with the
   leader for 30 s climbs out to it (teleport).
+- **A village nobody watches** (`AbstractExpedition`). A crowded abstract village (territory at
+  its maximum, and an adult without a bed or a birth house finished as a record) sends its party
+  as a record. Settlers come from the households; the site is searched along the same pattern, a
+  few candidates per pass: unloaded land is judged by the terrain generator (dry, flat within
+  3 blocks) and by the records (territories, cores, domains, player builds and plots). The party
+  travels about 150 blocks an hour. On arrival the site is held loaded for a moment
+  (`world.SiteLoader`): the nearest suitable spot is found with real blocks, the cargo pays the
+  camp, and the settlers appear there (from their stored data, or as new villagers that take over
+  the households of members that never left their unloaded home chunks; the originals are dropped
+  when they load). The live expedition code then founds the village while the site stays loaded.
+  A party that finds no site, or gives up at the site, goes home as a record.
 
 Reuses from the `legacy` port: party travel, path recovery and founding. Changes: the trigger, the party
 members, the site rule, and travel that is abstract when unloaded.

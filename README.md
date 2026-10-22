@@ -26,18 +26,22 @@ before the fork lives on the `legacy` branch.
 
 - **Households and economy** — ten fixed professions passed on to children, home chests,
   gatherings with prices, taxes and wages, credit and debt notes, conscription of the idle poor,
-  births paid by the parents.
+  births paid by the parents, healers curing zombie villagers.
 - **Land** — an irregular territory grown by construction, country domains split by chunk, plots
-  and empty houses sold as deed maps, terraforming, demolition of illegal builds, layered walls,
-  lamp posts, search parties founding daughter villages.
+  and empty houses sold as deed maps, houses built to order on a player's plot, terraforming,
+  doorways fixed for unreachable houses, roads cut through hills, demolition of illegal builds,
+  layered walls with the elder choosing between houses and walls, lamp posts, search parties
+  founding daughter villages.
 - **Law** — offences seen by witnesses, warnings through vanilla gossip, war on the player,
   surrender with a white flag, peace treaties bought from the elder.
 - **Countries and the abstract world** — capitals, loyalty and orders, diplomacy, border
-  purchases; unloaded villages keep living through ledgers, and caravans travel between them.
+  purchases; unloaded villages keep living through ledgers (trade, work, births, conscription,
+  search parties), and caravans travel between them.
 - **Warfare** — campaigns with outposts and sieges (abstract or live: soldiers break, tunnel or
-  climb the walls ring by ring), conquest, war weariness and peace terms, warrior classes, night
-  watch, cavalry, the golem cap, border watch, night operations (theft, arson, killing) and
-  offensives and coalitions against a strong player's base.
+  climb the walls ring by ring, riders jump them), conquest, war weariness and peace terms,
+  warrior classes, night watch, cavalry on campaign, golems built from iron and taken to war,
+  border watch, night operations (theft, arson, killing) and offensives and coalitions against a
+  strong player's base, raided even while the player is away.
 
 Every subsystem has a section with an `enabled` switch in `config/better_than_village.json`
 (created on first start).
@@ -56,7 +60,8 @@ All commands are for operators (permission level 2) and mostly serve debugging a
 them at or near a village (`execute positioned <x> <y> <z> run btv …` from the console).
 
 - `/btv status`, `/btv villagers`, `/btv offers` — colony dump, villager AI states, trade offers.
-- `/btv jobs`, `/btv repair`, `/btv house <biome> [template] [floor]` — construction.
+- `/btv jobs`, `/btv repair`, `/btv house <biome> [template] [floor]` — construction;
+  `/btv path <pos>` — can the village walk there, and what is in the way.
 - `/btv land [sell | illegal | grow <blocks>]` — territory and domain map, deed sales.
 - `/btv country [list | join | secede | loyalty | order | relation | war | peace | border | day]`
   — countries and diplomacy.

@@ -132,6 +132,10 @@ public final class PoliticsCommands {
                     for (Colony c : ColonyManager.data(level).colonies()) ok(ctx, ledgerLine(level, c));
                     for (String s : Caravans.status(level)) ok(ctx, s);
                     for (String s : Borders.status(level)) ok(ctx, s);
+                    for (Colony c : ColonyManager.data(level).colonies()) {
+                        String party = net.betterthanvillage.society.AbstractExpedition.status(level, c);
+                        if (party != null) ok(ctx, party);
+                    }
                     return 1;
                 })
                 .then(Commands.literal("step").executes(ctx -> {
@@ -143,25 +147,9 @@ public final class PoliticsCommands {
                     return ok(ctx, "Caravans planned");
                 }))
                 .then(Commands.literal("stock").then(Commands.argument("item", net.minecraft.commands.arguments.ResourceLocationArgument.id())
-                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 4096)).executes(ctx -> {
-                            // Debug: goods put into the nearest village's treasury (its virtual chests while abstract).
-                            ServerLevel level = ctx.getSource().getLevel();
-                            Colony c = here(ctx);
-                            if (c == null) return fail(ctx, "No village");
-                            var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
-                                    net.minecraft.commands.arguments.ResourceLocationArgument.getId(ctx, "item"));
-                            int left = IntegerArgumentType.getInteger(ctx, "count");
-                            int put = 0;
-                            while (left > 0) {
-                                int n = Math.min(left, item.getDefaultMaxStackSize());
-                                var stack = new net.minecraft.world.item.ItemStack(item, n);
-                                net.betterthanvillage.economy.StockScope.treasury(() -> ColonyStorage.deposit(level, c, stack));
-                                put += n - stack.getCount();
-                                left -= n;
-                                if (!stack.isEmpty()) break;
-                            }
-                            return ok(ctx, "Put " + put + " " + Values.name(item) + " into the treasury of " + Countries.villageName(c));
-                        }))))
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 4096)).executes(ctx -> stock(ctx, null))
+                                .then(Commands.argument("potion", net.minecraft.commands.arguments.ResourceLocationArgument.id())
+                                        .executes(ctx -> stock(ctx, net.minecraft.commands.arguments.ResourceLocationArgument.getId(ctx, "potion")))))))
                 .then(Commands.literal("ledger").executes(ctx -> {
                     ServerLevel level = ctx.getSource().getLevel();
                     Colony c = here(ctx);
@@ -191,6 +179,27 @@ public final class PoliticsCommands {
         if (c == null) return fail(ctx, "No village");
         for (String line : Politics.status(ctx.getSource().getLevel(), c)) ok(ctx, line);
         return 1;
+    }
+
+    /** Debug: goods put into the nearest village's treasury (its virtual chests while abstract); a potion's kind. */
+    private static int stock(CommandContext<CommandSourceStack> ctx, net.minecraft.resources.ResourceLocation potion) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Colony c = here(ctx);
+        if (c == null) return fail(ctx, "No village");
+        var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.commands.arguments.ResourceLocationArgument.getId(ctx, "item"));
+        var kind = potion == null ? null : net.minecraft.core.registries.BuiltInRegistries.POTION.getHolder(potion).orElse(null);
+        int left = IntegerArgumentType.getInteger(ctx, "count");
+        int put = 0;
+        while (left > 0) {
+            int n = Math.min(left, item.getDefaultMaxStackSize());
+            var stack = new net.minecraft.world.item.ItemStack(item, n);
+            if (kind != null) stack.set(net.minecraft.core.component.DataComponents.POTION_CONTENTS, new net.minecraft.world.item.alchemy.PotionContents(kind));
+            net.betterthanvillage.economy.StockScope.treasury(() -> ColonyStorage.deposit(level, c, stack));
+            put += n - stack.getCount();
+            left -= n;
+            if (!stack.isEmpty()) break;
+        }
+        return ok(ctx, "Put " + put + " " + Values.name(item) + " into the treasury of " + Countries.villageName(c));
     }
 
     private static int order(CommandContext<CommandSourceStack> ctx) {

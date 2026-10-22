@@ -85,7 +85,9 @@ public final class RoadTask extends ColonyTask {
             return;
         }
         BlockPos above = node.above();
-        if (!Roads.validNode(level, colony, node) || Nav.isBlacklisted(v, above, now) || colony.roadStallTicks >= 600) {
+        boolean cut = Roads.inHill(level, node);
+        if (!(cut ? Roads.validCut(level, colony, node) : Roads.validNode(level, colony, node)) || Nav.isBlacklisted(v, above, now)
+                || colony.roadStallTicks >= 600) {
             Roads.pop(colony, true);
             WorkTracker.status(v, STATUS_SKIPPED + node.toShortString());
             ColonyManager.markDirty(level);
@@ -96,10 +98,20 @@ public final class RoadTask extends ColonyTask {
             Nav.approach(level, v, above, 0.65, Nav.R2_DEFAULT);
             return;
         }
-        if (!level.getBlockState(above).isAir()) {
-            boolean broken = !HouseConstructionTask.standsOn(v, above) && Protection.terrainModifiable(level, above)
-                    && SafeEditScope.call(() -> level.destroyBlock(above, true, v));
-            if (!broken) Roads.addStall(colony, now);
+        // A cut or tunnel: the passage is dug two blocks high, the top first (the earth goes to the treasury).
+        for (BlockPos dig : new BlockPos[]{node.above(2), above}) {
+            if (level.getBlockState(dig).isAir()) continue;
+            if (dig == node.above(2) && !cut) continue;
+            BlockState was = level.getBlockState(dig);
+            java.util.List<net.minecraft.world.item.ItemStack> drops = net.minecraft.world.level.block.Block.getDrops(was, level, dig, null);
+            boolean broken = !HouseConstructionTask.standsOn(v, dig) && Protection.terrainModifiable(level, dig)
+                    && SafeEditScope.call(() -> level.destroyBlock(dig, false, v));
+            if (broken) {
+                for (var d : drops) ColonyStorage.deposit(level, colony, d);
+                WorkTracker.credit(v, "дорога", 1);
+            } else {
+                Roads.addStall(colony, now);
+            }
             return;
         }
         if (!timer.tickAction(level, v, node, ColonyConfig.get().work.placement_ticks)) return;

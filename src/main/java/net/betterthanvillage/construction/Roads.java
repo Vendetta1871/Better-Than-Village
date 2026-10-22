@@ -1,6 +1,7 @@
 package net.betterthanvillage.construction;
 
 import net.betterthanvillage.colony.Colony;
+import net.betterthanvillage.colony.Protection;
 import net.betterthanvillage.colony.ColonyManager;
 import net.betterthanvillage.colony.ColonySavedData;
 import net.betterthanvillage.colony.ConstructionJob;
@@ -50,6 +51,38 @@ public final class Roads {
             }
         }
         return true;
+    }
+
+    /**
+     * A road node inside a hill (docs_v2/04-land.md §Roads): natural ground at the node and two diggable cells above
+     * it, so the mason cuts a passage (a trench where the hill is low, a tunnel where it is high). No fluid nearby,
+     * nothing built, no player block, no house or plot.
+     */
+    public static boolean validCut(ServerLevel level, Colony colony, BlockPos pos) {
+        if (!ColonyManager.terrainChangesAllowed(level) || !level.isLoaded(pos)) return false;
+        ColonySavedData data = ColonyManager.data(level);
+        for (int k = 0; k <= 2; k++) {
+            BlockPos p = pos.above(k);
+            if (data.inLand(p) || Damage.isProtectedHousePiece(level, p) || data.isPlayerBlock(p) || level.getBlockEntity(p) != null) return false;
+            BlockState st = level.getBlockState(p);
+            if (!st.getFluidState().isEmpty()) return false;
+            if (k == 0 ? !Terrain.natural(st) : !(st.isAir() || st.canBeReplaced() || Terrain.natural(st))) return false;
+            if (k > 0 && !Protection.terrainModifiable(level, p)) return false;
+        }
+        if (!level.getBlockState(pos.above(3)).getFluidState().isEmpty()) return false;
+        for (ConstructionJob job : colony.jobs) {
+            BoundingBox b = job.box();
+            if (pos.getX() >= b.minX() - 2 && pos.getX() <= b.maxX() + 2 && pos.getZ() >= b.minZ() - 2 && pos.getZ() <= b.maxZ() + 2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The node lies under ground (a cut or a tunnel): its passage is still to be dug. */
+    public static boolean inHill(ServerLevel level, BlockPos node) {
+        BlockState up = level.getBlockState(node.above()), up2 = level.getBlockState(node.above(2));
+        return !(up.isAir() || up.canBeReplaced()) || !up2.isAir();
     }
 
     /** The 4 door points (x, z) of a footprint: (w/2,-3), (w/2,d+2), (-3,d/2), (w+2,d/2). */
@@ -106,6 +139,16 @@ public final class Roads {
                 if (nx >= x0 - 2 && nx <= x0 + w + 1 && nz >= z0 - 2 && nz <= z0 + d + 1) continue;
                 if (Math.abs(nx - x0) > 32 || Math.abs(nz - z0) > 32 || !Terrain.loaded(level, nx, nz)) continue;
                 BlockPos n = Terrain.roadGround(level, nx, nz);
+                if (n.getY() - cur.getY() > 1) {
+                    // A hill: through it on the level (a tunnel) or one block up (a cut climbing to its top).
+                    for (int up = 0; up <= 1; up++) {
+                        BlockPos m = new BlockPos(nx, cur.getY() + up, nz);
+                        if (parent.containsKey(m) || !validCut(level, colony, m)) continue;
+                        parent.put(m, cur);
+                        queue.add(m);
+                    }
+                    continue;
+                }
                 if (Math.abs(n.getY() - cur.getY()) > 1 || parent.containsKey(n)) continue;
                 if (!validNode(level, colony, n)) continue;
                 parent.put(n, cur);
