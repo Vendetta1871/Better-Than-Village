@@ -1,0 +1,31 @@
+// The base of the village scenes: the nearest plains village of seed btv-test, grown the way the mod grows it.
+// A day of live life, four days unloaded (the abstract village has masons build houses and parents pay for
+// children), then two live days. Nobody is spawned and nothing is handed out: everyone has a house and the gear the
+// village made itself.
+[setup]
+gamerule doWeatherCycle false
+gamerule doMobSpawning false
+weather clear
+locate structure #minecraft:village
+tp @s {LX} 140 {LZ}
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 120
+#sleep 20
+#ticks 2400
+// Unloaded: no forceload and the camera far away
+forceload remove all
+tp @s {LX+4000} 200 {LZ}
+#sleep 5
+#ticks 96000
+execute positioned {LX} 100 {LZ} run btv world ledger
+// Back: the houses built as records stand, the children are born
+tp @s {LX} 140 {LZ}
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#sleep 30
+#ticks 48000
+execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv villagers
+
+[play]
+time set 2000
+#camera

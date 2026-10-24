@@ -126,10 +126,17 @@ public final class Army {
         want.put(WarriorClass.INFANTRY, Math.max(0, n - wantRanged - wantCavalry));
         Map<WarriorClass, Integer> taken = new EnumMap<>(WarriorClass.class);
         List<UUID> open = new ArrayList<>();
-        for (UUID id : warriors) {
+        // Professional warriors first: a conscript rides or shoots only when no warrior by trade is left for it.
+        List<UUID> ranked = new ArrayList<>(warriors);
+        ranked.sort(Comparator.comparingInt(id -> professional(colony, id) ? 0 : 1));
+        boolean conscriptsWait = false;
+        for (UUID id : ranked) {
             WarriorClass c = colony.warriorClasses.get(id);
-            if (c != null && taken.getOrDefault(c, 0) < want.get(c)) taken.merge(c, 1, Integer::sum);
+            boolean keeps = c != null && taken.getOrDefault(c, 0) < want.get(c)
+                    && (c == WarriorClass.INFANTRY || professional(colony, id) || !conscriptsWait);
+            if (keeps) taken.merge(c, 1, Integer::sum);
             else open.add(id);
+            if (!keeps && professional(colony, id)) conscriptsWait = true;
         }
         for (UUID id : open) {
             for (WarriorClass c : new WarriorClass[]{WarriorClass.RANGED, WarriorClass.CAVALRY, WarriorClass.INFANTRY}) {
@@ -141,7 +148,8 @@ public final class Army {
             }
         }
         // Shifts: the night watch is the first share of the warriors by a hash of the day pair, stable over time.
-        double share = war ? Math.max(cfg().night_watch_share, 2 / 3.0) : cfg().night_watch_share;
+        // Under a siege everybody stands to by day: the army storms when it is ready, not at night.
+        double share = besieged ? 0 : war ? Math.max(cfg().night_watch_share, 2 / 3.0) : cfg().night_watch_share;
         int night = n <= 1 ? 0 : Math.min(n - 1, (int) Math.round(n * share));
         List<UUID> order = new ArrayList<>(warriors);
         order.sort(Comparator.comparingInt(id -> (int) (id.getLeastSignificantBits() ^ colony.id().getMostSignificantBits())));
@@ -158,13 +166,19 @@ public final class Army {
         if (!cfg().cavalry || marching.isEmpty()) return;
         int want = Math.min((int) Math.round(marching.size() * 0.25), colony.horses);
         List<UUID> order = new ArrayList<>(marching);
-        order.sort(Comparator.comparingInt(id -> colony.warriorClasses.get(id) == WarriorClass.CAVALRY ? 0
-                : colony.warriorClasses.get(id) == WarriorClass.INFANTRY || !colony.warriorClasses.containsKey(id) ? 1 : 2));
+        order.sort(Comparator.<UUID>comparingInt(id -> professional(colony, id) ? 0 : 1)
+                .thenComparingInt(id -> colony.warriorClasses.get(id) == WarriorClass.CAVALRY ? 0
+                        : colony.warriorClasses.get(id) == WarriorClass.INFANTRY || !colony.warriorClasses.containsKey(id) ? 1 : 2));
         for (int i = 0; i < order.size(); i++) {
             UUID id = order.get(i);
             if (i < want) colony.warriorClasses.put(id, WarriorClass.CAVALRY);
             else if (colony.warriorClasses.get(id) == WarriorClass.CAVALRY) colony.warriorClasses.put(id, WarriorClass.INFANTRY);
         }
+    }
+
+    /** A warrior by trade, not a conscript. */
+    static boolean professional(Colony colony, UUID id) {
+        return colony.tradeOf(id) == ColonyRole.WARRIOR;
     }
 
     public static WarriorClass classOf(Colony colony, UUID id) {
@@ -272,6 +286,9 @@ public final class Army {
         }
         s.horse = null;
         horse.setPersistenceRequired();
+        // The horse plans the rider's way (Campaigns.go): as far as a villager sees.
+        var range = horse.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE);
+        if (range != null && range.getBaseValue() < 48) range.setBaseValue(48);
         horse.getPersistentData().remove(HORSE_TAG);
         horse.getPersistentData().putString(CAMPAIGN_HORSE_TAG, s.id.toString());
         boolean rides = rider.startRiding(horse, true);
@@ -297,6 +314,8 @@ public final class Army {
     public static void steer(ServerLevel level, Villager v) {
         if (!(v.getVehicle() instanceof AbstractHorse)) remount(level, v);
         if (!(v.getVehicle() instanceof AbstractHorse horse)) return;
+        // A horse on its own way (travel) is not turned back to the rider's stale path.
+        if (net.betterthanvillage.ai.nav.WaypointNavigator.active(horse, level.getGameTime())) return;
         net.minecraft.world.level.pathfinder.Path path = v.getNavigation().getPath();
         BlockPos goal = path != null && !path.isDone() ? path.getTarget() : v.getNavigation().getTargetPos();
         if (goal == null) return;
@@ -307,11 +326,84 @@ public final class Army {
         }
     }
 
-    /** Moves a stuck soldier over an obstacle; a rider moves with its horse. */
-    static void hop(net.minecraft.world.entity.Entity e, double x, double y, double z) {
-        if (e.getVehicle() instanceof AbstractHorse horse) horse.teleportTo(x, y, z);
-        else e.teleportTo(x, y, z);
+    /**
+     * A soldier walks to the point; a rider's horse finds the way itself (it is wider than the villager, and the
+     * villager's own path does not move it).
+     */
+    static void travel(ServerLevel level, Villager v, BlockPos to, double speed) {
+        if (v.getVehicle() instanceof AbstractHorse horse) {
+            net.betterthanvillage.ai.nav.WaypointNavigator.travel(level, horse, to, speed * 1.5);
+        } else {
+            net.betterthanvillage.ai.nav.WaypointNavigator.travel(level, v, to, speed);
+        }
     }
+
+    /**
+     * Moves a stuck soldier over an obstacle; a rider moves with its horse. Never past a village wall or onto it
+     * (false then): an army gets in through a breach it made.
+     */
+    static boolean hop(net.minecraft.world.entity.Entity e, double x, double y, double z) {
+        if (!(e.level() instanceof ServerLevel level) || overWall(level, e, x, y, z)) return false;
+        if (e.getVehicle() instanceof AbstractHorse horse) {
+            horse.teleportTo(x, y, z);
+            return true;
+        }
+        // A rider thrown off (deep water) takes its horse along, or it would be left behind for good.
+        AbstractHorse own = ownHorse(level, e, REMOUNT_RANGE);
+        e.teleportTo(x, y, z);
+        if (own != null) own.teleportTo(x, y, z);
+        return true;
+    }
+
+    /** The point is on a village wall, or a built ring stands between it and the entity. */
+    static boolean overWall(ServerLevel level, net.minecraft.world.entity.Entity e, double x, double y, double z) {
+        BlockPos to = BlockPos.containing(x, y, z);
+        for (Colony c : ColonyManager.data(level).colonies()) {
+            if (c.fortifications.managed.isEmpty()) continue;
+            double r = c.radius() + 24;
+            if (c.core().distSqr(to) > r * r && c.core().distSqr(e.blockPosition()) > r * r) continue;
+            for (int dy = -2; dy <= 1; dy++) {
+                if (c.fortifications.managed.containsKey(to.above(dy))) return true;
+            }
+            if (net.betterthanvillage.construction.Fortifications.acrossWall(c, e.getX(), e.getZ(), x, z)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A soldier on campaign or its horse stuck in a wall is moved, with its rider or its horse, to the nearest open
+     * ground around it. Returns false for anyone else (or nowhere to go).
+     */
+    public static boolean freeFromWall(ServerLevel level, LivingEntity e) {
+        boolean horse = e instanceof AbstractHorse h && !h.getPersistentData().getString(CAMPAIGN_HORSE_TAG).isEmpty();
+        boolean soldier = e instanceof Villager && Campaigns.away(level, e.getUUID());
+        if (!horse && !soldier) return false;
+        net.minecraft.world.entity.Entity mover = e.getVehicle() != null ? e.getVehicle() : e;
+        BlockPos at = mover.blockPosition();
+        BlockPos best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                BlockPos p = Campaigns.surface(level, at.getX() + dx, at.getZ() + dz);
+                if (!level.getFluidState(p.below()).isEmpty()) continue;
+                boolean open = true;
+                for (int y = 0; y <= 2 && open; y++) open = level.getBlockState(p.above(y)).getCollisionShape(level, p.above(y)).isEmpty();
+                if (!open) continue;
+                double score = dx * dx + dz * dz + Math.abs(p.getY() - at.getY());
+                if (score < bestScore && !overWall(level, mover, p.getX() + 0.5, p.getY(), p.getZ() + 0.5)) {
+                    bestScore = score;
+                    best = p;
+                }
+            }
+        }
+        if (best == null) return false;
+        mover.teleportTo(best.getX() + 0.5, best.getY(), best.getZ() + 0.5);
+        if (mover instanceof net.minecraft.world.entity.Mob m) net.betterthanvillage.ai.nav.WaypointNavigator.reset(m);
+        return true;
+    }
+
+    /** A campaign horse looks this far for its rider. */
+    private static final double REMOUNT_RANGE = 48;
 
     /** The soldier's own campaign horse standing within the distance, or null. */
     static AbstractHorse ownHorse(ServerLevel level, net.minecraft.world.entity.Entity rider, double within) {
@@ -323,33 +415,21 @@ public final class Army {
         return null;
     }
 
-    /** A cavalry soldier that got off (a teleport over an obstacle, a fight) gets back on its horse nearby. */
+    /**
+     * A cavalry soldier that got off (thrown off in deep water, a fight) gets back on its horse nearby, unless it
+     * left the horse to storm a wall on foot.
+     */
     private static void remount(ServerLevel level, Villager v) {
         Campaign c = Campaigns.ofSoldier(level, v.getUUID());
         Campaign.Soldier s = c == null ? null : c.soldier(v.getUUID());
-        if (s == null || !s.mounted) return;
-        AbstractHorse h = ownHorse(level, v, 24);
+        if (s == null || !s.mounted || s.dismounted) return;
+        AbstractHorse h = ownHorse(level, v, REMOUNT_RANGE);
         if (h == null) return;
         if (h.distanceToSqr(v) <= 9) {
             v.startRiding(h, true);
-        } else if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) {
-            h.getNavigation().moveTo(v, 1.3);
+        } else {
+            net.betterthanvillage.ai.nav.WaypointNavigator.travel(level, h, v.blockPosition(), 1.4);
         }
-    }
-
-    /** Height in blocks a horse clears with a full jump (vanilla jump strength curve). */
-    static double jumpHeight(AbstractHorse horse) {
-        double j = horse.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH);
-        return -0.1817584952 * j * j * j + 3.689713992 * j * j + 2.128599134 * j - 0.343930367;
-    }
-
-    /** A full jump of the horse toward the direction (a cavalry soldier taking a wall). */
-    static void jump(AbstractHorse horse, double ux, double uz) {
-        double j = horse.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH);
-        horse.getNavigation().stop();
-        horse.setYRot((float) (Math.atan2(-ux, uz) * 180 / Math.PI));
-        horse.setDeltaMovement(ux * 0.45, j, uz * 0.45);
-        horse.hasImpulse = true;
     }
 
     /** A village horse or golem died. */
@@ -364,10 +444,47 @@ public final class Army {
         }
     }
 
+    /** A rider fell: the nearest soldier of the campaign on foot (no archer) takes its horse over. */
+    static void passHorse(ServerLevel level, Campaign c, Campaign.Soldier dead) {
+        if (!dead.mounted) return;
+        String id = dead.id.toString();
+        AbstractHorse horse = null;
+        for (Campaign.Soldier s : c.soldiers) {
+            if (horse != null) break;
+            if (s == dead || !(level.getEntity(s.id) instanceof Villager v)) continue;
+            for (AbstractHorse h : level.getEntitiesOfClass(AbstractHorse.class, v.getBoundingBox().inflate(64),
+                    h -> h.isAlive() && id.equals(h.getPersistentData().getString(CAMPAIGN_HORSE_TAG)))) {
+                horse = h;
+                break;
+            }
+        }
+        if (horse == null) return;
+        Campaign.Soldier heir = null;
+        double best = Double.MAX_VALUE;
+        for (Campaign.Soldier s : c.soldiers) {
+            if (s == dead || s.mounted || s.golem || s.cls == WarriorClass.RANGED) continue;
+            if (!(level.getEntity(s.id) instanceof Villager v) || !v.isAlive()) continue;
+            double d = v.distanceToSqr(horse);
+            if (d < best) {
+                best = d;
+                heir = s;
+            }
+        }
+        if (heir == null) return;
+        heir.mounted = true;
+        heir.dismounted = false;
+        heir.cls = WarriorClass.CAVALRY;
+        horse.getPersistentData().putString(CAMPAIGN_HORSE_TAG, heir.id.toString());
+        ColonyManager.markDirty(level);
+        LOGGER.info("[war] soldier {} takes over the horse of the fallen {}", heir.id.toString().substring(0, 8), id.substring(0, 8));
+    }
+
     /** A village horse died: the stables lose it (a horse on campaign: its rider fights on foot). */
-    public static void horseDied(ServerLevel level, AbstractHorse horse) {
+    public static void horseDied(ServerLevel level, AbstractHorse horse, net.minecraft.world.damagesource.DamageSource source) {
         String rider = horse.getPersistentData().getString(CAMPAIGN_HORSE_TAG);
         if (!rider.isEmpty()) {
+            LOGGER.info("[war] the horse of soldier {} died at {}: {}", rider.substring(0, Math.min(8, rider.length())),
+                    horse.blockPosition().toShortString(), source.getLocalizedDeathMessage(horse).getString());
             try {
                 UUID riderId = UUID.fromString(rider);
                 Campaign c = Campaigns.ofSoldier(level, riderId);

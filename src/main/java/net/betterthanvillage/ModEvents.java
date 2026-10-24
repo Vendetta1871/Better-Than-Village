@@ -156,7 +156,7 @@ public final class ModEvents {
     private static void onVillagerDeath(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
         if (!(event.getEntity().level() instanceof ServerLevel level)) return;
         if (event.getEntity() instanceof Villager v) net.betterthanvillage.world.Caravans.onDeath(level, v);
-        if (event.getEntity() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse) net.betterthanvillage.warfare.Army.horseDied(level, horse);
+        if (event.getEntity() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse) net.betterthanvillage.warfare.Army.horseDied(level, horse, event.getSource());
         if (event.getEntity() instanceof Villager || event.getEntity() instanceof net.minecraft.world.entity.animal.IronGolem) {
             net.betterthanvillage.warfare.Campaigns.onDeath(level, event.getEntity(), event.getSource().getEntity());
             net.betterthanvillage.warfare.Army.onDeath(level, event.getEntity());

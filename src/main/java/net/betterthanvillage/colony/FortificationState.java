@@ -18,6 +18,11 @@ public final class FortificationState {
     public int radius;
     /** Territory radii of the older rings, kept and maintained inside the current one. */
     public final java.util.List<Integer> oldRings = new java.util.ArrayList<>();
+    /**
+     * The wall line of a ring (by its radius) as a distance from the bell per direction, laid out along the houses.
+     * Rings without one (laid out before) follow the territory border.
+     */
+    public final Map<Integer, float[]> profiles = new java.util.HashMap<>();
     public int skipped;
     public long nextPlan;
     public final Set<BlockPos> surveyed = new LinkedHashSet<>();
@@ -31,6 +36,13 @@ public final class FortificationState {
         CompoundTag tag = new CompoundTag();
         tag.putInt("radius", radius);
         tag.putIntArray("old_rings", oldRings.stream().mapToInt(Integer::intValue).toArray());
+        CompoundTag shapes = new CompoundTag();
+        profiles.forEach((r, p) -> {
+            int[] bits = new int[p.length];
+            for (int i = 0; i < p.length; i++) bits[i] = Float.floatToIntBits(p[i]);
+            shapes.putIntArray(Integer.toString(r), bits);
+        });
+        tag.put("profiles", shapes);
         tag.putInt("skipped", skipped);
         tag.putLong("next_plan", nextPlan);
         tag.putLongArray("surveyed", NbtHelper.packPositions(surveyed));
@@ -52,6 +64,19 @@ public final class FortificationState {
         radius = NbtHelper.clamp(tag.getInt("radius"), 0, 512);
         oldRings.clear();
         for (int r : tag.getIntArray("old_rings")) oldRings.add(r);
+        profiles.clear();
+        CompoundTag shapes = tag.getCompound("profiles");
+        for (String key : shapes.getAllKeys()) {
+            int[] bits = shapes.getIntArray(key);
+            if (bits.length == 0) continue;
+            float[] p = new float[bits.length];
+            for (int i = 0; i < bits.length; i++) p[i] = Float.intBitsToFloat(bits[i]);
+            try {
+                profiles.put(Integer.parseInt(key), p);
+            } catch (NumberFormatException ignored) {
+                // not a ring
+            }
+        }
         skipped = Math.max(0, tag.getInt("skipped"));
         nextPlan = tag.getLong("next_plan");
         surveyed.clear();

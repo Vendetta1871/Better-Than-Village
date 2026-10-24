@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** Villager model: arms always visible, hat hidden under a helmet, robe hidden under leggings (02 §2.6). */
+/** Villager model: arms always visible, hat hidden under a helmet, robe hidden under leggings, riders sit (02 §2.6). */
 @Mixin(VillagerModel.class)
 public abstract class VillagerModelMixin {
     @Shadow
@@ -25,6 +25,12 @@ public abstract class VillagerModelMixin {
     @Shadow
     @Final
     private ModelPart hatRim;
+    @Shadow
+    @Final
+    private ModelPart rightLeg;
+    @Shadow
+    @Final
+    private ModelPart leftLeg;
 
     @Unique
     private boolean btv$hideHat;
@@ -46,6 +52,18 @@ public abstract class VillagerModelMixin {
             hatRim.visible = true;
         }
         btv$applyHat();
+        if (entity instanceof Villager && entity.isPassenger()) btv$sit(rightLeg, leftLeg);
+    }
+
+    /** A rider sits: the vanilla villager model has no riding pose (the biped one's legs). */
+    @Unique
+    private static void btv$sit(ModelPart right, ModelPart left) {
+        right.xRot = -1.4137167f;
+        right.yRot = 0.31415927f;
+        right.zRot = 0.07853982f;
+        left.xRot = -1.4137167f;
+        left.yRot = -0.31415927f;
+        left.zRot = -0.07853982f;
     }
 
     @Inject(method = "hatVisible", at = @At("TAIL"))

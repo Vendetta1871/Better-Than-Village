@@ -125,7 +125,9 @@ inside the territory.
 - **Illegal player builds.** Torn down to the ground, without the limits below.
 - **Natural terrain.** Changed only for a reason, so the landscape is not bulldozed:
   - preparing a planned site, a road or a wall line;
-  - filling pits within ~4 blocks of a road, house or field, where they are dangerous.
+  - filling pits within ~4 blocks of a road, house or field, where they are dangerous;
+  - closing holes among the houses (a crater, a sinkhole, an old open trench) at the level
+    where they would spill over, with a lid a few blocks thick.
 - **How much.** At most ~6 blocks of height change per column for a site. A road that would
   need more becomes a **tunnel** through the hill instead.
 - **Materials.** Fill uses real blocks: the miner's own spoil, or dirt or cobblestone bought at
@@ -139,7 +141,25 @@ inside the territory.
     container contents go to the treasury.
   - *Pits.* A dry column whose ground lies 2–6 blocks below the ground two blocks away on both
     sides (along x or z), within 4 blocks of a house, road, field or bed, is filled up to that
-    rim with dirt or cobblestone of the treasury.
+    rim with dirt or cobblestone of the treasury (see *Filling*).
+  - *Depressions.* Every two minutes the village looks at the ground level of every column within
+    112 blocks of the bell (houses, walls and plants looked through; water counts as it stands)
+    and floods it from the edges of that area, lowest first: the level a column would hold water
+    up to. A hole (connected columns at least 2 below that level) inside the wall line or within
+    8 blocks of a house, storage, the pen or a plot, and at most 16 deep, is filled up to it, on
+    natural dry ground or a path of the territory only.
+  - *Filling.* A pit or hole is not filled to its floor: it gets a lid of its top three layers
+    (what is deeper stays a hollow below). The miner lays it from the edge inward, standing on
+    firm ground within three blocks: a block goes only where it rests on or against another (the
+    wall of the hole, the ground, fill already in place), never into the air, so the lid grows
+    column by column and carries the miner farther in. It never sets fill above its head (a lid
+    laid from below would shut it in): a miner down in the pit climbs out the way a player does,
+    putting a block of fill under its feet. Stone goes below and earth on the top
+    layer (when the treasury has some) so grass grows over it. Columns nothing can be set against
+    any more are dropped. A mine whose
+    entrance lies inside the wall line (or the line a first ring would take) is given up and its
+    trench filled; the miner opens new mines only outside it (off the wall and the holes to
+    fill), and the open steps of such a mine are never taken for a hole.
   - *Sites.* Masons still prepare their own sites; site search accepts at most 4 blocks of
     height difference, inside the 6-block limit.
   - *Unreachable beds* (`Access`). Every 30 s the village checks one household bed: can a villager
@@ -158,22 +178,36 @@ inside the territory.
 
 ## Layered walls
 
-- **First ring.** The first wall ring follows the territory border at the time it is built.
-- **Growth.** When the territory grows past a ring, a **new ring is built outside**. The old ring
+- **First ring.** The first wall ring encloses the settlement: the houses, storages, the pen and
+  players' plots, five blocks out from the outermost of them, following the outline of the
+  village rather than a circle (never past the territory border). Fields and woods stay outside
+  the walls, as in a medieval town.
+- **Growth.** When the settlement grows 16 blocks past a ring, a **new ring is built outside**. Houses
+  built beyond the ring in the meantime stand outside it until then. The old ring
   is **kept**, maintained and repaired. Over time this gives defence in depth for sieges
   ([07](07-warfare.md)).
-- **Gates.** Every ring has gates where roads cross it. Old rings keep their gates open in
+- **Gates.** Every ring has gates where roads cross it and every 24 blocks between, so farmers
+  and woodcutters reach the fields and woods outside. Old rings keep their gates open in
   peacetime.
 - **Player plots** are part of the village. A ring that would cross a plot goes around its
   **outer** side, so the plot stays inside and protected.
 - **Funding.** Walls are military buildings, paid by the treasury.
 
-- **Implementation.** A ring is laid out for the territory radius at the time: it follows the
-  noisy border two blocks inside it, and is pushed out along the ray around player property. The
-  village's pieces, houses, fields, storages and pen grow the territory (up to its maximum) so
-  the ring encloses them. Once the territory radius is 16 blocks past the current ring, a new ring
-  is planned and the old one is kept. Missing blocks of every ring are put back. Gates stand where
-  the ring crosses a road and on the bell's axes. Config `land.layered_walls` off: the ring moves
+- **Implementation.** A ring is a wall line given as a distance from the bell in 256 directions
+  (its profile). For each direction it takes the farthest point of the settlement's boxes grown
+  by five blocks: the generated houses and centre (not its streets), the houses built since,
+  storages, the pen and players' plots. Gaps between houses of up to a quarter turn are bridged
+  by straight runs (a convex hull over that span), wider ones over half a turn, at least 12
+  blocks from the bell and two blocks inside the territory border; the line is pushed out along
+  the ray around player property. The settlement grows the territory (up to its maximum) so the
+  ring fits; fields grow it too but stay outside the ring. A ring is known by its radius (its
+  farthest distance), and the profile is saved with it. Once the settlement passes 16 blocks
+  outside the current ring in some direction, a new ring is planned, at least 8 blocks outside the
+  old one everywhere, and the old one is kept (`/btv war ring <blocks>` adds one at once,
+  `/btv war unwall` takes them all down). A ring laid out before profiles follows the territory
+  border; while less than a third of it is built, it is laid out again along the houses. Missing blocks of every ring are put back. Gates stand where
+  the ring crosses a road, on the bell's axes and every 24 blocks of the ring (fields and woods lie
+  outside). Config `land.layered_walls` off: the ring moves
   out instead, as before.
 - **Houses or walls first** (`BuildPriority`). Every morning the elder decides what the masons
   build first. Danger puts the walls first: a war, hostile neighbours, a war on a player, or a
@@ -181,6 +215,9 @@ inside the territory.
   comes first, and walls go up when no house waits. Walls that did not grow for a day give way to
   a paid house. A lone mason follows the choice; with several, one builds walls and the others
   houses. Among the houses, a mason takes a paid one before the village's own.
+- **No material.** A mason that finds no material for the next block (its status names the block)
+  leaves the plot and goes about like an idle villager; it looks into the storage again after half
+  a minute. The house stays queued.
 
 Reuses from the `legacy` port: ring layout, materials and gate control. Change: rings are never
 demolished or moved; new rings are added.

@@ -183,7 +183,6 @@ public final class FilmMode {
         targets.put(Items.COBBLESTONE, 768);
         targets.put(Items.IRON_INGOT, 192);
         targets.put(Items.COAL, 128);
-        targets.put(Items.DIAMOND, 16);
         targets.put(Items.WHEAT_SEEDS, 64);
         targets.put(Items.WHEAT, 64);
         targets.put(Items.CARROT, 32);

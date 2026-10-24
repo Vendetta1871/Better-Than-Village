@@ -1,0 +1,26 @@
+// A villager fills a hole: the deep pit among the houses of the base village is filled by the miner from its edge
+// inward, with dirt and cobblestone of the treasury. Filling is public work paid by the treasury, which the
+// young village cannot afford yet: it gets the taxes of a few more days at once.
+// README gif: demo/gif.sh run/demo/out/pit --speed 2.5
+@from village
+@camera pit_cam_1 213.51 125.01 154.70 21.2 40.8
+[setup]
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:emerald 64
+// Earth for the top layer (the village keeps what it digs out of house sites and roads)
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:dirt 128
+tick sprint 24000
+// Until the miner is at the pit in the picture (209, 163; the village has other holes, its mine among them)
+#until 600 miner@(19\d|2[01]\d), \d+, (1[5-7]\d) .*засыпка ямы :: execute positioned {LX} 100 {LZ} run btv villagers
+tick sprint stop
+execute positioned {LX} 100 {LZ} run btv status
+
+[play]
+time set 3000
+#camera pit_cam_1
+#sleep 2
+// Five times faster: the whole pit in half a minute
+tick rate 100
+#record pit 30
+#wait-record
+tick rate 20
+execute positioned {LX} 100 {LZ} run btv villagers

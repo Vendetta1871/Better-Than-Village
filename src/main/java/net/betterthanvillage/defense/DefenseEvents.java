@@ -37,8 +37,16 @@ public final class DefenseEvents {
         }
     }
 
-    /** Golems take no damage from villagers of their own colony. */
+    /**
+     * Golems take no damage from villagers of their own colony. Soldiers on campaign and their horses do not
+     * suffocate in a wall (a narrow hole, a hop over an obstacle): they are moved out of it.
+     */
     private static void onIncomingDamage(LivingIncomingDamageEvent event) {
+        if (event.getSource().is(net.minecraft.world.damagesource.DamageTypes.IN_WALL) && event.getEntity().level() instanceof ServerLevel level
+                && net.betterthanvillage.warfare.Army.freeFromWall(level, event.getEntity())) {
+            event.setCanceled(true);
+            return;
+        }
         if (event.getEntity() instanceof IronGolem golem && golem.level() instanceof ServerLevel level
                 && event.getSource().getEntity() instanceof Villager v && ThreatManager.sameColony(level, golem, v)) {
             event.setCanceled(true);

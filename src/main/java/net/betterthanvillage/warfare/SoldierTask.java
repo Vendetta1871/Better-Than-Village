@@ -29,44 +29,62 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
  * A soldier on campaign near a player (docs_v2/07-warfare.md §Sieges): fights the warriors and golems of the enemy it
- * meets, and in a siege storms the target ring by ring. Before a wall it breaks a gate or a few wall columns
- * (infantry), digs under the wall where it stands on diggable ground, or builds a staircase up to its top; archers
- * give covering fire from outside. Inside the last ring it makes for the bell and holds it.
+ * meets, and in a siege storms the target ring by ring. The army takes each ring at one breach, on the side it came
+ * from: a gate, or a wall stretch that a few infantry break (or a staircase built up to its top, or a tunnel under it,
+ * when breaking failed). The others wait outside it, archers giving covering fire, riders on foot; once the breach is
+ * open, or anyone got inside, everybody goes through. Inside the last ring the army makes for the bell and holds it.
  */
 public final class SoldierTask extends ColonyTask {
     private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     private static final Predicate<ItemStack> MELEE = s -> s.is(ItemTags.SWORDS) || s.is(ItemTags.AXES);
     private static final Predicate<ItemStack> BOW = s -> s.is(Items.BOW) || s.is(Items.CROSSBOW);
-    /** Ticks a soldier makes no progress toward its goal before it changes tactics. */
+    /** Ticks a soldier makes no progress toward its goal before it is helped on. */
     private static final int STUCK_TICKS = 300;
+    /** Ticks a soldier chases an enemy without closing in before it gives that one up. */
+    private static final int CHASE_TICKS = 200;
+    /** Infantry breaking one breach at a time. */
+    private static final int BREACH_WORKERS = 3;
+    /** Failed passages through an open breach before the army opens another one. */
+    private static final int BREACH_FAILURES = 3;
 
-    enum Tactic { BREAK, TUNNEL, CLIMB, JUMP }
+    enum Tactic { BREAK, CLIMB, TUNNEL }
 
-    /** One step of a breach: a block to take down or to put up. */
-    private record Step(BlockPos pos, BlockState place) {
+    /** One step of a breach: a block to take down, to put up, or a gate to open. */
+    record Step(BlockPos pos, BlockState place, boolean open) {
+        Step(BlockPos pos, BlockState place) {
+            this(pos, place, false);
+        }
     }
 
-    /** The breach this soldier works on. */
-    private static final class Breach {
+    /** The army's breach in one ring (Campaign.breaches): every soldier goes through there. */
+    static final class Breach {
         int ring;
         Tactic tactic;
         BlockPos column;
-        /** A point a few blocks inside the ring the soldier walks to once the breach is open. */
+        /** A point a few blocks inside the ring the soldiers walk to once the breach is open. */
         BlockPos inside;
-        /** JUMP: where the rider takes its run-up outside the wall, and the inward direction. */
-        BlockPos runUp;
-        int[] inward;
-        long jumpedAt;
+        /** Where the army waits outside while the breach is worked, and the archers' spot farther back. */
+        BlockPos outside;
+        BlockPos cover;
         final List<Step> steps = new ArrayList<>();
-        int index;
-        boolean done;
+        /** The infantry working it. */
+        final Set<UUID> workers = new LinkedHashSet<>();
+        boolean open;
+        long checkedAt;
+        int failures;
     }
 
     private Campaign campaign;
@@ -75,11 +93,16 @@ public final class SoldierTask extends ColonyTask {
     private long retargetAt;
     private long moveAt;
     private long swapAt;
-    private Breach breach;
     private final BlockWorkTimer timer = new BlockWorkTimer();
+    private BlockPos goal;
     private long progressAt;
     private double progressBest = Double.MAX_VALUE;
-    private int failedTactics;
+    /** The enemy being chased (entity id), the closest it came and when. */
+    private int chased = -1;
+    private double chaseBest;
+    private long chaseAt;
+    /** Enemies this soldier could not get at (entity id -> until): the fence between them, a cliff. */
+    private final Map<Integer, Long> unreachable = new HashMap<>();
 
     public SoldierTask() {
         super(2400);
@@ -116,7 +139,9 @@ public final class SoldierTask extends ColonyTask {
         attackReadyAt = retargetAt = moveAt = swapAt = now;
         progressAt = now;
         progressBest = Double.MAX_VALUE;
+        goal = null;
         target = null;
+        chased = -1;
     }
 
     @Override
@@ -124,11 +149,12 @@ public final class SoldierTask extends ColonyTask {
         // A rider's horse follows the path the rider chose last tick.
         if ((now + v.getId()) % 10 == 0) Army.steer(level, v);
         if (now >= retargetAt) {
+            unreachable.values().removeIf(until -> until <= now);
             target = pickTarget(level, v, campaign.phase == Campaign.Phase.SIEGE ? 20 : 12);
             // A comrade in a fight nearby: everyone joins it instead of meeting the enemy one by one.
             boolean home = campaign.phase == Campaign.Phase.RETURN || campaign.phase == Campaign.Phase.HOME;
             if (target == null && !home && now - campaign.focusTick <= 100 && level.getEntity(campaign.focus) instanceof LivingEntity f
-                    && f.isAlive() && f.distanceToSqr(v) <= 40 * 40) {
+                    && f.isAlive() && f.distanceToSqr(v) <= 40 * 40 && !unreachable.containsKey(f.getId())) {
                 target = f;
             }
             retargetAt = now + 10;
@@ -155,6 +181,9 @@ public final class SoldierTask extends ColonyTask {
     protected void stop(ServerLevel level, Villager v, long now) {
         timer.cancel(level);
         WaypointNavigator.reset(v);
+        if (campaign != null) {
+            for (Breach b : campaign.breaches.values()) b.workers.remove(v.getUUID());
+        }
         target = null;
         campaign = null;
     }
@@ -186,7 +215,7 @@ public final class SoldierTask extends ColonyTask {
                 enemy = (hurtBy == e && v.tickCount - v.getLastHurtByMobTimestamp() <= 100)
                         || (e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == v);
             }
-            if (!enemy) continue;
+            if (!enemy || unreachable.containsKey(e.getId())) continue;
             double d = e.distanceToSqr(v);
             if (d < bestD && (d <= 16 || v.hasLineOfSight(e))) {
                 bestD = d;
@@ -200,6 +229,14 @@ public final class SoldierTask extends ColonyTask {
         Campaign.Soldier me = campaign.soldier(v.getUUID());
         boolean ranged = me != null && me.cls == WarriorClass.RANGED;
         double d2 = v.distanceToSqr(target);
+        if (target.getId() != chased) {
+            chased = target.getId();
+            chaseBest = d2;
+            chaseAt = now;
+        } else if (d2 < chaseBest - 1) {
+            chaseBest = d2;
+            chaseAt = now;
+        }
         boolean visible = v.hasLineOfSight(target);
         boolean useBow = ranged && d2 >= 16 && visible;
         if (now >= swapAt && Combat.swapWeapon(level, v, useBow ? BOW : MELEE)) swapAt = now + 20;
@@ -208,20 +245,30 @@ public final class SoldierTask extends ColonyTask {
             boolean clear = Combat.lineOfFireClear(level, v, target);
             if (d2 >= 49 && clear) v.getNavigation().stop();
             else if (now >= moveAt && PathBudget.tryAcquire(level)) {
-                v.getNavigation().moveTo(target, 0.75);
+                Army.travel(level, v, target.blockPosition(), 0.75);
                 moveAt = now + 12;
             }
             if (now >= attackReadyAt && clear) {
                 Combat.shoot(level, v, target);
                 attackReadyAt = now + 30;
+                chaseAt = now;
             }
         } else if (d2 > 4) {
             if (now >= moveAt) {
-                WaypointNavigator.travel(level, v, target.blockPosition(), 0.85);
+                Army.travel(level, v, target.blockPosition(), 0.85);
                 moveAt = now + 12;
             }
         } else if (now >= attackReadyAt && visible) {
             attackReadyAt = now + Combat.melee(level, v, target);
+            chaseAt = now;
+        }
+        if (now - chaseAt > CHASE_TICKS) {
+            // Seen but out of reach (behind the wall, across a ravine): back to the assault, a comrade gets it.
+            unreachable.put(target.getId(), now + 600);
+            if (campaign.focus == target.getId()) campaign.focus = -1;
+            target = null;
+            chased = -1;
+            WaypointNavigator.reset(v);
         }
     }
 
@@ -236,14 +283,24 @@ public final class SoldierTask extends ColonyTask {
             return;
         }
         double ux = dx / Math.max(1, dist), uz = dz / Math.max(1, dist);
+        // The outermost ring still between the soldier and the bell; the rings it is inside of are open.
         int ring = -1;
         double wall = 0;
         for (int r : Fortifications.builtRings(t)) {
             double wd = Fortifications.wallDistance(t, r, ux, uz);
             if (wd < dist - 1.5) {
-                ring = r;
-                wall = wd;
-                break;
+                if (ring < 0 || wd > wall) {
+                    ring = r;
+                    wall = wd;
+                }
+            } else {
+                Breach passed = campaign.breaches.get(r);
+                if (passed != null && !passed.open) {
+                    passed.open = true;
+                    passed.checkedAt = now;
+                    LOGGER.info("[war] soldier {} is inside ring {}: the army follows through {}", v.getUUID().toString().substring(0, 8),
+                            r, passed.column.toShortString());
+                }
             }
         }
         if (ring < 0) {
@@ -251,99 +308,126 @@ public final class SoldierTask extends ColonyTask {
             walkTo(level, v, core, now, null);
             return;
         }
-        if (breach == null || breach.ring != ring) {
-            breach = plan(level, v, t, ring, wall, ux, uz);
-            progressAt = now;
-            progressBest = Double.MAX_VALUE;
+        Breach b = campaign.breaches.get(ring);
+        if (b == null) {
+            b = plan(level, t, ring, campaign.breachTries.getOrDefault(ring, 0));
+            if (b == null) {
+                // Nothing built on this side: the ring is open here.
+                BlockPos in = Campaigns.surface(level, (int) Math.floor(core.getX() + ux * (wall - 4)), (int) Math.floor(core.getZ() + uz * (wall - 4)));
+                walkTo(level, v, in, now, null);
+                return;
+            }
+            campaign.breaches.put(ring, b);
         }
-        if (breach == null) {
-            // Nothing built on this side: the ring is open here.
-            BlockPos in = Campaigns.surface(level, (int) Math.floor(core.getX() + ux * (wall - 4)), (int) Math.floor(core.getZ() + uz * (wall - 4)));
-            walkTo(level, v, in, now, null);
-            return;
+        Campaign.Soldier me = campaign.soldier(v.getUUID());
+        if (me != null && v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse && dist - wall < 12) {
+            // Riders storm a wall on foot: a horse fits no breach a villager would make.
+            me.dismounted = true;
+            v.stopRiding();
+            WaypointNavigator.reset(v);
         }
-        if (breach.done) {
-            walkTo(level, v, breach.inside, now, breach);
-            return;
-        }
-        if (breach.tactic == Tactic.JUMP) {
-            jump(level, v, t, wall, now);
-            return;
-        }
-        work(level, v, now);
-    }
-
-    /** Walks to the point; a soldier that makes no progress tries another tactic, or (no griefing) climbs over. */
-    private void walkTo(ServerLevel level, Villager v, BlockPos to, long now, Breach through) {
-        Campaigns.go(level, v, to, 0.8);
-        double d = v.distanceToSqr(to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
-        if (d < progressBest - 4) {
-            progressBest = d;
-            progressAt = now;
-        } else if (now - progressAt > STUCK_TICKS) {
-            progressAt = now;
-            progressBest = Double.MAX_VALUE;
-            if (through != null) {
-                // The breach did not open a way: another one, with another tactic.
-                failedTactics++;
-                breach = null;
-            } else if (!ColonyManager.terrainChangesAllowed(level) || failedTactics > 3) {
-                BlockPos hop = Campaigns.surface(level, (v.getBlockX() + to.getX()) / 2, (v.getBlockZ() + to.getZ()) / 2);
-                Army.hop(v, hop.getX() + 0.5, hop.getY(), hop.getZ() + 0.5);
-                Nav.reset(v);
+        if (b.open && now - b.checkedAt >= 40) {
+            b.checkedAt = now;
+            if (b.tactic == Tactic.BREAK && next(level, b, 0) != null) {
+                // Walled up again (masons, a player): it is worked once more.
+                b.open = false;
+                LOGGER.info("[war] breach in ring {} at {} closed again", b.ring, b.column.toShortString());
             }
         }
+        if (b.open) {
+            walkTo(level, v, b.inside, now, b);
+            return;
+        }
+        b.workers.removeIf(id -> campaign.soldier(id) == null || !(level.getEntity(id) instanceof Villager w) || !w.isAlive());
+        boolean ranged = me != null && me.cls == WarriorClass.RANGED;
+        int crew = b.tactic == Tactic.BREAK ? BREACH_WORKERS : 1;
+        if (!ranged && !v.isPassenger() && !b.workers.contains(v.getUUID()) && b.workers.size() < crew) b.workers.add(v.getUUID());
+        if (b.workers.contains(v.getUUID())) {
+            int slot = 0;
+            for (UUID id : b.workers) {
+                if (id.equals(v.getUUID())) break;
+                slot++;
+            }
+            work(level, v, b, slot, now);
+            return;
+        }
+        timer.cancel(level);
+        walkTo(level, v, ranged ? b.cover : b.outside, now, null);
     }
 
     /**
-     * A rider takes the wall: a run-up outside it, then the horse's full jump inward. Once inside the ring the breach
-     * counts as open; a jump that keeps failing makes the soldier try another tactic.
+     * Walks to the point and waits there; a soldier that makes no progress is helped over the obstacle (never over a
+     * wall). A breach that keeps failing to let it through is given up for another one.
      */
-    private void jump(ServerLevel level, Villager v, Colony t, double wall, long now) {
-        if (!(v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse)) {
-            breach = null;
-            return;
-        }
-        double dx = v.getX() - (t.core().getX() + 0.5), dz = v.getZ() - (t.core().getZ() + 0.5);
-        if (Math.sqrt(dx * dx + dz * dz) < wall - 1.5) {
-            breach.done = true;
-            LOGGER.info("[war] soldier {} jumps ring {} at {}", v.getUUID().toString().substring(0, 8), breach.ring, breach.column.toShortString());
+    private void walkTo(ServerLevel level, Villager v, BlockPos to, long now, Breach through) {
+        if (!to.equals(goal)) {
+            goal = to;
             progressAt = now;
             progressBest = Double.MAX_VALUE;
+        }
+        double d = v.distanceToSqr(to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
+        if (d <= 4) {
+            v.getNavigation().stop();
+            progressAt = now;
             return;
         }
-        if (now - progressAt > STUCK_TICKS * 2) {
-            failedTactics++;
-            breach = null;
+        Campaigns.go(level, v, to, 0.8);
+        if (d < progressBest - 4) {
+            progressBest = d;
+            progressAt = now;
             return;
         }
-        double d = horse.distanceToSqr(breach.runUp.getX() + 0.5, breach.runUp.getY(), breach.runUp.getZ() + 0.5);
-        if (d > 2.5 * 2.5) {
-            Campaigns.go(level, v, breach.runUp, 0.8);
+        if (now - progressAt <= STUCK_TICKS) return;
+        progressAt = now;
+        progressBest = Double.MAX_VALUE;
+        if (through != null && ++through.failures >= BREACH_FAILURES) {
+            // The breach does not let the army through: another one, with the next tactic.
+            campaign.breaches.remove(through.ring);
+            campaign.breachTries.merge(through.ring, 1, Integer::sum);
+            LOGGER.info("[war] breach in ring {} at {} given up", through.ring, through.column.toShortString());
             return;
         }
-        if (horse.onGround() && now - breach.jumpedAt > 30) {
-            breach.jumpedAt = now;
-            Army.jump(horse, breach.inward[0], breach.inward[1]);
-        }
+        // Never over a wall (Army.hop): the army gets in only through a breach it made.
+        BlockPos hop = Campaigns.surface(level, (v.getBlockX() + to.getX()) / 2, (v.getBlockZ() + to.getZ()) / 2);
+        Army.hop(v, hop.getX() + 0.5, hop.getY(), hop.getZ() + 0.5);
+        Nav.reset(v);
+        WaypointNavigator.reset(v);
     }
 
-    /** The next step of the breach: approach it, then break or place the block. */
-    private void work(ServerLevel level, Villager v, long now) {
-        while (breach.index < breach.steps.size() && finished(level, breach.steps.get(breach.index))) breach.index++;
-        if (breach.index >= breach.steps.size()) {
-            breach.done = true;
+    /** The unfinished step for the worker in this slot (the workers spread over the first ones), or null when none is left. */
+    private static Step next(ServerLevel level, Breach b, int slot) {
+        Step first = null, pick = null;
+        int k = 0;
+        for (Step s : b.steps) {
+            if (finished(level, s)) continue;
+            if (first == null) first = s;
+            if (k++ == slot) {
+                pick = s;
+                break;
+            }
+        }
+        return pick != null ? pick : first;
+    }
+
+    /** The worker's next step of the breach: approach it, then break or place the block. */
+    private void work(ServerLevel level, Villager v, Breach b, int slot, long now) {
+        Step step = next(level, b, b.tactic == Tactic.BREAK ? slot : 0);
+        if (step == null) {
+            b.open = true;
+            b.checkedAt = now;
             LOGGER.info("[war] soldier {} opened a {} breach in ring {} at {}", v.getUUID().toString().substring(0, 8),
-                    breach.tactic.name().toLowerCase(java.util.Locale.ROOT), breach.ring, breach.column.toShortString());
+                    b.tactic.name().toLowerCase(java.util.Locale.ROOT), b.ring, b.column.toShortString());
             timer.cancel(level);
-            progressAt = now;
-            progressBest = Double.MAX_VALUE;
             return;
         }
-        Step step = breach.steps.get(breach.index);
         double d = v.distanceToSqr(step.pos().getX() + 0.5, step.pos().getY() + 0.5, step.pos().getZ() + 0.5);
         if (d > 16) {
             timer.cancel(level);
+            if (!step.pos().equals(goal)) {
+                goal = step.pos();
+                progressAt = now;
+                progressBest = Double.MAX_VALUE;
+            }
             Nav.approach(level, v, step.pos(), 0.8, 9);
             if (d < progressBest - 1) {
                 progressBest = d;
@@ -361,22 +445,31 @@ public final class SoldierTask extends ColonyTask {
         }
         v.getNavigation().stop();
         v.getLookControl().setLookAt(step.pos().getX() + 0.5, step.pos().getY() + 0.5, step.pos().getZ() + 0.5);
-        if (step.place() == null) {
+        if (step.open()) {
+            if (timer.tickAction(level, v, step.pos(), 10)) {
+                BlockState gate = level.getBlockState(step.pos());
+                if (gate.getBlock() instanceof FenceGateBlock && !gate.getValue(FenceGateBlock.OPEN)) {
+                    v.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                    SafeEditScope.run(() -> level.setBlock(step.pos(), gate.setValue(FenceGateBlock.OPEN, true), 3));
+                    level.playSound(null, step.pos(), net.minecraft.sounds.SoundEvents.FENCE_GATE_OPEN, net.minecraft.sounds.SoundSource.BLOCKS, 1f, 1f);
+                }
+                timer.reset();
+            }
+        } else if (step.place() == null) {
             if (timer.tick(level, v, step.pos(), true)) {
                 SafeEditScope.call(() -> level.destroyBlock(step.pos(), false, v));
-                breach.index++;
             }
         } else if (timer.tickAction(level, v, step.pos(), 10)) {
             if (level.getBlockState(step.pos()).canBeReplaced() && level.getEntities(v, new net.minecraft.world.phys.AABB(step.pos())).isEmpty()) {
                 SafeEditScope.run(() -> level.setBlock(step.pos(), step.place(), 3));
             }
             timer.reset();
-            breach.index++;
         }
     }
 
     private static boolean finished(ServerLevel level, Step s) {
         BlockState here = level.getBlockState(s.pos());
+        if (s.open()) return !(here.getBlock() instanceof FenceGateBlock) || here.getValue(FenceGateBlock.OPEN);
         if (s.place() == null) return here.isAir() || !here.getFluidState().isEmpty() || !breakable(level, s.pos(), here);
         return !here.canBeReplaced();
     }
@@ -389,19 +482,25 @@ public final class SoldierTask extends ColonyTask {
     // ---------------------------------------------------------------- planning a breach
 
     /**
-     * A breach in the ring near the soldier: a wall gate if one is close, else the nearest wall column with this
-     * soldier's tactic (or breaking where the tactic does not fit). Null if the ring has no built wall near.
+     * The army's breach in the ring, on the side it came from (the outpost): a wall gate if one is close, else the
+     * wall nearest that point, broken through (the first try), climbed or tunnelled under (after failed ones). Null if
+     * the ring has no built wall near, or terrain may not be changed (the army then just walks in and is helped over).
      */
-    private Breach plan(ServerLevel level, Villager v, Colony t, int ring, double wall, double ux, double uz) {
+    private Breach plan(ServerLevel level, Colony t, int ring, int tries) {
+        BlockPos core = t.core();
+        double ax = campaign.outpost != null ? campaign.outpost.getX() : campaign.x;
+        double az = campaign.outpost != null ? campaign.outpost.getZ() : campaign.z;
+        double ox = ax - core.getX(), oz = az - core.getZ(), ol = Math.max(1, Math.hypot(ox, oz));
+        double wd = Fortifications.wallDistance(t, ring, ox / ol, oz / ol);
+        int px = (int) Math.floor(core.getX() + ox / ol * wd), pz = (int) Math.floor(core.getZ() + oz / ol * wd);
         BlockPos near = null, gate = null;
         double nearD = 48 * 48, gateD = 16 * 16;
-        BlockPos at = v.blockPosition();
-        for (FortBlock b : t.fortifications.managed.values()) {
-            BlockPos p = b.pos();
-            double d = sq(p.getX() - at.getX()) + sq(p.getZ() - at.getZ());
+        for (FortBlock fb : t.fortifications.managed.values()) {
+            BlockPos p = fb.pos();
+            double d = sq(p.getX() - px) + sq(p.getZ() - pz);
             if (d > nearD && d > gateD) continue;
             if (Fortifications.ringOf(t, p) != ring || level.getBlockState(p).isAir()) continue;
-            if (b.state().getBlock() instanceof FenceGateBlock && d < gateD) {
+            if (fb.state().getBlock() instanceof FenceGateBlock && d < gateD) {
                 gateD = d;
                 gate = p;
             }
@@ -411,12 +510,21 @@ public final class SoldierTask extends ColonyTask {
             }
         }
         if (near == null && gate == null) return null;
+        if (!ColonyManager.terrainChangesAllowed(level)) return null;
+        // The gate is opened on the first try (and every third); the other tries take on the wall next to it.
+        if (gate != null && Math.floorMod(tries, Tactic.values().length) != 0) {
+            if (near == null || near.equals(gate)) near = wallNear(level, t, ring, gate);
+            gate = null;
+            if (near == null) return null;
+        }
         Breach b = new Breach();
         b.ring = ring;
         b.column = gate != null ? gate : near;
-        int[] unit = axis(b.column.getX() - t.core().getX(), b.column.getZ() - t.core().getZ());
-        BlockPos inCol = b.column.offset(-unit[0] * 4, 0, -unit[1] * 4);
-        b.inside = Campaigns.surface(level, inCol.getX(), inCol.getZ());
+        int[] unit = axis(b.column.getX() - core.getX(), b.column.getZ() - core.getZ());
+        b.inside = Campaigns.surface(level, b.column.getX() - unit[0] * 4, b.column.getZ() - unit[1] * 4);
+        b.outside = Campaigns.surface(level, b.column.getX() + unit[0] * 5, b.column.getZ() + unit[1] * 5);
+        // Archers stand farther back and to one side, shooting over the wall.
+        b.cover = Campaigns.surface(level, b.column.getX() + unit[0] * 9 - unit[1] * 3, b.column.getZ() + unit[1] * 9 + unit[0] * 3);
         int base = Integer.MAX_VALUE, top = Integer.MIN_VALUE;
         for (int y = b.column.getY() - 4; y <= b.column.getY() + 5; y++) {
             FortBlock f = t.fortifications.managed.get(new BlockPos(b.column.getX(), y, b.column.getZ()));
@@ -426,38 +534,38 @@ public final class SoldierTask extends ColonyTask {
             }
         }
         if (base == Integer.MAX_VALUE) base = top = b.column.getY();
-        Campaign.Soldier me = campaign.soldier(v.getUUID());
-        int index = campaign.soldiers.indexOf(me);
-        Tactic tactic = gate != null ? Tactic.BREAK : switch (Math.floorMod(index + failedTactics, 3)) {
-            case 1 -> Tactic.TUNNEL;
-            case 2 -> Tactic.CLIMB;
-            default -> Tactic.BREAK;
-        };
-        // A rider whose horse clears the wall jumps it, needing no griefing at all.
-        if (gate == null && v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse
-                && jumpable(level, t, b, unit, base, top, Army.jumpHeight(horse))) {
-            b.tactic = Tactic.JUMP;
-            net.betterthanvillage.ai.work.WorkTracker.status(v, "осада: прыжок у " + b.column.toShortString());
-            LOGGER.info("[war] soldier {} plans a jump over ring {} at {}", v.getUUID().toString().substring(0, 8), ring, b.column.toShortString());
-            return b;
-        }
-        if (!ColonyManager.terrainChangesAllowed(level)) return null;
+        Tactic tactic = gate != null ? Tactic.BREAK : Tactic.values()[Math.floorMod(tries, Tactic.values().length)];
         if (tactic == Tactic.TUNNEL && !tunnel(level, t, b, unit, base)) tactic = Tactic.BREAK;
         if (tactic == Tactic.CLIMB && !climb(level, t, b, unit, base, top)) tactic = Tactic.BREAK;
         if (tactic == Tactic.BREAK) breakThrough(level, t, b, ring, base, gate != null);
         b.tactic = tactic;
-        if (b.steps.isEmpty()) b.done = true;
-        net.betterthanvillage.ai.work.WorkTracker.status(v, "осада: " + tactic.name().toLowerCase(java.util.Locale.ROOT) + " у " + b.column.toShortString());
-        LOGGER.info("[war] soldier {} plans a {} breach in ring {} at {} ({} steps)", v.getUUID().toString().substring(0, 8),
-                tactic.name().toLowerCase(java.util.Locale.ROOT), ring, b.column.toShortString(), b.steps.size());
+        if (b.steps.isEmpty()) b.open = true;
+        LOGGER.info("[war] the army plans a {} breach in ring {} at {} ({} steps)", tactic.name().toLowerCase(java.util.Locale.ROOT), ring,
+                b.column.toShortString(), b.steps.size());
         return b;
     }
 
-    /** Infantry: the gate, or the ring's blocks of the column and its neighbours at feet and head height. */
+    /** The wall block of the ring nearest the gate that is no gate itself (within 8), or null. */
+    private static BlockPos wallNear(ServerLevel level, Colony t, int ring, BlockPos gate) {
+        BlockPos best = null;
+        double bestD = 8 * 8 + 1;
+        for (FortBlock fb : t.fortifications.managed.values()) {
+            BlockPos p = fb.pos();
+            if (fb.state().getBlock() instanceof FenceGateBlock || level.getBlockState(p).isAir()) continue;
+            double d = sq(p.getX() - gate.getX()) + sq(p.getZ() - gate.getZ());
+            if (d >= 4 && d < bestD && Fortifications.ringOf(t, p) == ring) {
+                bestD = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    /** Infantry: the gate opened, or the ring's blocks of the column and its neighbours at feet and head height. */
     private static void breakThrough(ServerLevel level, Colony t, Breach b, int ring, int base, boolean gate) {
         b.steps.clear();
         if (gate) {
-            b.steps.add(new Step(b.column, null));
+            b.steps.add(new Step(b.column, null, true));
             return;
         }
         for (int y = base + 1; y >= base; y--) {
@@ -515,29 +623,6 @@ public final class SoldierTask extends ColonyTask {
                 if (level.getBlockState(p).canBeReplaced()) b.steps.add(new Step(p, block));
             }
         }
-        return true;
-    }
-
-    /**
-     * The wall at the column is low and thin enough for the horse: its height within the jump (with headroom), at
-     * most two blocks thick, free ground to land on inside and a free run-up outside.
-     */
-    private static boolean jumpable(ServerLevel level, Colony t, Breach b, int[] u, int base, int top, double clears) {
-        int h = top - base + 1;
-        if (h + 0.5 > clears) return false;
-        int thick = 0;
-        while (thick < 3 && t.fortifications.managed.containsKey(new BlockPos(b.column.getX() - u[0] * thick, base, b.column.getZ() - u[1] * thick))) {
-            thick++;
-        }
-        if (thick == 0 || thick > 2) return false;
-        BlockPos land = Campaigns.surface(level, b.column.getX() - u[0] * (thick + 1), b.column.getZ() - u[1] * (thick + 1));
-        BlockPos run = Campaigns.surface(level, b.column.getX() + u[0] * 3, b.column.getZ() + u[1] * 3);
-        for (BlockPos p : new BlockPos[]{land, run}) {
-            if (Math.abs(p.getY() - base) > 2 || !level.getBlockState(p).canBeReplaced() || !level.getBlockState(p.above()).canBeReplaced()
-                    || !level.getBlockState(p.above(2)).canBeReplaced()) return false;
-        }
-        b.runUp = run;
-        b.inward = new int[]{-u[0], -u[1]};
         return true;
     }
 

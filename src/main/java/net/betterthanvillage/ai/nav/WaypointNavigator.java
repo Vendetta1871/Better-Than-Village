@@ -52,6 +52,7 @@ public final class WaypointNavigator {
         BlockPos anchor;
         long anchorTime;
         int failures;
+        long lastTravel;
     }
 
     private record Node(BlockPos pos, int g, int f) {
@@ -71,6 +72,7 @@ public final class WaypointNavigator {
         if (nav instanceof GroundPathNavigation ground) ground.setCanOpenDoors(true);
         nav.setCanFloat(true);
         State s = STATES.computeIfAbsent(mob, m -> new State());
+        s.lastTravel = now;
         // s.goal is the goal the current plan was made for; a moving target drifts away from it
         // gradually, so it is only updated on a replan.
         if (s.goal == null || s.goal.distSqr(goal) > 16) {
@@ -249,7 +251,7 @@ public final class WaypointNavigator {
         if (s.getCollisionShape(level, c).isEmpty()) return true;
         if (foot && s.is(Blocks.SNOW) && s.getValue(SnowLayerBlock.LAYERS) < 8) return true;
         boolean villager = mob instanceof Villager;
-        if (s.getBlock() instanceof FenceGateBlock && (villager || Fortifications.isWallGate(level, c))) return true;
+        if (s.getBlock() instanceof FenceGateBlock && (villager || Fortifications.isWallGate(level, c))) return !Fortifications.enemyGate(level, mob, c);
         return villager && s.getBlock() instanceof DoorBlock door && door.type().canOpenByHand();
     }
 
@@ -282,6 +284,12 @@ public final class WaypointNavigator {
             }
         }
         return false;
+    }
+
+    /** The mob travelled by waypoints within the last second. */
+    public static boolean active(Mob mob, long now) {
+        State s = STATES.get(mob);
+        return s != null && now - s.lastTravel <= 20;
     }
 
     public static void reset(Mob mob) {

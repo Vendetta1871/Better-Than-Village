@@ -137,7 +137,9 @@ public final class GuardEquipmentTask extends ColonyTask {
         if (!carries(v, MELEE) && (((diamonds >= 2 || iron >= 2) && logs >= 1) || ColonyStorage.has(level, colony, GOOD_SWORD))) {
             return true;
         }
-        if (!v.getOffhandItem().is(Items.SHIELD) && ((iron >= 1 && logs >= 6) || ColonyStorage.has(level, colony, s -> s.is(Items.SHIELD)))) {
+        // An archer needs both hands for the bow: a shield goes back to the treasury.
+        if (ranged && v.getOffhandItem().is(Items.SHIELD)) return true;
+        if (!ranged && !v.getOffhandItem().is(Items.SHIELD) && ((iron >= 1 && logs >= 6) || ColonyStorage.has(level, colony, s -> s.is(Items.SHIELD)))) {
             return true;
         }
         for (ArmorSlot a : ARMOR) {
@@ -222,7 +224,11 @@ public final class GuardEquipmentTask extends ColonyTask {
                 return give(level, colony, v, new ItemStack(Items.IRON_SWORD));
             }
         }
-        if (!v.getOffhandItem().is(Items.SHIELD)) {
+        if (ranged && v.getOffhandItem().is(Items.SHIELD)) {
+            depositFrom(level, colony, v, v.getOffhandItem());
+            return true;
+        }
+        if (!ranged && !v.getOffhandItem().is(Items.SHIELD)) {
             ItemStack shield = ColonyStorage.withdrawOne(level, colony, s -> s.is(Items.SHIELD));
             if (!shield.isEmpty()) {
                 depositFrom(level, colony, v, v.getOffhandItem());

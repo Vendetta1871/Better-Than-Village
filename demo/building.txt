@@ -1,0 +1,34 @@
+// A mason finishes a house. The base village has a house nearly done and nothing left in the treasury to finish it
+// with (its gatherings have not bought logs and stone yet): it gets a few days of levies at once, enough for that
+// house and the next one, and the scene waits for the next house to be started, taking the snapshot with its walls
+// up; the clip shows the mason building the rest of it.
+// README gif: demo/gif.sh run/demo/out/building --speed 3
+@from village
+@camera building_cam_1 227.71 128.99 158.10 -24.6 48.1
+[setup]
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:emerald 64
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:oak_log 256
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:cobblestone 192
+btv film on
+tick sprint 24000
+#until 900 plains_small_house_1 @.* COMPLETE :: execute positioned {LX} 100 {LZ} run btv jobs
+tick sprint stop
+// The next house at once, slow enough to stop with its walls up (about three fifths of its blocks)
+execute positioned {LX} 100 {LZ} run btv film build
+tick rate 100
+#until 900 BUILDING (6\d\d|[7-9]\d\d)/\d{4} :: execute positioned {LX} 100 {LZ} run btv jobs
+tick rate 20
+execute positioned {LX} 100 {LZ} run btv jobs
+
+[play]
+time set 3000
+execute positioned {LX} 100 {LZ} run btv jobs
+#camera building_cam_1
+#sleep 2
+// Five times faster: the rest of the house in under a minute
+tick rate 100
+#record building 50
+#wait-record
+#until 120 plains_small_house_2 @.* COMPLETE :: execute positioned {LX} 100 {LZ} run btv jobs
+tick rate 20
+execute positioned {LX} 100 {LZ} run btv jobs

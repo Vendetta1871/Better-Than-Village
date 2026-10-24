@@ -48,6 +48,20 @@ public final class WarfareCommands {
                     return ok(ctx, "Built " + n + " wall blocks, rings " + Fortifications.ringRadii(c) + " built " + Fortifications.builtRings(c) + ", managed "
                             + c.fortifications.managed.size() + ", pending " + c.fortifications.pending.size());
                 }))
+                .then(Commands.literal("unwall").executes(ctx -> {
+                    // Debug: every ring taken down at once.
+                    Colony c = here(ctx);
+                    if (c == null) return fail(ctx, "No village");
+                    return ok(ctx, "Removed " + Fortifications.unwall(ctx.getSource().getLevel(), c) + " wall blocks");
+                }))
+                .then(Commands.literal("ring").then(Commands.argument("blocks", com.mojang.brigadier.arguments.IntegerArgumentType.integer(8, 128)).executes(ctx -> {
+                    // Debug: a new ring this far outside the current one (the territory grows to hold it).
+                    ServerLevel level = ctx.getSource().getLevel();
+                    Colony c = here(ctx);
+                    if (c == null) return fail(ctx, "No village");
+                    int r = Fortifications.addRing(level, c, com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "blocks"));
+                    return ok(ctx, "Rings " + Fortifications.ringRadii(c) + " (new " + r + "), pending " + c.fortifications.pending.size());
+                })))
                 .then(Commands.literal("army").executes(ctx -> {
                     ServerLevel level = ctx.getSource().getLevel();
                     Colony c = here(ctx);
@@ -82,6 +96,16 @@ public final class WarfareCommands {
                     Army.assign(ctx.getSource().getLevel(), c);
                     ColonyManager.markDirty(ctx.getSource().getLevel());
                     return ok(ctx, "Stables: " + c.horses + " horses");
+                })))
+                .then(Commands.literal("golems").then(Commands.argument("cap", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0, 16)).executes(ctx -> {
+                    // Debug: golems a village keeps (warfare.golem_cap) until the game restarts; the config file stays.
+                    net.betterthanvillage.config.ColonyConfig.get().warfare.golem_cap = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "cap");
+                    return ok(ctx, "Golem cap " + net.betterthanvillage.config.ColonyConfig.get().warfare.golem_cap + " until restart");
+                })))
+                .then(Commands.literal("garrison").then(Commands.argument("percent", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0, 100)).executes(ctx -> {
+                    // Debug: the share of warriors a village keeps at home on campaign (warfare.garrison_share) until restart.
+                    net.betterthanvillage.config.ColonyConfig.get().warfare.garrison_share = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "percent") / 100.0;
+                    return ok(ctx, "Garrison share " + net.betterthanvillage.config.ColonyConfig.get().warfare.garrison_share + " until restart");
                 })))
                 .then(Commands.literal("night").executes(ctx -> {
                     int n = NightOps.force(ctx.getSource().getLevel());

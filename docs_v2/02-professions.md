@@ -65,6 +65,13 @@ warrior, and the tool supply of every trade, start from the `legacy` port.
 ### Herder
 - **Animals.** Keeps animals in pens (old mechanics) and horses in stables. Horses are sold to
   the treasury for cavalry.
+- **Pen.** An 11×11 fence on flat ground. Right outside it nothing stands at fence height (an
+  animal would step from it onto the fence and over): the herder cuts such a natural block
+  away first, a site with more than one step of slope there is not taken. Animals already penned
+  come first: the herder shears them, then breeds a pair (walks up to it with the feed in hand,
+  the mate comes over, it feeds them for four seconds with hearts rising, then the young one
+  appears), and only then leads more in. A herder that has lures and a pen goes on with its
+  animals after a break; it visits the storage when it runs out or has products to bring.
 - **Fishing.** When the village has unmet demand for meat (open buy orders at the last
   gathering) and the herder has too few animals to slaughter (pen population at or below the
   breeding minimum), the herder goes fishing until the stock recovers.
@@ -158,7 +165,9 @@ and does not change the profession.
   there are no trees or ore within reach.
 - **What happens.**
   - They serve as a warrior and get a warrior's wage.
-  - They keep their trade profession and look. Children still inherit the trade.
+  - They keep their trade profession, but look and are named as warriors while they serve (a
+    farmer in armour on the march would read as a farmer gone to war). Children still inherit
+    the trade.
 - **Demobilization.** When their trade pays again (open bids for their goods at gatherings, or
   the resource is back), they return to it.
 

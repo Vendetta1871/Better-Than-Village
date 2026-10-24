@@ -97,7 +97,8 @@ public final class ConstructionEvents {
                 .append(" skipped ").append(colony.skippedRoadSegments).append(" stall ").append(colony.roadStallTicks).append('\n');
         var f = colony.fortifications;
         sb.append("wall radius ").append(f.radius).append(" built ").append(f.managed.size()).append(" pending ").append(f.pending.size())
-                .append(" skipped ").append(f.skipped).append(" abandoned ").append(f.abandoned.size()).append('\n');
+                .append(" skipped ").append(f.skipped).append(" abandoned ").append(f.abandoned.size()).append("; ")
+                .append(Fortifications.settledReason(source.getLevel(), colony)).append('\n');
         for (var v : SiteSearch.builders(source.getLevel(), colony)) {
             sb.append("builder @").append(v.blockPosition().toShortString()).append(" target ")
                     .append(v.getBrain().getMemory(net.betterthanvillage.registry.ModRegistries.BUILD_TARGET_POS.get()).map(BlockPos::toShortString).orElse("-"))

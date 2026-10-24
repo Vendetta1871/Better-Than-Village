@@ -1,0 +1,39 @@
+// A siege, five against five: the neighbouring village (766, 388) arms its warriors with iron from its own treasury,
+// one of them rides (a quarter of an army is cavalry), and it marches on the walled village. No golems on either side. The snapshot is taken as the
+// siege begins, the outpost standing on the side the army came from (south-east of the village).
+// README gif: demo/gif.sh run/demo/out/siege --from 12 --to 27 --speed 2
+@from hero
+@camera siege_cam_1 236.87 129.13 202.77 -151.2 52.0
+[setup]
+btv war golems 0
+kill @e[type=minecraft:iron_golem]
+// The village: five warriors (it has two)
+execute positioned {LX} 100 {LZ} run btv war recruit 3
+// The neighbour loads for a while: six warriors (one stays at home), iron for their gear, horses for the riders
+forceload add 672 288 864 480
+#wait-log Registered generated vanilla village at BlockPos\{x=7 120
+#sleep 20
+#ticks 2400
+btv war garrison 0
+execute positioned 768 100 384 run btv war recruit 6
+execute positioned 768 100 384 run btv world stock minecraft:iron_ingot 96
+execute positioned 768 100 384 run btv war horses 2
+#ticks 4800
+kill @e[type=minecraft:iron_golem]
+execute positioned 768 100 384 run btv war army
+forceload remove 672 288 864 480
+#sleep 5
+execute positioned 768 100 384 run btv country war {LX} 100 {LZ} resources
+tick sprint 30000
+#wait-log campaign .*: outpost -> siege 1200
+tick sprint stop
+btv war
+execute positioned {LX} 100 {LZ} run btv war army
+
+[play]
+btv war golems 0
+time set 3000
+#camera siege_cam_1
+#sleep 2
+#record siege 45
+#wait-record

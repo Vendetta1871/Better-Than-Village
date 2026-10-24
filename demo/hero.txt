@@ -1,0 +1,20 @@
+// README hero: the village from above, the pit filled, behind a wall that runs along its outermost houses.
+// The elder plans the wall at once (film walls) and the debug fortify raises it in one go instead of over days.
+@from pit
+// A first guess from the south-east, high above: /demo cam main replaces it
+@camera hero_cam_1 173.76 147.27 201.71 -107.8 43.4
+[setup]
+// Two days: the pit is filled
+#ticks 48000
+btv film on
+execute positioned {LX} 100 {LZ} run btv film walls
+#ticks 100
+execute positioned {LX} 100 {LZ} run btv war fortify
+#ticks 1200
+execute positioned {LX} 100 {LZ} run btv status
+
+[play]
+time set 2000
+#camera hero_cam_1
+#sleep 8
+#shot hero

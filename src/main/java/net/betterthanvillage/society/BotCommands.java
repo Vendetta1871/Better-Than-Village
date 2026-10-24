@@ -138,7 +138,9 @@ final class BotCommands {
                         boolean plot = ColonyManager.data(level).landAt(pos) != null && bot.getUUID().equals(ColonyManager.data(level).landAt(pos).owner());
                         return ok(ctx, plot ? "Plot at " + pos.toShortString() : "Deed refused at " + pos.toShortString());
                     }
-                    return ok(ctx, "No land deed");
+                    // Without a deed nothing is bought: the valid plot centre found (if any) is reported.
+                    return ok(ctx, "No land deed; " + (at != null && Deeds.plotValid(level, at, bot.getUUID(), pos)
+                            ? "a valid plot at " + pos.toShortString() : "no valid plot near " + asked.toShortString()));
                 }))))
                 .then(Commands.literal("deal").then(name().then(Commands.argument("kind", StringArgumentType.word())
                         .executes(ctx -> deal(ctx, StringArgumentType.getString(ctx, "kind"))))))

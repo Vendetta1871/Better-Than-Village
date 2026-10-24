@@ -156,7 +156,9 @@ public final class Households {
             if (!h.hasChest() && h.bed != null) {
                 claimHouseChest(level, colony, h);
             }
-            if (!h.hasChest() && terrain && placed < 2 && placeHomeChest(level, colony, h, settling)) {
+            if (terrain && placed < 2 && moveIn(level, colony, h)) {
+                placed++;
+            } else if (!h.hasChest() && terrain && placed < 2 && placeHomeChest(level, colony, h, settling)) {
                 placed++;
             } else if (h.hasChest() && h.chests.size() < MAX_CHESTS && terrain && placed < 2 && freeSlots(level, h) < 3
                     && placeHomeChest(level, colony, h, false)) {
@@ -298,11 +300,77 @@ public final class Households {
     }
 
     /**
+     * A chest of the household left in the open (by the village centre) moves under a roof: into the household's
+     * house once it has one, else (a lodger) into another household's house. Its goods go into a chest there (set
+     * up for free if there is none) and it is taken down. Chests under a roof stay where they are (villagers swap
+     * beds; their goods do not wander after them). One chest per call.
+     */
+    private static boolean moveIn(ServerLevel level, Colony colony, Household h) {
+        if (h.bed != null && !level.isLoaded(h.bed)) return false;
+        BlockPos out = null, home = null;
+        for (BlockPos p : h.chests) {
+            if (!level.isLoaded(p)) continue;
+            boolean open = level.canSeeSky(p.above());
+            if (!open && (h.bed == null || atHome(p, h.bed))) {
+                if (home == null) home = p;
+            } else if (out == null && open && Protection.otherChestHalf(level, p) == null) {
+                out = p;
+            }
+        }
+        if (out == null) return false;
+        if (home == null) {
+            BlockPos[] spot = h.bed != null ? new BlockPos[]{bedsideSite(level, colony, h.bed), h.bed} : lodgingSite(level, colony);
+            if (spot == null || spot[0] == null) return false;
+            BlockPos site = spot[0];
+            Direction facing = facingAway(site, spot[1]);
+            SafeEditScope.run(() -> level.setBlock(site, Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, facing), 3));
+            if (!isContainer(level, site)) return false;
+            claim(colony, h, site.immutable());
+            home = site;
+        }
+        Container from = ColonyStorage.container(level, out);
+        Container to = ColonyStorage.container(level, home);
+        if (from == null || to == null) return false;
+        boolean emptied = true;
+        for (int i = 0; i < from.getContainerSize(); i++) {
+            ItemStack stack = from.getItem(i);
+            if (stack.isEmpty()) continue;
+            ItemStack rest = stack.copy();
+            ColonyStorage.insert(to, rest);
+            from.setItem(i, rest.isEmpty() ? ItemStack.EMPTY : rest);
+            if (!rest.isEmpty()) emptied = false;
+        }
+        from.setChanged();
+        to.setChanged();
+        // A full chest at home: the rest waits for another chest (placed when the home chests run out of room).
+        if (!emptied) return true;
+        h.chests.remove(out);
+        BlockPos gone = out;
+        SafeEditScope.run(() -> level.setBlock(gone, Blocks.AIR.defaultBlockState(), 3));
+        return true;
+    }
+
+    /** The chest stands in the household's house (near its bed). */
+    private static boolean atHome(BlockPos pos, BlockPos bed) {
+        return Math.abs(pos.getX() - bed.getX()) <= HOUSE_XZ && Math.abs(pos.getZ() - bed.getZ()) <= HOUSE_XZ
+                && Math.abs(pos.getY() - bed.getY()) <= HOUSE_Y;
+    }
+
+    /**
      * Places a single chest for the household: next to its bed, or by the village centre while it is homeless.
      * The first chests of a generated village are free; later ones cost the treasury two logs.
      */
     private static boolean placeHomeChest(ServerLevel level, Colony colony, Household h, boolean free) {
         BlockPos site = h.bed != null ? bedsideSite(level, colony, h.bed) : null;
+        BlockPos facingBed = h.bed;
+        if (site == null && h.bed == null) {
+            // A homeless household lodges: its chest stands in another household's house.
+            BlockPos[] lodging = lodgingSite(level, colony);
+            if (lodging != null) {
+                site = lodging[0];
+                facingBed = lodging[1];
+            }
+        }
         if (site == null) site = centreSite(level, colony);
         if (site == null) return false;
         if (!free) {
@@ -310,7 +378,7 @@ public final class Households {
             List<ColonyStorage.Slot> payer = h.hasChest() ? ColonyStorage.usable(level, h) : ColonyStorage.treasury(level, colony);
             if (Chests.take(payer, s -> s.is(ItemTags.LOGS), 2).isEmpty() && Chests.take(payer, s -> s.is(ItemTags.PLANKS), 8).isEmpty()) return false;
         }
-        Direction facing = h.bed != null ? facingAway(site, h.bed) : Direction.NORTH;
+        Direction facing = facingBed != null ? facingAway(site, facingBed) : Direction.NORTH;
         BlockPos at = site;
         SafeEditScope.run(() -> level.setBlock(at, Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, facing), 3));
         if (!isContainer(level, site)) return false;
@@ -359,7 +427,35 @@ public final class Households {
         return n;
     }
 
-    /** Square rings around the core for a homeless household's chest. */
+    /** A spot beside a household's bed (nearest the bell first) for a lodger's chest: {site, bed}, or null. */
+    private static BlockPos[] lodgingSite(ServerLevel level, Colony colony) {
+        List<BlockPos> beds = new ArrayList<>();
+        for (Household other : colony.households.values()) {
+            if (other.bed != null && level.isLoaded(other.bed)) beds.add(other.bed);
+        }
+        beds.sort(Comparator.comparingDouble(b -> b.distSqr(colony.core())));
+        for (BlockPos bed : beds) {
+            BlockPos site = bedsideSite(level, colony, bed);
+            if (site != null && !level.canSeeSky(site.above())) return new BlockPos[]{site, bed};
+        }
+        // No room beside a bed: any free floor cell under the roof of a house, by a wall (a free cell next to it).
+        for (BlockPos bed : beds) {
+            for (BlockPos p : BlockPos.betweenClosed(bed.offset(-4, -1, -4), bed.offset(4, 1, 4))) {
+                if (level.canSeeSky(p.above()) || !chestFits(level, colony, p)) continue;
+                boolean wall = false, free = false;
+                for (Direction d : Direction.Plane.HORIZONTAL) {
+                    BlockPos n = p.relative(d);
+                    boolean solid = !level.getBlockState(n).getCollisionShape(level, n).isEmpty();
+                    wall |= solid;
+                    free |= !solid && level.getBlockState(n.above()).getCollisionShape(level, n.above()).isEmpty();
+                }
+                if (wall && free) return new BlockPos[]{p.immutable(), bed};
+            }
+        }
+        return null;
+    }
+
+    /** Square rings around the core for a homeless household's chest when no house has room for it. */
     private static BlockPos centreSite(ServerLevel level, Colony colony) {
         BlockPos core = colony.core();
         for (int d = 3; d <= 20; d++) {

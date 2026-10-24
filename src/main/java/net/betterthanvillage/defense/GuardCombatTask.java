@@ -80,17 +80,33 @@ public final class GuardCombatTask extends ColonyTask {
         long now = level.getGameTime();
         unreachable.values().removeIf(until -> until <= now);
         LivingEntity mem = v.getBrain().getMemory(ModRegistries.THREAT_TARGET.get()).orElse(null);
-        boolean memOk = mem != null && ThreatManager.keepsTarget(level, colony, mem) && !gaveUp(mem)
+        boolean assault = net.betterthanvillage.warfare.Campaigns.assaulted(level, colony);
+        Predicate<LivingEntity> skip = e -> gaveUp(e) || (assault && heldBack(v, e));
+        boolean memOk = mem != null && ThreatManager.keepsTarget(level, colony, mem) && !skip.test(mem)
                 && !ThreatManager.isIgnored(colony, mem, now);
         if (memOk && ThreatManager.isAttacking(level, colony, mem)) return mem;
-        LivingEntity attacker = ThreatManager.nearestThreat(level, colony, v, this::gaveUp, true);
+        LivingEntity attacker = ThreatManager.nearestThreat(level, colony, v, skip, true);
         if (attacker != null) return attacker;
         if (memOk) return mem;
-        return ThreatManager.nearestThreat(level, colony, v, this::gaveUp, false);
+        return ThreatManager.nearestThreat(level, colony, v, skip, false);
     }
 
     private boolean gaveUp(LivingEntity e) {
         return unreachable.containsKey(e.getId());
+    }
+
+    /**
+     * Under an assault nobody goes out after an enemy beyond the wall (a guard caught outside comes back in to the
+     * breach): only an archer inside shoots over the wall at what it sees within range.
+     */
+    private boolean heldBack(Villager v, LivingEntity e) {
+        double cx = colony.core().getX() + 0.5, cz = colony.core().getZ() + 0.5;
+        if (!net.betterthanvillage.construction.Fortifications.acrossWall(colony, cx, cz, e.getX(), e.getZ())) return false;
+        boolean archer = net.betterthanvillage.warfare.Army.classOf(colony, v.getUUID()) == net.betterthanvillage.warfare.WarriorClass.RANGED;
+        if (!archer || net.betterthanvillage.construction.Fortifications.acrossWall(colony, cx, cz, v.getX(), v.getZ())) return true;
+        double d2 = v.distanceToSqr(e);
+        // Too close for the bow, the archer would draw its sword and walk out.
+        return d2 < 4 * 4 || d2 > 15 * 15 || !v.hasLineOfSight(e);
     }
 
     /** True (and the target is dropped) when the guard made no progress on it for GIVE_UP_TICKS. */
@@ -106,8 +122,9 @@ public final class GuardCombatTask extends ColonyTask {
             trackedSince = now;
         } else if (now - trackedSince > GIVE_UP_TICKS) {
             unreachable.put(target.getId(), now + IGNORE_TICKS);
-            // nobody can reach it: it must not keep the alarm alive either (cleared again if it hurts someone)
-            ThreatManager.ignore(level, colony, target, IGNORE_TICKS);
+            // nobody can reach it: it must not keep the alarm alive either (cleared again if it hurts someone). An
+            // enemy soldier is only out of this guard's reach: the army is still there for the others.
+            if (!ThreatManager.enemySoldier(level, colony, target)) ThreatManager.ignore(level, colony, target, IGNORE_TICKS);
             v.getBrain().eraseMemory(ModRegistries.THREAT_TARGET.get());
             WaypointNavigator.reset(v);
             target = null;
@@ -186,8 +203,19 @@ public final class GuardCombatTask extends ColonyTask {
         }
     }
 
-    /** Smallest-UUID non-archer guard near the core, or the core itself. */
+    /**
+     * Where a guard with nothing to fight goes: under a siege, inside the wall at the army's breach (archers a little
+     * farther back, to shoot over it); otherwise the smallest-UUID non-archer guard near the core, or the core itself.
+     */
     private BlockPos rallyPoint(ServerLevel level, Villager v) {
+        BlockPos[] breach = net.betterthanvillage.warfare.Campaigns.breachOf(level, colony);
+        if (breach != null) {
+            if (!v.getMainHandItem().is(Items.BOW)) return breach[1];
+            BlockPos core = colony.core();
+            double dx = breach[1].getX() - core.getX(), dz = breach[1].getZ() - core.getZ(), d = Math.max(1, Math.hypot(dx, dz));
+            int x = (int) Math.floor(breach[1].getX() - dx / d * 4 - dz / d * 3), z = (int) Math.floor(breach[1].getZ() - dz / d * 4 + dx / d * 3);
+            return new BlockPos(x, level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
+        }
         AABB box = new AABB(colony.core()).inflate(Math.min(colony.radius(), 48));
         Villager best = null;
         for (Villager g : level.getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {

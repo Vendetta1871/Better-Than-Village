@@ -43,8 +43,18 @@ public final class VillagerArmorModel extends HumanoidModel<Villager> {
         body.zScale = 1.55f;
         rightLeg.x = -2f;
         leftLeg.x = 2f;
-        rightLeg.xRot = Mth.cos(limbSwing * 0.6662f) * 0.7f * limbSwingAmount;
-        leftLeg.xRot = Mth.cos(limbSwing * 0.6662f + (float) Math.PI) * 0.7f * limbSwingAmount;
+        if (riding) {
+            // The biped riding pose, as the villager model's legs take it
+            rightLeg.xRot = -1.4137167f;
+            rightLeg.yRot = 0.31415927f;
+            rightLeg.zRot = 0.07853982f;
+            leftLeg.xRot = -1.4137167f;
+            leftLeg.yRot = -0.31415927f;
+            leftLeg.zRot = -0.07853982f;
+        } else {
+            rightLeg.xRot = Mth.cos(limbSwing * 0.6662f) * 0.7f * limbSwingAmount;
+            leftLeg.xRot = Mth.cos(limbSwing * 0.6662f + (float) Math.PI) * 0.7f * limbSwingAmount;
+        }
         for (var a : new net.minecraft.client.model.geom.ModelPart[]{rightArm, leftArm}) {
             a.x = 0f;
             a.y = 3f;

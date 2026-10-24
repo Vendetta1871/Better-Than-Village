@@ -12,7 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Lookup of generated vanilla village jigsaw pieces by their template id. */
-final class VillagePieces {
+public final class VillagePieces {
     private static final Pattern ID = Pattern.compile("([a-z0-9_.-]+):([a-z0-9_./-]+)");
 
     private VillagePieces() {
@@ -37,6 +37,19 @@ final class VillagePieces {
             }
         }
         return null;
+    }
+
+    /** Template path of a village piece, or null for a piece that is not a single template. */
+    static String pieceId(StructurePiece piece) {
+        if (!(piece instanceof PoolElementStructurePiece pool) || !(pool.getElement() instanceof SinglePoolElement single)) return null;
+        Matcher m = ID.matcher(single.toString());
+        return m.find() ? m.group(2) : null;
+    }
+
+    /** A house or the town centre of a generated village (not its streets, decorations or animals). */
+    public static boolean isBuilding(StructurePiece piece) {
+        String id = pieceId(piece);
+        return id != null && id.startsWith("village/") && (id.contains("/houses/") || id.contains("/town_centers/"));
     }
 
     /** Village house, town centre, street or meeting point piece (land-plot exclusion, 06 §2.5). */

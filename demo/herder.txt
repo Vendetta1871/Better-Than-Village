@@ -1,0 +1,39 @@
+// The herder builds a pen, lures sheep into it with wheat and breeds them. The base village has no herder yet: one
+// villager takes up the trade (film role), and the treasury holds the wheat a farmer would bring in a few days and
+// the logs for the fence.
+// The snapshot is taken with the first sheep in the pen; the clip shows the herder leading another one in with wheat,
+// then feeding a pair, hearts rising and the lamb.
+// README gif: demo/gif.sh run/demo/out/herder --from 2 --to 12
+@from village
+@camera herder_cam_1 147.44 127.99 228.98 -64.3 34.9
+[setup]
+btv film on
+execute positioned {LX} 100 {LZ} run btv film role herder 1
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:wheat 48
+// Logs for the fence (about 14): the village's wood is in the households' chests, not the treasury
+execute positioned {LX} 100 {LZ} run btv world stock minecraft:oak_log 32
+// Five times faster until the pen stands (the herder leads the first sheep), then at normal speed until it is in
+tick rate 100
+#until 900 Pen: -?\d :: execute positioned {LX} 100 {LZ} run btv status
+#capture PX Pen: (-?\d+), :: execute positioned {LX} 100 {LZ} run btv status
+#capture PZ Pen: -?\d+, -?\d+, (-?\d+) :: execute positioned {LX} 100 {LZ} run btv status
+#until 900 RancherTask\((lead|breed) :: execute positioned {LX} 100 {LZ} run btv villagers
+tick rate 20
+#until 900 count: [1-9]$ :: execute if entity @e[type=minecraft:sheep,x={PX-3},y=0,z={PZ-3},dx=7,dy=320,dz=7,nbt={Age:0}]
+execute positioned {LX} 100 {LZ} run btv status
+execute positioned {LX} 100 {LZ} run btv villagers
+
+[play]
+time set 2000
+#camera herder_cam_1
+#sleep 2
+// Three times faster until the herder comes back toward the pen (153, 243) leading a sheep
+tick rate 60
+#until 300 herder@1[3-7]\d, \d+, 2[2-6]\d .*RancherTask\(lead :: execute positioned {LX} 100 {LZ} run btv villagers
+// Twice as fast: the sheep led in, the pair fed, the lamb
+tick rate 40
+#record herder 45
+#wait-record
+tick rate 20
+execute positioned {LX} 100 {LZ} run btv villagers
+execute if entity @e[type=minecraft:sheep,x={PX-3},y=0,z={PZ-3},dx=7,dy=320,dz=7]

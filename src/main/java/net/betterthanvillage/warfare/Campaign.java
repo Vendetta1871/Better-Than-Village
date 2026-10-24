@@ -95,6 +95,8 @@ public final class Campaign {
         /** Runtime: progress check of a live soldier (tick, distance left). */
         public transient long progressTick;
         public transient double progressDist = Double.MAX_VALUE;
+        /** Runtime: a rider got off at the wall to storm it on foot (no remounting until the siege ends). */
+        public transient boolean dismounted;
 
         public Soldier(UUID id, UUID home, boolean golem) {
             this.id = id;
@@ -183,6 +185,9 @@ public final class Campaign {
     public final SimpleContainer loot = new SimpleContainer(LOOT_SLOTS);
     /** Runtime: the enemy the army fights now (entity id) and when a soldier last struck it. */
     public transient int focus = -1;
+    /** Runtime: the army's breach in each ring of the target (ring -> breach) and the breaches given up per ring. */
+    final transient Map<Integer, SoldierTask.Breach> breaches = new java.util.HashMap<>();
+    final transient Map<Integer, Integer> breachTries = new java.util.HashMap<>();
     public transient long focusTick;
     /** Runtime: some soldier walks as a real entity. */
     public transient boolean live;

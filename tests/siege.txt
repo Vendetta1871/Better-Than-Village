@@ -15,16 +15,11 @@ execute positioned 768 100 384 run btv world stock minecraft:iron_ingot 320
 execute positioned 768 100 384 run btv world stock minecraft:oak_log 64
 tick sprint 4800
 #wait-log Sprint completed 600
-// Two rings: the first ring, then the territory grows past it and a second ring goes up outside
+// Two rings: the first ring round the houses, then a second ring 20 blocks outside it
 execute positioned {LX} 100 {LZ} run btv film walls
 #sleep 5
 execute positioned {LX} 100 {LZ} run btv war fortify
-execute positioned {LX} 100 {LZ} run btv land grow 24
-execute positioned {LX} 100 {LZ} run btv film walls
-#sleep 5
-execute positioned {LX} 100 {LZ} run btv war fortify
-execute positioned {LX} 100 {LZ} run btv film walls
-#sleep 5
+execute positioned {LX} 100 {LZ} run btv war ring 20
 execute positioned {LX} 100 {LZ} run btv war fortify
 execute positioned {LX} 100 {LZ} run btv war army
 // A's golem is gone (the golem against an army was seen in an earlier run): the warriors defend alone

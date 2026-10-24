@@ -18,17 +18,21 @@ neoForge {
     runs {
         client {
             client()
+            // The client also hosts the integrated server of the demo scenes (demo/README.md); 720p for their media.
+            jvmArgument '-Xmx4G'
+            programArguments.addAll('--width', '1280', '--height', '720')
         }
         server {
             server()
             programArgument '--nogui'
+            jvmArgument '-Xmx2G'
         }
         gameTestServer {
             type = 'gameTestServer'
+            jvmArgument '-Xmx2G'
         }
         configureEach {
             logLevel = org.slf4j.event.Level.INFO
-            jvmArgument '-Xmx2G'
         }
     }
 

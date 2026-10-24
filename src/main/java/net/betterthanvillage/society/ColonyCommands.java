@@ -224,7 +224,8 @@ public final class ColonyCommands {
         for (Villager v : ColonyManager.members(level, c)) {
             StringJoiner running = new StringJoiner(",");
             v.getBrain().getRunningBehaviors().forEach(b -> {
-                if (VillagerUtil.isModTask(b)) running.add(b.getClass().getSimpleName());
+                if (b instanceof net.betterthanvillage.food.RancherTask r) running.add("RancherTask(" + r.debugState() + ")");
+                else if (VillagerUtil.isModTask(b)) running.add(b.getClass().getSimpleName());
             });
             BlockPos target = net.betterthanvillage.ai.nav.Nav.currentTarget(v, now);
             var path = v.getNavigation().getPath();
@@ -579,6 +580,7 @@ list.add(c.tradeOf(h.owner).serializedName() + (c.conscripts.containsKey(h.owner
                         .executes(ctx -> withColony(ctx, c -> filmExpedition(ctx, c, null)))
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> withColony(ctx, c -> filmExpedition(ctx, c, BlockPosArgument.getBlockPos(ctx, "pos"))))))
+                .then(Commands.literal("where").executes(ctx -> withColony(ctx, c -> filmWhere(ctx, c))))
                 .then(Commands.literal("build").executes(ctx -> withColony(ctx, c -> {
                     ServerLevel level = ctx.getSource().getLevel();
                     c.nextHousePlanTick = 0;
@@ -623,6 +625,33 @@ list.add(c.tradeOf(h.owner).serializedName() + (c.conscripts.containsKey(h.owner
             return 0;
         }
         return action.run(colony);
+    }
+
+    /** Debug for staging: fields (8-block cells with farmland), the mine route's ends, workers and their status. */
+    private static int filmWhere(CommandContext<CommandSourceStack> ctx, Colony c) {
+        ServerLevel level = ctx.getSource().getLevel();
+        java.util.Map<Long, Integer> cells = new java.util.TreeMap<>();
+        java.util.Map<Long, Integer> cellY = new java.util.HashMap<>();
+        for (BlockPos p : c.farmland) {
+            long key = BlockPos.asLong(p.getX() >> 3 << 3, 0, p.getZ() >> 3 << 3);
+            cells.merge(key, 1, Integer::sum);
+            cellY.put(key, p.getY());
+        }
+        StringBuilder fields = new StringBuilder();
+        cells.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue()).limit(8).forEach(e -> {
+            BlockPos k = BlockPos.of(e.getKey());
+            fields.append(' ').append(k.getX() + 4).append(',').append(cellY.get(e.getKey())).append(',').append(k.getZ() + 4).append('=').append(e.getValue());
+        });
+        String mine = c.mineRoute.isEmpty() ? "-" : c.mineRoute.get(0).toShortString() + " .. " + c.mineRoute.get(c.mineRoute.size() - 1).toShortString();
+        StringBuilder workers = new StringBuilder();
+        for (Villager v : ColonyManager.adultMembers(level, c)) {
+            ColonyRole role = c.roleOf(v.getUUID());
+            if (role == ColonyRole.WARRIOR || role == ColonyRole.ELDER) continue;
+            workers.append(' ').append(role.name().toLowerCase(java.util.Locale.ROOT)).append('@').append(v.blockPosition().toShortString())
+                    .append('[').append(net.betterthanvillage.ai.work.WorkTracker.status(v)).append(']');
+        }
+        ok(ctx.getSource(), Component.literal("Fields:" + fields + "\nMine route: " + mine + "\nWorkers:" + workers));
+        return 1;
     }
 
     private static int filmHelp(CommandContext<CommandSourceStack> ctx) {

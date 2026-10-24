@@ -87,6 +87,10 @@ Credit works both ways with the player, through the vanilla trade screen only.
   chests** inside it, and a ledger. The ledger is kept on the server, keyed by villager UUID,
   and mirrors the chest contents. It is needed for the abstract simulation (see
   [08](08-simulation.md)).
+- **Homeless households.** A household without a bed lodges: its chest stands beside a bed in
+  another household's house (by the bell only when no house has room). Once it has a house of its
+  own, a chest left in the open moves in: its goods go into a chest beside the bed and the old one
+  is taken down. Chests under a roof stay put when villagers swap beds.
 - **What the chest holds.** Money, food, tools (means of production) and goods for sale.
 - **Production.** What a villager produces goes into their own chest.
 - **Consumption.** Villagers eat daily from their own chest. Tools wear out and are replaced

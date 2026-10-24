@@ -1,0 +1,20 @@
+// The lumberjack (carpenter) fells a tree log by log from the top and plants saplings in its place. The snapshot is
+// taken as the carpenter sets out for a tree, so every replay shows the same tree.
+// README gif: demo/gif.sh run/demo/out/lumberjack --from 1 --to 9
+@from village
+@camera lumberjack_cam_1 150.36 124.37 262.49 -174.6 15.6
+@camera lumberjack_cam_2 154.64 123.24 257.77 160.1 12.6
+[setup]
+tick sprint 24000
+#until 300 carpenter@.*Lumberjack :: execute positioned {LX} 100 {LZ} run btv villagers
+tick sprint stop
+execute positioned {LX} 100 {LZ} run btv villagers
+
+[play]
+#camera lumberjack_cam_2
+#sleep 1
+// Twice as fast
+tick rate 40
+#record lumberjack 20
+#wait-record
+tick rate 20

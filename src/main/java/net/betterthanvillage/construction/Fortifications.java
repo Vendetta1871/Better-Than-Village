@@ -51,8 +51,22 @@ public final class Fortifications {
     public static final int FAILURE_RETRY = 1200;
     /** Rings stand this far inside the territory border. */
     static final int RING_INSET = 2;
-    /** A new ring is added once the territory radius has grown this much past the current ring. */
+    /** A new ring is added once the settlement has grown this much past the current ring. */
     static final int RING_GAP = 16;
+    /** Blocks between the outermost house (field, storage, pen, player plot) and the ring. */
+    static final int SETTLED_MARGIN = 6;
+    /** The smallest ring (territory radius units). */
+    static final int MIN_RING = 24;
+    /** A gate every this many columns of a ring (fields and woods lie outside; nobody walks far to a gate). */
+    static final int GATE_SPACING = 24;
+    /** The wall line runs this many blocks outside the outermost houses (storages, pen, plots). */
+    public static final int HOUSE_MARGIN = 5;
+    /** Directions a ring profile is sampled in. */
+    static final int PROFILE_BINS = 256;
+    /** Gaps between houses up to this many directions (a quarter turn) are bridged by a straight run of wall. */
+    private static final int HULL_BINS = PROFILE_BINS / 4;
+    /** The wall line keeps at least this far from the bell. */
+    private static final int MIN_WALL = 12;
 
     private Fortifications() {
     }
@@ -95,6 +109,12 @@ public final class Fortifications {
             if (b != null && b.state().getBlock() instanceof FenceGateBlock) return true;
         }
         return false;
+    }
+
+    /** A wall gate of a village the mob's army is at war with: closed, it is a wall to the mob (it may open it). */
+    public static boolean enemyGate(ServerLevel level, Mob mob, BlockPos pos) {
+        Colony owner = wallGateOwner(level, pos);
+        return owner != null && net.betterthanvillage.warfare.Campaigns.enemyOf(level, owner, mob);
     }
 
     /** The village whose built wall gate stands at the position, or null. */
@@ -143,7 +163,7 @@ public final class Fortifications {
         }
         List<Integer> out = new ArrayList<>();
         for (int r : ringRadii(colony)) {
-            double planned = Math.PI * 2 * Math.max(8, r - RING_INSET);
+            double planned = perimeter(colony, r);
             if (columns.getOrDefault(r, java.util.Set.of()).size() >= planned / 3) out.add(r);
         }
         colony.runtime.put("btv_built_rings", new BuiltRings(f.managed.size(), out));
@@ -171,6 +191,19 @@ public final class Fortifications {
         return ringDist(colony, r, dx, dz);
     }
 
+    /** True if a built ring of the colony stands between the two points: one is inside it, the other outside. */
+    public static boolean acrossWall(Colony colony, double ax, double az, double bx, double bz) {
+        double cx = colony.core().getX() + 0.5, cz = colony.core().getZ() + 0.5;
+        for (int r : builtRings(colony)) {
+            if (insideRing(colony, r, ax - cx, az - cz) != insideRing(colony, r, bx - cx, bz - cz)) return true;
+        }
+        return false;
+    }
+
+    private static boolean insideRing(Colony colony, int r, double dx, double dz) {
+        return Math.sqrt(dx * dx + dz * dz) < ringDist(colony, r, dx, dz);
+    }
+
     /** Every ring of the colony: the old ones and the current (outermost) one. */
     static List<Integer> rings(FortificationState f) {
         List<Integer> out = new ArrayList<>(f.oldRings);
@@ -178,9 +211,156 @@ public final class Fortifications {
         return out;
     }
 
-    /** Distance from the core of the ring laid out for territory radius r, in a direction. */
+    /** Distance from the core of the ring r in a direction: its profile, or the territory border for an older ring. */
     static double ringDist(Colony colony, int r, double dx, double dz) {
-        return r * Territory.factor(colony, dx, dz) - RING_INSET;
+        float[] p = colony.fortifications.profiles.get(r);
+        if (p == null) return r * Territory.factor(colony, dx, dz) - RING_INSET;
+        double pos = binOf(dx, dz, p.length);
+        int i = (int) Math.floor(pos);
+        double t = pos - i;
+        return p[Math.floorMod(i, p.length)] * (1 - t) + p[Math.floorMod(i + 1, p.length)] * t;
+    }
+
+    /** Fractional profile index of a direction (index i points at angle i * 2pi / bins). */
+    private static double binOf(double dx, double dz, int bins) {
+        double a = Math.atan2(dz, dx);
+        if (a < 0) a += Math.PI * 2;
+        return a / (Math.PI * 2) * bins;
+    }
+
+    private static double binAngle(int i) {
+        return i * Math.PI * 2 / PROFILE_BINS;
+    }
+
+    /** The ring's distance per direction (an older ring's is sampled from the territory border). */
+    private static float[] profileOf(Colony colony, int r) {
+        float[] p = colony.fortifications.profiles.get(r);
+        if (p != null) return p;
+        float[] out = new float[PROFILE_BINS];
+        for (int i = 0; i < PROFILE_BINS; i++) out[i] = (float) ringDist(colony, r, Math.cos(binAngle(i)), Math.sin(binAngle(i)));
+        return out;
+    }
+
+    /** How far a ring may reach in a direction: the territory border, moved in by RING_INSET. */
+    private static double limit(Colony colony, int i) {
+        return colony.radius() * Territory.factor(colony, Math.cos(binAngle(i)), Math.sin(binAngle(i))) - RING_INSET;
+    }
+
+    /**
+     * The wall line around the settlement (docs_v2/04-land.md §Layered walls) as a distance from the bell per
+     * direction: the houses, storages, pen and plots with {@link #HOUSE_MARGIN} blocks around them, the gaps between
+     * them bridged by straight runs of wall (a convex hull over at most a quarter turn), within the territory. So the
+     * wall follows the outline of the village instead of a circle.
+     */
+    static float[] settlementProfile(ServerLevel level, Colony colony) {
+        int cx = colony.core().getX(), cz = colony.core().getZ();
+        float[] raw = new float[PROFILE_BINS];
+        for (BoundingBox b : settlement(level, colony)) {
+            int x0 = b.minX() - HOUSE_MARGIN - cx, x1 = b.maxX() + HOUSE_MARGIN - cx;
+            int z0 = b.minZ() - HOUSE_MARGIN - cz, z1 = b.maxZ() + HOUSE_MARGIN - cz;
+            // The farthest point of a box in a direction lies on its outline.
+            for (int x = x0; x <= x1; x++) {
+                envelope(raw, x, z0);
+                envelope(raw, x, z1);
+            }
+            for (int z = z0; z <= z1; z++) {
+                envelope(raw, x0, z);
+                envelope(raw, x1, z);
+            }
+        }
+        float[] out = new float[PROFILE_BINS];
+        for (int i = 0; i < PROFILE_BINS; i++) {
+            double best = hull(raw, i, HULL_BINS);
+            // A gap wider than a quarter turn: bridged across half a turn (the run then passes nearer the bell).
+            if (best <= 0) best = hull(raw, i, PROFILE_BINS / 2);
+            out[i] = (float) Math.min(Math.max(best, MIN_WALL), limit(colony, i));
+        }
+        return out;
+    }
+
+    private static void envelope(float[] raw, int dx, int dz) {
+        int i = Math.floorMod((int) Math.round(binOf(dx, dz, raw.length)), raw.length);
+        raw[i] = Math.max(raw[i], (float) Math.sqrt((double) dx * dx + (double) dz * dz));
+    }
+
+    /** The farthest of the raw distance at i and every straight run between points within span on either side. */
+    private static double hull(float[] raw, int i, int span) {
+        double best = raw[i];
+        double ux = Math.cos(binAngle(i)), uz = Math.sin(binAngle(i));
+        for (int j = i - span; j < i; j++) {
+            float pj = raw[Math.floorMod(j, PROFILE_BINS)];
+            if (pj <= 0) continue;
+            double ax = pj * Math.cos(binAngle(j)), az = pj * Math.sin(binAngle(j));
+            for (int k = i + 1; k <= i + span; k++) {
+                float pk = raw[Math.floorMod(k, PROFILE_BINS)];
+                if (pk <= 0) continue;
+                double bx = pk * Math.cos(binAngle(k)), bz = pk * Math.sin(binAngle(k));
+                // Where the ray from the bell at angle i crosses the segment a-b.
+                double den = ux * (bz - az) - uz * (bx - ax);
+                if (Math.abs(den) < 1e-9) continue;
+                double t = (ax * bz - az * bx) / den;
+                if (t > best) best = t;
+            }
+        }
+        return best;
+    }
+
+    /** By how much the wanted line passes outside the ring somewhere. */
+    private static double outgrown(float[] ring, float[] wanted) {
+        double most = 0;
+        for (int i = 0; i < PROFILE_BINS; i++) most = Math.max(most, wanted[i] - ring[i]);
+        return most;
+    }
+
+    /**
+     * Lays the current ring out along the profile: as a new ring outside the current one, which is kept (layered
+     * walls), or in its place, its blocks taken down.
+     */
+    private static void setRing(ServerLevel level, Colony colony, float[] profile, boolean keepCurrent) {
+        FortificationState f = colony.fortifications;
+        int id = (int) Math.ceil(max(profile));
+        for (int r : rings(f)) id = Math.max(id, r + 1);
+        if (f.radius > 0) {
+            if (keepCurrent) {
+                f.oldRings.add(f.radius);
+            } else {
+                int old = f.radius;
+                for (FortBlock b : f.managed.values()) {
+                    if (ringOf(colony, b.pos()) == old) f.pending.put(b.pos(), new FortBlock(b.pos(), b.state(), true));
+                }
+                f.pending.values().removeIf(b -> !b.remove());
+                f.profiles.remove(old);
+                f.surveyed.clear();
+                f.abandoned.clear();
+                runtime(colony).retry.clear();
+                runtime(colony).failures.clear();
+            }
+        }
+        f.profiles.put(id, profile);
+        f.radius = id;
+        colony.runtime.remove("btv_built_rings");
+        planRing(level, colony);
+        ColonyManager.markDirty(level);
+    }
+
+    private static double max(float[] p) {
+        double m = 0;
+        for (float v : p) m = Math.max(m, v);
+        return m;
+    }
+
+    /** Wall columns a ring has when complete (its outline length). */
+    private static double perimeter(Colony colony, int r) {
+        float[] p = colony.fortifications.profiles.get(r);
+        if (p == null) return Math.PI * 2 * Math.max(8, r - RING_INSET);
+        double sum = 0;
+        for (int i = 0; i < p.length; i++) {
+            int j = (i + 1) % p.length;
+            double ax = p[i] * Math.cos(binAngle(i)), az = p[i] * Math.sin(binAngle(i));
+            double bx = p[j] * Math.cos(binAngle(j)), bz = p[j] * Math.sin(binAngle(j));
+            sum += Math.hypot(bx - ax, bz - az);
+        }
+        return sum;
     }
 
     /** Pathfinding: wall gates for villagers/golems; any non-pen fence gate for colony villagers (05 §4.6). */
@@ -220,20 +400,25 @@ public final class Fortifications {
         f.nextPlan = now + 1200;
         holdVillage(level, colony);
         boolean layered = cfg.land.layered_walls;
-        if (f.radius == 0) {
-            f.radius = colony.radius();
-            planRing(level, colony);
-        } else if (colony.radius() >= f.radius + RING_GAP) {
-            // The territory grew past the ring: a new ring outside; the old one is kept (or taken down without layers).
-            if (layered) {
-                f.oldRings.add(f.radius);
-                f.radius = colony.radius();
-                planRing(level, colony);
-            } else {
-                relocate(level, colony, colony.radius());
-            }
+        // The ring encloses the settlement along its houses, not the whole territory (fields and woods stay outside).
+        float[] wanted = settlementProfile(level, colony);
+        if (f.radius == 0 || (!f.profiles.containsKey(f.radius) && !builtRings(colony).contains(f.radius))) {
+            // The first ring, or one laid out along the territory border before and hardly built: along the houses.
+            setRing(level, colony, wanted, false);
         } else {
-            planRing(level, colony);
+            float[] current = profileOf(colony, f.radius);
+            if (outgrown(current, wanted) >= RING_GAP) {
+                // The settlement grew past the ring: a new ring outside, clear of the old one, which is kept (or
+                // taken down without layers).
+                if (layered) {
+                    for (int i = 0; i < PROFILE_BINS; i++) {
+                        wanted[i] = (float) Math.min(Math.max(wanted[i], current[i] + RING_GAP / 2.0), Math.max(limit(colony, i), current[i]));
+                    }
+                }
+                setRing(level, colony, wanted, layered);
+            } else {
+                planRing(level, colony);
+            }
         }
         // Every ring is maintained: missing blocks of built walls are put back.
         for (FortBlock b : f.managed.values()) {
@@ -244,27 +429,127 @@ public final class Fortifications {
         ColonyManager.markDirty(level);
     }
 
-    /**
-     * Grows the territory (up to its maximum) to hold everything of the village, so the ring on its border
-     * encloses it: the village pieces, houses, fields, storages and the pen, each with a 4-block margin.
-     */
+    /** Grows the territory (up to its maximum) to hold the settlement with the ring's margin, and the fields. */
     static void holdVillage(ServerLevel level, Colony colony) {
+        int need = 0;
+        for (BoundingBox b : settlement(level, colony)) need = Math.max(need, Territory.radiusFor(colony, b, RING_INSET + SETTLED_MARGIN));
+        for (BlockPos p : colony.farmland) need = Math.max(need, Territory.radiusFor(colony, new BoundingBox(p), RING_INSET + 4));
+        colony.growRadius(Math.min(need, Territory.maxRadius(colony)));
+    }
+
+    /**
+     * The radius of the ring around the settlement: the houses (generated and built), storages, the pen and players'
+     * plots with {@link #SETTLED_MARGIN} blocks around them, within the territory. Fields lie outside the walls.
+     */
+    static int settledRadius(ServerLevel level, Colony colony) {
+        int need = MIN_RING;
+        for (BoundingBox b : settlement(level, colony)) need = Math.max(need, Territory.radiusFor(colony, b, RING_INSET + SETTLED_MARGIN));
+        return Math.min(need, colony.radius());
+    }
+
+    private record SettlementCache(long tick, List<BoundingBox> boxes) {
+    }
+
+    private record LineCache(long tick, float[] profile) {
+    }
+
+    /**
+     * Inside the village: within the outermost wall ring, or without walls within the line a ring would take
+     * (cached for a minute). The houses' surroundings, the streets and squares between them all count.
+     */
+    public static boolean insideWallLine(ServerLevel level, Colony colony, int x, int z) {
+        double dx = x - colony.core().getX(), dz = z - colony.core().getZ();
+        double d = Math.sqrt(dx * dx + dz * dz);
+        FortificationState f = colony.fortifications;
+        if (f.radius > 0) return d < ringDist(colony, f.radius, dx, dz) + 2;
+        long now = level.getGameTime();
+        float[] p;
+        if (colony.runtime.get("btv_wall_line") instanceof LineCache c && now - c.tick() >= 0 && now - c.tick() < 1200) {
+            p = c.profile();
+        } else {
+            p = settlementProfile(level, colony);
+            colony.runtime.put("btv_wall_line", new LineCache(now, p));
+        }
+        double pos = binOf(dx, dz, p.length);
+        int i = (int) Math.floor(pos);
+        double t = pos - i;
+        return d < p[Math.floorMod(i, p.length)] * (1 - t) + p[Math.floorMod(i + 1, p.length)] * t + 2;
+    }
+
+    /** Within margin blocks (x/z) of a house, storage, the pen or a plot of the village (boxes cached for 100 ticks). */
+    public static boolean insideSettlement(ServerLevel level, Colony colony, int x, int z, int margin) {
+        long now = level.getGameTime();
+        List<BoundingBox> boxes;
+        if (colony.runtime.get("btv_settlement") instanceof SettlementCache c && now - c.tick() >= 0 && now - c.tick() < 100) {
+            boxes = c.boxes();
+        } else {
+            boxes = settlement(level, colony);
+            colony.runtime.put("btv_settlement", new SettlementCache(now, boxes));
+        }
+        for (BoundingBox b : boxes) {
+            if (x >= b.minX() - margin && x <= b.maxX() + margin && z >= b.minZ() - margin && z <= b.maxZ() + margin) return true;
+        }
+        return false;
+    }
+
+    /** The boxes of the settlement (see {@link #settledRadius}). */
+    static List<BoundingBox> settlement(ServerLevel level, Colony colony) {
         List<BoundingBox> boxes = new ArrayList<>();
+        // Of the generated village, its houses and centre (its streets run far out; the ring crosses them at gates).
         StructureStart start = level.structureManager().getStructureWithPieceAt(colony.core(), StructureTags.VILLAGE);
         if (start.isValid()) {
-            for (StructurePiece piece : start.getPieces()) boxes.add(piece.getBoundingBox());
+            for (StructurePiece piece : start.getPieces()) {
+                if (net.betterthanvillage.society.VillagePieces.isBuilding(piece)) boxes.add(piece.getBoundingBox());
+            }
         }
         for (ConstructionJob job : colony.jobs) {
             if (job.status == net.betterthanvillage.colony.JobStatus.BLOCKED && job.retryAfter == 0) continue;
             boxes.add(job.box());
         }
-        for (BlockPos p : colony.farmland) boxes.add(new BoundingBox(p));
         for (BlockPos p : colony.managedStorages.keySet()) boxes.add(new BoundingBox(p));
         BlockPos pen = colony.livestockPen;
         if (pen != null) boxes.add(new BoundingBox(pen.getX() - 5, 0, pen.getZ() - 5, pen.getX() + 5, 0, pen.getZ() + 5));
-        int need = 0;
-        for (BoundingBox b : boxes) need = Math.max(need, Territory.radiusFor(colony, b, RING_INSET + 4));
-        colony.growRadius(Math.min(need, Territory.maxRadius(colony)));
+        for (net.betterthanvillage.colony.LandPlot plot : ColonyManager.data(level).land) {
+            if (!plot.colony().equals(colony.id())) continue;
+            BlockPos c = plot.center();
+            boxes.add(new BoundingBox(c.getX() - plot.rx(), 0, c.getZ() - plot.rz(), c.getX() + plot.rx(), 0, c.getZ() + plot.rz()));
+        }
+        return boxes;
+    }
+
+    /** Debug: the settled radius and the box farthest out ("piece/storage/job/pen/plot at x,z"). */
+    public static String settledReason(ServerLevel level, Colony colony) {
+        int best = 0;
+        String why = "-";
+        StructureStart start = level.structureManager().getStructureWithPieceAt(colony.core(), StructureTags.VILLAGE);
+        List<BoundingBox> pieces = new ArrayList<>();
+        if (start.isValid()) {
+            for (StructurePiece piece : start.getPieces()) {
+                if (net.betterthanvillage.society.VillagePieces.isBuilding(piece)) pieces.add(piece.getBoundingBox());
+            }
+        }
+        List<BoundingBox> all = settlement(level, colony);
+        for (BoundingBox b : all) {
+            int r = Territory.radiusFor(colony, b, RING_INSET + SETTLED_MARGIN);
+            if (r > best) {
+                best = r;
+                String kind = pieces.contains(b) ? "piece"
+                        : colony.managedStorages.containsKey(new BlockPos(b.minX(), b.minY(), b.minZ())) ? "storage" : "job/pen/plot";
+                why = kind + " " + b.minX() + "," + b.minZ() + ".." + b.maxX() + "," + b.maxZ();
+            }
+        }
+        return "settled radius " + settledRadius(level, colony) + " (farthest: " + why + ")";
+    }
+
+    /** Debug: a ring the given distance outside the current one (layered: the current one is kept). */
+    public static int addRing(ServerLevel level, Colony colony, int blocks) {
+        FortificationState f = colony.fortifications;
+        float[] base = f.radius == 0 ? settlementProfile(level, colony) : profileOf(colony, f.radius);
+        colony.growRadius(Math.min((int) Math.ceil(max(base)) + blocks + RING_INSET, Territory.maxRadius(colony)));
+        float[] next = new float[PROFILE_BINS];
+        for (int i = 0; i < PROFILE_BINS; i++) next[i] = (float) Math.min(base[i] + blocks, Math.max(limit(colony, i), base[i]));
+        setRing(level, colony, next, f.radius != 0 && ColonyConfig.get().land.layered_walls);
+        return f.radius;
     }
 
     /** Relocation: clear the plan, queue removal of every built block, set the radius and plan the new ring. */
@@ -279,6 +564,7 @@ public final class Fortifications {
         for (FortBlock b : f.managed.values()) {
             f.pending.put(b.pos(), new FortBlock(b.pos(), b.state(), true));
         }
+        f.profiles.clear();
         f.radius = radius;
         planRing(level, colony);
         ColonyManager.markDirty(level);
@@ -291,7 +577,9 @@ public final class Fortifications {
     public static void onPlotAccepted(ServerLevel level, Colony colony, int x0, int z0, int w, int d) {
         FortificationState f = colony.fortifications;
         if (f.radius == 0 || ColonyConfig.get().land.layered_walls) return;
-        if (crossesRing(colony, f.radius, x0, z0, w, d) && colony.radius() > f.radius) relocate(level, colony, colony.radius());
+        int need = Math.max(settledRadius(level, colony),
+                Math.min(colony.radius(), Territory.radiusFor(colony, x0, z0, x0 + w - 1, z0 + d - 1, RING_INSET + SETTLED_MARGIN)));
+        if (crossesRing(colony, f.radius, x0, z0, w, d) && need > f.radius) relocate(level, colony, need);
     }
 
     /** The footprint (plus 1) has columns on both sides of a ring of the colony: a house there would cross a wall. */
@@ -396,7 +684,9 @@ public final class Fortifications {
         if (f.radius <= 0) return;
         Materials m = materials(level, colony);
         BlockPos core = colony.core();
+        int index = -1;
         for (BlockPos col : ringColumns(level, colony, f.radius)) {
+            index++;
             if (f.surveyed.contains(col) || !Terrain.loaded(level, col.getX(), col.getZ())) continue;
             f.surveyed.add(col);
             int x = col.getX(), z = col.getZ();
@@ -412,9 +702,11 @@ public final class Fortifications {
             BlockState ground = level.getBlockState(new BlockPos(x, y - 1, z));
             if (!Terrain.natural(ground) && !Terrain.isRoad(ground)) continue;
             boolean xCross = Math.abs(x - core.getX()) <= 2;
+            boolean spaced = index % GATE_SPACING == GATE_SPACING / 2;
             List<FortBlock> blocks = new ArrayList<>();
-            if (xCross || Math.abs(z - core.getZ()) <= 1 || ground.is(Blocks.DIRT_PATH)) {
-                Direction facing = xCross ? Direction.NORTH : Direction.EAST;
+            if (xCross || Math.abs(z - core.getZ()) <= 1 || ground.is(Blocks.DIRT_PATH) || spaced) {
+                // The gate opens along the ray from the bell (across the ring).
+                Direction facing = Math.abs(z - core.getZ()) >= Math.abs(x - core.getX()) ? Direction.NORTH : Direction.EAST;
                 blocks.add(new FortBlock(new BlockPos(x, y, z), m.gate().setValue(FenceGateBlock.FACING, facing), false));
                 if (xCross && z > core.getZ()) {
                     blocks.add(new FortBlock(new BlockPos(x, y + 4, z), m.base(), false));
@@ -601,6 +893,32 @@ public final class Fortifications {
         return n;
     }
 
+    /** Debug: takes every ring down at once (loaded blocks) and forgets the plan; walls are planned again later. */
+    public static int unwall(ServerLevel level, Colony colony) {
+        FortificationState f = colony.fortifications;
+        int n = 0;
+        for (FortBlock b : f.managed.values()) {
+            if (!level.isLoaded(b.pos()) || level.getBlockState(b.pos()).getBlock() != b.state().getBlock()) continue;
+            SafeEditScope.run(() -> level.setBlock(b.pos(), Blocks.AIR.defaultBlockState(), 2));
+            n++;
+        }
+        f.managed.clear();
+        f.pending.clear();
+        f.oldRings.clear();
+        f.profiles.clear();
+        f.surveyed.clear();
+        f.abandoned.clear();
+        f.skipped = 0;
+        f.radius = 0;
+        f.nextPlan = 0;
+        Runtime rt = runtime(colony);
+        rt.retry.clear();
+        rt.failures.clear();
+        colony.runtime.remove("btv_built_rings");
+        ColonyManager.markDirty(level);
+        return n;
+    }
+
     static void complete(ServerLevel level, Colony colony, FortBlock job, boolean placed) {
         FortificationState f = colony.fortifications;
         Runtime rt = runtime(colony);
@@ -637,6 +955,8 @@ public final class Fortifications {
     /** Opens wall gates for nearby villagers/golems and closes them otherwise (05 §4.6). */
     static void gateControl(ServerLevel level, Colony colony) {
         java.util.Set<BlockPos> opened = runtime(colony).opened;
+        // Under an assault a gate the enemy opened is not taken over (and closed after a villager): it stays open.
+        boolean assault = net.betterthanvillage.warfare.Campaigns.assaulted(level, colony);
         for (FortBlock b : colony.fortifications.managed.values()) {
             if (!(b.state().getBlock() instanceof FenceGateBlock) || !level.isLoaded(b.pos())) continue;
             BlockState s = level.getBlockState(b.pos());
@@ -647,7 +967,7 @@ public final class Fortifications {
             if (want && !isOpen) {
                 SafeEditScope.run(() -> level.setBlock(b.pos(), s.setValue(FenceGateBlock.OPEN, true), 3));
                 opened.add(b.pos());
-            } else if (colonist && isOpen && !playerAt(level, b.pos())) {
+            } else if (colonist && isOpen && !assault && !playerAt(level, b.pos())) {
                 // an open gate in colony use is closed after it (also after a restart lost the tracking)
                 opened.add(b.pos());
             } else if (!want && isOpen && opened.remove(b.pos())) {

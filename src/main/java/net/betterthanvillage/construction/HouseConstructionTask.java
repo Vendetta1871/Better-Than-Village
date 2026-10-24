@@ -67,6 +67,8 @@ public final class HouseConstructionTask extends ColonyTask {
     /** Runtime builder cooldowns per plot: builder UUID -> until time. */
     private static final Map<ConstructionJob, Map<UUID, Long>> COOLDOWNS = new WeakHashMap<>();
     private static final Pattern STARTED_BLOCKS = Pattern.compile(".*(planks|door|bed).*");
+    /** Ticks a mason without material for the next block idles before it looks into the storage again. */
+    private static final int STARVED_RECHECK = 600;
 
     private final BlockWorkTimer timer = new BlockWorkTimer();
     private ConstructionJob job;
@@ -81,6 +83,8 @@ public final class HouseConstructionTask extends ColonyTask {
     private long fetchWatchdog;
     /** The last fetch found no material anywhere (a no-progress stall is then not the plot's fault). */
     private boolean starved;
+    /** Set with starved: the mason leaves the plot instead of standing by it until material arrives. */
+    private boolean leave;
     /** Candidate window of the next stand probe. */
     private int standPage;
 
@@ -147,6 +151,7 @@ public final class HouseConstructionTask extends ColonyTask {
         nextStandTime = now;
         fetchContainer = null;
         starved = false;
+        leave = false;
         started = started(level, job, plan);
         ColonyManager.markDirty(level);
     }
@@ -166,7 +171,7 @@ public final class HouseConstructionTask extends ColonyTask {
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long now) {
-        if (job == null || v.isSleeping() || v.isTrading()) return false;
+        if (job == null || leave || v.isSleeping() || v.isTrading()) return false;
         Colony colony = colony(level, v);
         if (colony == null || !colony.jobs.contains(job) || colony.roleOf(v.getUUID()) != ColonyRole.MASON) return false;
         if (Fortifications.isWallBuilder(level, colony, v) || Damage.hasActionableRepair(level, colony)) return false;
@@ -228,7 +233,8 @@ public final class HouseConstructionTask extends ColonyTask {
             } else {
                 HousePlanner.blockOrAbandon(level, colony, job, now + 600);
             }
-            cooldownUntil = now + 2400;
+            // Only this plot waits (the cooldown above): the mason may take another one meanwhile.
+            cooldownUntil = now + 200;
             ColonyManager.markDirty(level);
             return;
         }
@@ -257,9 +263,7 @@ public final class HouseConstructionTask extends ColonyTask {
                 return;
             }
             if (cost.kind() == BuildCost.Kind.STRUCTURAL) {
-                WorkTracker.status(v, STATUS_WAIT_MATERIALS);
-                starved = true;
-                nextActionTime = now + 40;
+                starve(v, STATUS_WAIT_MATERIALS, now);
                 return;
             }
             // functional blocks wait as repair entries (built when material arrives); decoration is skipped
@@ -493,9 +497,7 @@ public final class HouseConstructionTask extends ColonyTask {
         if (container == null) {
             BlockPos any = nearestContaining(level, colony, v, pp, false);
             if (any == null) {
-                WorkTracker.status(v, STATUS_WAIT_MATERIALS);
-                starved = true;
-                nextActionTime = now + 40;
+                starve(v, STATUS_WAIT_MATERIALS, now);
                 return;
             }
             job.addSupplyStall(now);
@@ -533,10 +535,23 @@ public final class HouseConstructionTask extends ColonyTask {
             job.lastProgressTick = now;
             if (remote) WorkTracker.credit(v, "снабжение стройки", 1);
         } else {
-            WorkTracker.status(v, STATUS_RESERVE);
-            starved = true;
+            starve(v, STATUS_RESERVE, now);
+            return;
         }
         nextActionTime = now + 10;
+    }
+
+    /**
+     * No material for the next block: the mason leaves the plot and goes about like an idle villager instead of
+     * standing by the unfinished house, and looks into the storage again after a while (another mason may take the
+     * plot meanwhile).
+     */
+    private void starve(Villager v, String status, long now) {
+        WorkTracker.status(v, status + ": " + BuildPlan.path(plan.get(job.nextBlock).state().getBlock()));
+        starved = true;
+        leave = true;
+        cooldownUntil = now + STARVED_RECHECK;
+        nextActionTime = now + 40;
     }
 
     /**

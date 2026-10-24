@@ -234,9 +234,10 @@ public final class Professions {
 
     /** Sets villager type, profession and name tag for the villager's profession. */
     public static void applyRole(ServerLevel level, Colony colony, Villager v) {
-        // Conscripts keep their trade's look and name; their duty (memory) is warrior.
-        ColonyRole role = colony != null ? colony.tradeOf(v.getUUID()) : ColonyRole.CITIZEN;
+        // Conscripts look and are named as warriors while they serve (their trade stays theirs); the duty (memory) is
+        // what they do.
         ColonyRole duty = colony != null ? colony.roleOf(v.getUUID()) : ColonyRole.CITIZEN;
+        ColonyRole role = colony == null ? ColonyRole.CITIZEN : duty == ColonyRole.WARRIOR ? ColonyRole.WARRIOR : colony.tradeOf(v.getUUID());
         if (colony != null) {
             v.addTag(MANAGED_TAG);
         }

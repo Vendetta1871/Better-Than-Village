@@ -104,6 +104,51 @@ public final class LandWorkTask extends ColonyTask {
                 && pos.getY() - at.getY() <= MAX_HEIGHT && at.getY() - pos.getY() <= 4;
     }
 
+    /**
+     * Within reach of a fill cell: not above the miner's head (a lid laid from below would shut the miner in under
+     * it), at most four blocks below its feet.
+     */
+    private static boolean nearFill(Villager v, BlockPos cell) {
+        BlockPos at = v.blockPosition();
+        return Math.abs(at.getX() - cell.getX()) <= REACH && Math.abs(at.getZ() - cell.getZ()) <= REACH
+                && cell.getY() - at.getY() <= 1 && at.getY() - cell.getY() <= 4;
+    }
+
+    /** Within reach of the column and above the cell, nothing between: the fill can be thrown down to it. */
+    private static boolean dropsInto(ServerLevel level, Villager v, BlockPos cell) {
+        BlockPos at = v.blockPosition();
+        if (Math.abs(at.getX() - cell.getX()) > REACH || Math.abs(at.getZ() - cell.getZ()) > REACH || at.getY() <= cell.getY()) return false;
+        if (at.getY() - cell.getY() > LandWork.MAX_DEPRESSION_FILL + 2) return false;
+        for (int y = cell.getY() + 1; y <= at.getY(); y++) {
+            if (!level.getBlockState(new BlockPos(cell.getX(), y, cell.getZ())).canBeReplaced()) return false;
+        }
+        return true;
+    }
+
+    /** Where to stand to fill the column from above: the nearest dry ground within reach of it that is higher, or null. */
+    private static BlockPos edge(ServerLevel level, Colony colony, Villager v, BlockPos cell) {
+        BlockPos best = null;
+        double bestD = Double.MAX_VALUE;
+        for (int dx = -REACH; dx <= REACH; dx++) {
+            for (int dz = -REACH; dz <= REACH; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                int x = cell.getX() + dx, z = cell.getZ() + dz;
+                BlockPos stand = new BlockPos(x, LandWork.ground(level, x, z) + 1, z);
+                // Firm ground: not a column of the hole itself.
+                if (stand.getY() <= cell.getY() || LandWork.plannedFill(colony, x, z) || !level.getFluidState(stand.below()).isEmpty()
+                        || !level.getBlockState(stand).canBeReplaced() || !level.getBlockState(stand.above()).canBeReplaced()) {
+                    continue;
+                }
+                double d = stand.distSqr(v.blockPosition());
+                if (d < bestD) {
+                    bestD = d;
+                    best = stand;
+                }
+            }
+        }
+        return best;
+    }
+
     /** Breaks one condemned block; its drops (and a container's contents) go to the treasury. */
     private void demolish(ServerLevel level, Colony colony, Villager v, BlockPos target, long now) {
         WorkTracker.status(v, STATUS_DEMOLISH);
@@ -176,6 +221,24 @@ public final class LandWorkTask extends ColonyTask {
         ColonyManager.markDirty(level);
     }
 
+    /** Jumps and puts a block of fill (stone first) under its feet, when there is room above. */
+    private void pillarUp(ServerLevel level, Colony colony, Villager v) {
+        BlockPos at = v.blockPosition();
+        if (!v.onGround() || !level.getBlockState(at).canBeReplaced() || !level.getBlockState(at.above(2)).canBeReplaced()) return;
+        if (!timer.tickAction(level, v, at, ColonyConfig.get().work.placement_ticks)) return;
+        timer.reset();
+        ItemStack block = ColonyStorage.withdrawOne(level, colony, s -> s.is(Items.COBBLESTONE) || s.is(Items.COBBLED_DEEPSLATE));
+        if (block.isEmpty()) block = ColonyStorage.withdrawOne(level, colony, FILL);
+        if (block.isEmpty()) return;
+        BlockState state = block.is(Items.DIRT) ? Blocks.DIRT.defaultBlockState()
+                : block.is(Items.COBBLED_DEEPSLATE) ? Blocks.COBBLED_DEEPSLATE.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState();
+        v.getNavigation().stop();
+        v.setPos(at.getX() + 0.5, at.getY() + 1, at.getZ() + 0.5);
+        SafeEditScope.run(() -> level.setBlock(at, state, 3));
+        v.swing(InteractionHand.MAIN_HAND);
+        WorkTracker.credit(v, STATUS_FILL, 1);
+    }
+
     /** Places one block of fill (dirt or cobblestone of the treasury) into a pit. */
     private void fill(ServerLevel level, Colony colony, Villager v, BlockPos cell, long now) {
         if (!ColonyStorage.has(level, colony, FILL)) {
@@ -183,9 +246,16 @@ public final class LandWorkTask extends ColonyTask {
             return;
         }
         WorkTracker.status(v, STATUS_FILL);
-        if (!near(v, cell)) {
-            Nav.approach(level, v, cell, 0.65, 9);
-            if (Nav.isBlacklisted(v, cell, now)) LandWork.dropPit(colony, cell);
+        if (!nearFill(v, cell) && !dropsInto(level, v, cell)) {
+            if (v.getBlockY() < cell.getY() && LandWork.plannedFill(colony, v.getBlockX(), v.getBlockZ())) {
+                // Down in the pit, below its lid: it climbs out the way a player would, on a pillar under its feet.
+                pillarUp(level, colony, v);
+                return;
+            }
+            // A deep hole is filled from its edge: the earth is thrown down the open column.
+            BlockPos edge = edge(level, colony, v, cell);
+            Nav.approach(level, v, edge == null ? cell : edge, 0.65, edge == null ? 9 : 1);
+            if (Nav.isBlacklisted(v, edge == null ? cell : edge, now)) LandWork.dropPit(colony, cell);
             return;
         }
         if (HouseConstructionTask.standsOn(v, cell) || HouseConstructionTask.standsOn(v, cell.above())) {
@@ -199,7 +269,12 @@ public final class LandWorkTask extends ColonyTask {
         }
         if (!timer.tickAction(level, v, cell, ColonyConfig.get().work.placement_ticks)) return;
         timer.reset();
-        ItemStack block = ColonyStorage.withdrawOne(level, colony, FILL);
+        // Stone below, earth on top: the filled hole grows grass again like the ground around it.
+        boolean top = cell.getY() >= LandWork.fillLevel(colony, cell);
+        Predicate<ItemStack> dirt = s -> s.is(Items.DIRT);
+        Predicate<ItemStack> stone = s -> s.is(Items.COBBLESTONE) || s.is(Items.COBBLED_DEEPSLATE);
+        ItemStack block = ColonyStorage.withdrawOne(level, colony, top ? dirt : stone);
+        if (block.isEmpty()) block = ColonyStorage.withdrawOne(level, colony, FILL);
         if (block.isEmpty()) return;
         BlockState state = block.is(Items.DIRT) ? Blocks.DIRT.defaultBlockState()
                 : block.is(Items.COBBLED_DEEPSLATE) ? Blocks.COBBLED_DEEPSLATE.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState();

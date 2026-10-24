@@ -33,7 +33,8 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
         BlockPos p = new BlockPos(x, y, z);
         if (!(context.getBlockState(p).getBlock() instanceof FenceGateBlock)) return;
         if (Fortifications.isWallGate(level, p)) {
-            cir.setReturnValue(PathType.WALKABLE);
+            // A closed wall gate is a fence to an enemy army (vanilla type); it opens it first.
+            if (!Fortifications.enemyGate(level, this.mob, p)) cir.setReturnValue(PathType.WALKABLE);
             return;
         }
         if (!(this.mob instanceof Villager v) || ColonyManager.colonyOf(level, v) == null) return;

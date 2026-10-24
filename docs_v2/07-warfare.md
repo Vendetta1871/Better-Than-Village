@@ -283,20 +283,37 @@ The `warfare` package. Settings are in the `warfare` section of the config.
     once and its entity is dropped when its chunk loads (`Casualties`, `ColonySavedData.fallen`).
 - **Live sieges** (`Siege`, `SoldierTask`). Soldiers fight the target's warriors and golem, and
   players at war with their country or hitting them.
-  - **Rings.** Before each ring a soldier works on a breach near it: a wall gate within 16 blocks
-    is broken first. Otherwise, by turns, a soldier breaks the ring's blocks of a column and its
-    neighbours at feet and head height, digs a tunnel two blocks under the wall where the ground
-    is diggable, or builds a coarse dirt staircase to the top of the wall and drops inside.
-  - **Jumping.** A rider whose horse clears the wall (the vanilla jump curve of the horse's jump
-    strength, half a block of headroom) jumps it from a run-up outside, if the wall is at most two
-    blocks thick and the ground inside is free. No block is broken.
-  - **Getting stuck.** A soldier that makes no progress for 15 s tries another tactic. Without
-    mob griefing it climbs over.
-  - **Gates.** Wall gates never open for, nor path through, enemy soldiers.
+  - **Rings.** The army takes each ring at one breach, shared by all its soldiers, on the side it
+    came from (toward its outpost): a wall gate within 16 blocks of that point, which a soldier
+    opens, else the wall nearest it, where up to three infantry break the ring's blocks of a column
+    and its neighbours at feet and head height. After a breach failed the next one is made in the
+    wall (beside the gate): one soldier builds a coarse dirt staircase to the top of the wall, digs
+    a tunnel two blocks under it where the ground is diggable, or the infantry break it. The others
+    wait five blocks outside it, archers nine blocks out to one side, shooting over the wall.
+  - **Through.** Once the breach is open, or any soldier is inside the ring (over a staircase),
+    the whole army goes through it. A breach walled up or closed again is worked again; one that
+    lets nobody through three times is given up for another, with the next tactic.
+  - **Riders** get off within 12 blocks of a wall and storm it on foot (no breach fits a horse);
+    they mount again after the siege. On the march the horse plans the way itself. The horse of a
+    fallen rider goes to the nearest soldier on foot (no archer), who rides from then on.
+  - **Getting stuck.** A soldier that makes no progress for 15 s is helped over the obstacle
+    toward its goal, never past a wall or onto it; one that chases an enemy for 10 s without
+    closing in (behind the wall) leaves it to the others for 30 s. Followers on the march are
+    helped toward the leader.
+  - **Gates.** Wall gates never open for enemy soldiers, and a closed one is a wall to their
+    pathfinding: they open it at their breach. Under an assault the village does not close a gate
+    the enemy opened.
   - **The fall.** The village falls when none of its warriors stands in its territory, its golem
     is dead and a soldier is within 10 blocks of the bell.
-  - **Defence.** The village's warriors see enemy soldiers inside the territory as attackers
-    (`ThreatManager.enemySoldier`), and masons rebuild broken wall blocks.
+  - **Defence.** While an enemy soldier stands within 24 blocks of the territory the village is
+    stormed (`Campaigns.assaulted`): civilians take shelter in the houses as in a raid, and all the
+    warriors stand to (no night watch sleeps under a siege). They see enemy soldiers inside the
+    territory as attackers (`ThreatManager.enemySoldier`); with nobody to fight they gather inside
+    the wall at the army's breach, archers a few blocks farther back. Nobody goes out after an
+    enemy beyond the wall (a guard caught outside comes back in): archers inside shoot over it
+    at enemies they see 4 to 15 blocks away. A guard
+    that cannot reach an enemy soldier leaves it, but the alarm stays. Masons rebuild broken wall
+    blocks.
 - **Conquest** (`Conquest`).
   - The village joins the winner with `politics.conquered_loyalty` (20).
   - Its treasury's emeralds go to the winner's capital. The debt notes it held now pay the

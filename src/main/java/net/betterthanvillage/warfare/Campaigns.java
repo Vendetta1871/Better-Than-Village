@@ -55,12 +55,17 @@ public final class Campaigns {
 
     private static final Map<UUID, Campaign> BY_SOLDIER = new HashMap<>();
     private static boolean indexDirty = true;
+    /** Colony id -> {tick, 1 if stormed}: the assault check of the last second. */
+    private static final Map<UUID, long[]> ASSAULTED = new HashMap<>();
+    /** Enemy soldiers this close outside the territory count as storming it. */
+    private static final int ASSAULT_MARGIN = 24;
 
     private Campaigns() {
     }
 
     public static void clearCaches() {
         BY_SOLDIER.clear();
+        ASSAULTED.clear();
         indexDirty = true;
     }
 
@@ -122,6 +127,42 @@ public final class Campaigns {
     }
 
     /**
+     * The village is being stormed: a war army lays siege to it in the loaded world and one of its soldiers stands
+     * in the territory or close to it. Civilians take shelter and the warriors stand to (as in a raid); cached for a
+     * second.
+     */
+    public static boolean assaulted(ServerLevel level, Colony colony) {
+        if (ColonyManager.data(level).campaigns.isEmpty()) return false;
+        long now = level.getGameTime();
+        long[] cached = ASSAULTED.get(colony.id());
+        if (cached != null && now >= cached[0] && now - cached[0] < 20) return cached[1] != 0;
+        boolean stormed = false;
+        Campaign c = against(level, colony.id());
+        if (c != null && c.kind == Campaign.Kind.WAR && c.phase == Campaign.Phase.SIEGE && c.live) {
+            for (Campaign.Soldier s : c.soldiers) {
+                if (s.live && level.getEntity(s.id) instanceof LivingEntity e && e.isAlive()
+                        && net.betterthanvillage.defense.ThreatManager.inColony(colony, e, ASSAULT_MARGIN)) {
+                    stormed = true;
+                    break;
+                }
+            }
+        }
+        ASSAULTED.put(colony.id(), new long[]{now, stormed ? 1 : 0});
+        return stormed;
+    }
+
+    /** The army's breach in the outermost ring of the village it storms, or null (none planned yet). */
+    public static BlockPos[] breachOf(ServerLevel level, Colony colony) {
+        Campaign c = against(level, colony.id());
+        if (c == null || c.phase != Campaign.Phase.SIEGE || c.breaches.isEmpty()) return null;
+        SoldierTask.Breach outer = null;
+        for (SoldierTask.Breach b : c.breaches.values()) {
+            if (outer == null || b.ring > outer.ring) outer = b;
+        }
+        return new BlockPos[]{outer.column, outer.inside};
+    }
+
+    /**
      * The entity is a soldier (villager or golem) of an army hostile to the village: its campaign targets the village
      * or its country is at war with the village's country.
      */
@@ -136,7 +177,12 @@ public final class Campaigns {
 
     /** A defender the army fights: a warrior or the village golem of a village of the enemy country. */
     public static boolean defenderOf(ServerLevel level, Campaign c, Entity e) {
-        if (!(e instanceof LivingEntity le) || !le.isAlive()) return false;
+        return e instanceof LivingEntity le && le.isAlive() && defenderOfAny(level, c, e);
+    }
+
+    /** As defenderOf, alive or not (a death being recorded). */
+    private static boolean defenderOfAny(ServerLevel level, Campaign c, Entity e) {
+        if (!(e instanceof LivingEntity)) return false;
         if (ofSoldier(level, e.getUUID()) == c) return false;
         if (c.kind == Campaign.Kind.PLAYER) return e.getUUID().equals(c.player);
         Colony colony;
@@ -337,7 +383,9 @@ public final class Campaigns {
         for (Campaign.Soldier s : c.soldiers) {
             s.progressTick = 0;
             s.progressDist = Double.MAX_VALUE;
+            s.dismounted = false;
         }
+        c.breaches.clear();
         ColonyManager.markDirty(level);
     }
 
@@ -537,7 +585,10 @@ public final class Campaigns {
             for (Campaign.Soldier s : c.present(now)) {
                 if (s == leaderRecord || !s.live || !(level.getEntity(s.id) instanceof Mob m)) continue;
                 if (m instanceof Villager v && VillagerUtil.isRunning(v, SoldierTask.class)) continue;
-                if (m.distanceToSqr(leader) > 36) walk(level, m, leader.blockPosition(), 0.75);
+                if (m.distanceToSqr(leader) > 36) {
+                    walk(level, m, leader.blockPosition(), 0.75);
+                    follow(level, s, m, leader, now);
+                }
             }
             return false;
         }
@@ -555,6 +606,10 @@ public final class Campaigns {
 
     /** Far goals are reached by waypoints (the pathfinder only plans within the follow range), near ones directly. */
     static void go(ServerLevel level, Villager v, BlockPos to, double speed) {
+        if (v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse) {
+            Army.travel(level, v, to, speed);
+            return;
+        }
         if (v.distanceToSqr(to.getX() + 0.5, to.getY(), to.getZ() + 0.5) > 32 * 32) {
             net.betterthanvillage.ai.nav.WaypointNavigator.travel(level, v, to, speed);
         } else {
@@ -564,7 +619,9 @@ public final class Campaigns {
     }
 
     private static void walk(ServerLevel level, Mob m, BlockPos to, double speed) {
-        if (m instanceof Villager v) {
+        if (m instanceof Villager v && v.getVehicle() instanceof net.minecraft.world.entity.animal.horse.AbstractHorse) {
+            Army.travel(level, v, to, speed);
+        } else if (m instanceof Villager v) {
             Nav.approach(level, v, to, speed);
             Army.steer(level, v);
         } else if (net.betterthanvillage.colony.PathBudget.tryAcquire(level)) {
@@ -587,6 +644,21 @@ public final class Campaigns {
             s.progressTick = now;
             s.progressDist = dist;
         }
+    }
+
+    /** A follower that has not closed in on the leader for a while is helped over the obstacle, toward it. */
+    private static void follow(ServerLevel level, Campaign.Soldier s, Mob m, Mob leader, long now) {
+        double dist = Math.sqrt(m.distanceToSqr(leader));
+        if (now - s.progressTick < 400) return;
+        if (s.progressTick != 0 && dist > s.progressDist - 4 && dist > 12) {
+            double hop = Math.min(12, dist - 4);
+            double ux = (leader.getX() - m.getX()) / dist, uz = (leader.getZ() - m.getZ()) / dist;
+            BlockPos to = surface(level, (int) Math.floor(m.getX() + ux * hop), (int) Math.floor(m.getZ() + uz * hop));
+            Army.hop(m, to.getX() + 0.5, to.getY(), to.getZ() + 0.5);
+            Nav.reset(m);
+        }
+        s.progressTick = now;
+        s.progressDist = dist;
     }
 
     // ---------------------------------------------------------------- materialization
@@ -743,7 +815,7 @@ public final class Campaigns {
             return;
         }
         Campaign by = killer == null ? null : ofSoldier(level, killer.getUUID());
-        if (by != null && defenderOf(level, by, dead)) defenderLost(level, by, dead.getUUID());
+        if (by != null && defenderOfAny(level, by, dead)) defenderLost(level, by, dead.getUUID());
     }
 
     /** The killer is one of the target's people, its golem or the target player. */
@@ -757,6 +829,7 @@ public final class Campaigns {
 
     static void soldierLost(ServerLevel level, Campaign c, Campaign.Soldier s) {
         if (c.kind == Campaign.Kind.NIGHT && c.spotted) NightOps.caught(level, c);
+        Army.passHorse(level, c, s);
         c.soldiers.remove(s);
         c.lossesAttacker++;
         markIndex();

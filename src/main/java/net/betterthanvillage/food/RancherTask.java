@@ -16,7 +16,6 @@ import net.betterthanvillage.colony.StorageKind;
 import net.betterthanvillage.registry.ModRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -48,6 +47,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.living.BabyEntitySpawnEvent;
@@ -73,6 +73,10 @@ public final class RancherTask extends ColonyTask {
     private static final int SPECIES_BREED_CAP = 16;
     /** Ticks between two breedings of the same species in a colony. */
     private static final int BREED_COOLDOWN = 1200;
+    /** Ticks the herder feeds a pair before the young one comes. */
+    private static final int FEED_TICKS = 80;
+    /** Lures of each kind the herder carries. */
+    private static final int LURE_STOCK = 8;
     /** Consecutive blocked-perimeter failures before the pen is relocated. */
     private static final int PEN_BLOCKED_RELOCATE = 3;
 
@@ -83,18 +87,27 @@ public final class RancherTask extends ColonyTask {
     public static final String STAT_MILK = "дойка";
     public static final String STAT_BREED = "разведение животных";
     public static final String STATUS_PEN_BLOCKED = "периметр загона заблокирован";
+    public static final String STATUS_NO_STORAGE = "склад недоступен";
+    public static final String STATUS_NO_PEN_SITE = "нет места для загона";
+    public static final String STATUS_NO_LOGS = "нет брёвен для загона";
     public static final String STATUS_NO_PATH = "животному недоступен путь в загон: выбран другой маршрут/животное";
 
-    private enum State { PREPARE, BUILD_PEN, CHOOSE, LEAD, HARVEST, DELIVER }
+    private enum State { PREPARE, BUILD_PEN, CHOOSE, LEAD, HARVEST, BREED, DELIVER }
 
     private State state;
     private Animal target;
+    /** The second animal of the pair the herder walks up to feed (BREED). */
+    private Animal mate;
+    /** When the herder started feeding the pair (-1: still walking up to it). */
+    private long feedingSince = -1;
     private Item lure;
     private long nextRun;
     private long cooldown;
     private long stateStart;
     private long lastProgress;
     private double bestDist;
+    /** Closest the herder has come to the animal it leads (squared). */
+    private double bestReach;
     private int actions;
     private int stateTicks;
     private State lastSeen;
@@ -175,7 +188,8 @@ public final class RancherTask extends ColonyTask {
     }
 
     private static List<Animal> animals(ServerLevel level, Colony colony) {
-        int h = Math.min(56, colony.radius());
+        // The whole territory (at most 96 blocks out): a village's animals graze beyond its houses.
+        int h = Math.min(96, colony.radius());
         AABB box = new AABB(colony.core()).inflate(h, 32, h);
         return level.getEntitiesOfClass(Animal.class, box, a -> a.isAlive() && managed(a));
     }
@@ -314,8 +328,14 @@ public final class RancherTask extends ColonyTask {
 
     @Override
     protected void start(ServerLevel level, Villager v, long now) {
-        state = State.PREPARE;
+        // With a pen and lures at hand the herder goes on with its animals (the pen is checked first); the storage
+        // visit comes when it runs out or has products to bring.
+        Colony colony = ColonyManager.colonyOf(level, v);
+        boolean lures = FoodUtil.carries(v.getInventory(), st -> st.is(Items.WHEAT) || st.is(Items.WHEAT_SEEDS) || st.is(Items.CARROT));
+        state = colony != null && colony.livestockPen != null && lures && carriedProducts(v) == 0 ? State.BUILD_PEN : State.PREPARE;
         target = null;
+        mate = null;
+        feedingSince = -1;
         lure = null;
         actions = 0;
         stateTicks = 0;
@@ -331,6 +351,8 @@ public final class RancherTask extends ColonyTask {
     protected void stop(ServerLevel level, Villager v, long now) {
         if (target != null) AnimalFollowGoal.release(target);
         putLureAway(level, v);
+        lure = null;
+        mate = null;
         Colony colony = ColonyManager.colonyOf(level, v);
         if (colony != null) closeGate(level, colony);
         v.getNavigation().stop();
@@ -373,6 +395,8 @@ public final class RancherTask extends ColonyTask {
                 lead(level, v, colony, now);
             } else if (state == State.HARVEST) {
                 harvest(level, v, colony, now);
+            } else if (state == State.BREED) {
+                feedPair(level, v, colony, now);
             } else {
                 state = State.CHOOSE;
             }
@@ -397,6 +421,7 @@ public final class RancherTask extends ColonyTask {
         closeGate(level, colony);
         BlockPos storage = ColonyStorage.nearestFor(level, colony, v, StorageKind.ANIMAL);
         if (storage == null) {
+            WorkTracker.status(v, STATUS_NO_STORAGE);
             done = true;
             return;
         }
@@ -446,7 +471,7 @@ public final class RancherTask extends ColonyTask {
         }
         // 10: lures
         for (Item item : new Item[]{Items.WHEAT, Items.WHEAT_SEEDS, Items.CARROT}) {
-            while (FoodUtil.count(inv, s -> s.is(item)) + (v.getMainHandItem().is(item) ? v.getMainHandItem().getCount() : 0) < 8) {
+            while (FoodUtil.count(inv, s -> s.is(item)) + (v.getMainHandItem().is(item) ? v.getMainHandItem().getCount() : 0) < LURE_STOCK) {
                 if (!FoodUtil.hasRoom(inv, new ItemStack(item)) || !FoodUtil.takeOne(level, colony, v, s -> s.is(item))) break;
             }
         }
@@ -464,6 +489,7 @@ public final class RancherTask extends ColonyTask {
         if (colony.livestockPen == null) {
             BlockPos site = findPenSite(level, colony);
             if (site == null) {
+                WorkTracker.status(v, STATUS_NO_PEN_SITE);
                 done = true;
                 cooldown = now + 400;
                 return;
@@ -473,6 +499,25 @@ public final class RancherTask extends ColonyTask {
         }
         BlockPos p = colony.livestockPen;
         BlockPos g = gate(colony);
+        if (ColonyManager.terrainChangesAllowed(level)) {
+            List<BlockPos> cuts = outsideCuts(level, p);
+            if (!cuts.isEmpty()) {
+                cuts.sort(java.util.Comparator.comparingDouble(c -> v.distanceToSqr(Vec3.atCenterOf(c))));
+                BlockPos c = cuts.get(0);
+                if (v.distanceToSqr(Vec3.atCenterOf(c)) > 16) {
+                    Nav.approach(level, v, c, 0.7);
+                    return;
+                }
+                int cut = 0;
+                for (BlockPos b : cuts) {
+                    if (cut < 3 && v.distanceToSqr(Vec3.atCenterOf(b)) <= 16 && SafeEdit.breakBlock(level, v, b)) cut++;
+                }
+                v.swing(InteractionHand.MAIN_HAND);
+                WorkTracker.credit(v, STAT_PEN, 1);
+                nextRun = now + 8;
+                return;
+            }
+        }
         List<BlockPos> missing = new ArrayList<>();
         for (int dx = -PEN_HALF; dx <= PEN_HALF; dx++) {
             for (int dz = -PEN_HALF; dz <= PEN_HALF; dz++) {
@@ -498,7 +543,9 @@ public final class RancherTask extends ColonyTask {
                 cooldown = now + 600;
                 return;
             }
-            if (!ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 1)) {
+            // The pen is the village's: its fence wood comes from the treasury, not the herder's household.
+            if (!net.betterthanvillage.economy.StockScope.treasuryTest(() -> ColonyStorage.consume(level, colony, s -> s.is(ItemTags.LOGS), 1))) {
+                WorkTracker.status(v, STATUS_NO_LOGS);
                 done = true;
                 cooldown = now + 200;
                 return;
@@ -516,7 +563,7 @@ public final class RancherTask extends ColonyTask {
             }
             if (placed == 0) {
                 ItemStack refund = new ItemStack(Items.OAK_LOG);
-                ColonyStorage.deposit(level, colony, refund);
+                net.betterthanvillage.economy.StockScope.treasury(() -> ColonyStorage.deposit(level, colony, refund));
                 FoodUtil.give(level, v, refund);
             } else {
                 WorkTracker.credit(v, STAT_PEN, placed);
@@ -549,7 +596,9 @@ public final class RancherTask extends ColonyTask {
 
     private static BlockPos findPenSite(ServerLevel level, Colony colony) {
         BlockPos core = colony.core();
-        for (int r = 16; r <= 40; r++) {
+        // Out to the edge of the territory (at most 64): a hillside village has its flat ground farther out.
+        int max = Math.max(16, Math.min(64, colony.radius() - PEN_HALF - 2));
+        for (int r = 16; r <= max; r++) {
             int x = -r, z = -r;
             int[][] legs = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
             for (int[] leg : legs) {
@@ -585,6 +634,20 @@ public final class RancherTask extends ColonyTask {
                 }
             }
         }
+        // The ground just outside the fence is not higher than the pen's (from a block at fence level an animal steps
+        // onto the fence and over it, and villagers path along its top), or one natural block higher: the herder cuts
+        // it away (outsideCuts).
+        boolean cuts = ColonyManager.terrainChangesAllowed(level);
+        int out = PEN_HALF + 1;
+        for (int dx = -out; dx <= out; dx++) {
+            for (int dz = -out; dz <= out; dz++) {
+                if (Math.abs(dx) != out && Math.abs(dz) != out) continue;
+                m.set(c.getX() + dx, c.getY(), c.getZ() + dz);
+                if (!level.isLoaded(m)) return false;
+                if (level.getBlockState(m).getCollisionShape(level, m).isEmpty()) continue;
+                if (!cuts || !cuttable(level, m) || data.inLand(m)) return false;
+            }
+        }
         BoundingBox area = new BoundingBox(c.getX() - 7, c.getY() - 2, c.getZ() - 7, c.getX() + 7, c.getY() + 3, c.getZ() + 7);
         for (Colony other : data.colonies()) {
             for (ConstructionJob job : other.jobs) {
@@ -592,6 +655,27 @@ public final class RancherTask extends ColonyTask {
             }
         }
         return true;
+    }
+
+    /** A natural block at fence level right outside the pen, with room above it: the herder takes it away. */
+    private static boolean cuttable(ServerLevel level, BlockPos pos) {
+        BlockPos up = pos.above();
+        return net.betterthanvillage.construction.Terrain.natural(level.getBlockState(pos)) && level.getBlockEntity(pos) == null
+                && level.getBlockState(up).getCollisionShape(level, up).isEmpty() && Protection.terrainModifiable(level, pos);
+    }
+
+    /** Natural blocks at fence level around the pen, left to cut away. */
+    private static List<BlockPos> outsideCuts(ServerLevel level, BlockPos p) {
+        List<BlockPos> out = new ArrayList<>();
+        int r = PEN_HALF + 1;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                if (Math.abs(dx) != r && Math.abs(dz) != r) continue;
+                BlockPos c = p.offset(dx, 0, dz);
+                if (!level.getBlockState(c).getCollisionShape(level, c).isEmpty() && cuttable(level, c)) out.add(c);
+            }
+        }
+        return out;
     }
 
     /** Within 2 blocks (horizontally) of any active construction job of any colony. */
@@ -629,6 +713,23 @@ public final class RancherTask extends ColonyTask {
                 penned++;
             }
         }
+        // Animals already penned come first (shearing, then breeding a pair), more are led in after.
+        boolean shears = FoodUtil.carries(v.getInventory(), s -> s.is(Items.SHEARS));
+        boolean eggRoom = eggs(level, colony, v) < EGG_CAP;
+        boolean milkRoom = FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET)) && MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
+        Animal harvestPick = null;
+        boolean noRoom = noRoomAnywhere(level, colony, v);
+        for (Animal a : list) {
+            if (noRoom) break;
+            if (!inPen(colony, a) || !productReady(a, now, shears, eggRoom, milkRoom)) continue;
+            if (harvestPick == null || v.distanceToSqr(a) < v.distanceToSqr(harvestPick)) harvestPick = a;
+        }
+        if (harvestPick != null) {
+            target = harvestPick;
+            setState(State.HARVEST, now);
+            return;
+        }
+        if (penned < PEN_CAP && breed(level, v, colony, list, penCount, now)) return;
         Animal leadPick = null;
         for (Animal a : list) {
             if (inPen(colony, a) || lureCooldowns.getOrDefault(a.getUUID(), Long.MIN_VALUE) > now) continue;
@@ -658,29 +759,19 @@ public final class RancherTask extends ColonyTask {
             lastProgress = now;
             leftPen = !inPen(colony, v);
             bestDist = leadPick.blockPosition().distSqr(colony.livestockPen);
+            bestReach = Double.MAX_VALUE;
             return;
         }
-        boolean shears = FoodUtil.carries(v.getInventory(), s -> s.is(Items.SHEARS));
-        boolean eggRoom = eggs(level, colony, v) < EGG_CAP;
-        boolean milkRoom = FoodUtil.carries(v.getInventory(), s -> s.is(Items.BUCKET)) && MilkLedger.colonyMilk(level, colony) < MilkLedger.CAP;
-        Animal harvestPick = null;
-        boolean noRoom = noRoomAnywhere(level, colony, v);
-        for (Animal a : list) {
-            if (noRoom) break;
-            if (!inPen(colony, a) || !productReady(a, now, shears, eggRoom, milkRoom)) continue;
-            if (harvestPick == null || v.distanceToSqr(a) < v.distanceToSqr(harvestPick)) harvestPick = a;
-        }
-        if (harvestPick != null) {
-            target = harvestPick;
-            setState(State.HARVEST, now);
-            return;
-        }
-        if (penned < PEN_CAP && breed(level, v, colony, list, penCount, now)) return;
         setState(State.DELIVER, now);
     }
 
-    /** Colony stock of a breeding item that breeding must not touch (bread needs wheat). */
+    /**
+     * Stock of a breeding item that breeding must not touch: the treasury keeps wheat for bread; the herder's own
+     * household bought it for the animals and keeps two lures (one to lead the next animal in, one spare), the next
+     * storage visit tops the lures up again.
+     */
     private static int breedingReserve(Item item) {
+        if (net.betterthanvillage.economy.StockScope.inHousehold()) return 2;
         return item == Items.WHEAT ? 32 : 16;
     }
 
@@ -706,21 +797,69 @@ public final class RancherTask extends ColonyTask {
             for (int j = i + 1; j < adults.size(); j++) {
                 Animal b = adults.get(j);
                 if (a.getType() != b.getType()) continue;
-                if (!consumeBreedingItems(level, colony, v, item)) {
+                // The feed goes in the hand: the herder walks up to the pair with it.
+                putLureAway(level, v);
+                lure = item;
+                if (!equipLure(level, colony, v, item)) {
+                    lure = null;
                     skip.add(type);
                     break;
                 }
-                spawnChild(level, a, b);
-                speciesCooldowns.put(type, now + BREED_COOLDOWN);
-                BlockPos p = colony.livestockPen;
-                level.sendParticles(ParticleTypes.HEART, p.getX() + 0.5, p.getY() + 1, p.getZ() + 0.5, 8, 2.0, 0.5, 2.0, 0);
-                actions++;
-                WorkTracker.credit(v, STAT_BREED, 1);
-                nextRun = now + 40;
+                target = v.distanceToSqr(a) <= v.distanceToSqr(b) ? a : b;
+                mate = target == a ? b : a;
+                setState(State.BREED, now);
                 return true;
             }
         }
         return false;
+    }
+
+    /** Feeds the pair chosen by breed() once the herder stands by it: hearts over both, then the young one. */
+    private void feedPair(ServerLevel level, Villager v, Colony colony, long now) {
+        Animal a = target, b = mate;
+        if (b == null || !b.isAlive() || !inPen(colony, b) || !inPen(colony, a) || stateTicks > 1200) {
+            endFeeding(level, v, colony, now);
+            return;
+        }
+        if (!reach(level, v, colony, a)) return;
+        v.getLookControl().setLookAt(a);
+        if (v.distanceToSqr(b) > 9 && stateTicks < 200) {
+            // The mate comes over for the feed in the herder's hand.
+            b.getNavigation().moveTo(v, 1.1);
+            return;
+        }
+        if (feedingSince < 0) {
+            if (!consumeBreedingItems(level, colony, v, lure)) {
+                endFeeding(level, v, colony, now);
+                return;
+            }
+            feedingSince = now;
+        }
+        // A few seconds of feeding: the herder hands the feed, hearts rise over the pair, then the young one comes.
+        b.getNavigation().moveTo(a, 1.0);
+        if ((now - feedingSince) % 10 < 5) {
+            v.swing(InteractionHand.MAIN_HAND);
+            level.broadcastEntityEvent(a, (byte) 18);
+            level.broadcastEntityEvent(b, (byte) 18);
+        }
+        if (now - feedingSince < FEED_TICKS) return;
+        Map<Object, Long> speciesCooldowns = colony.runtime("better_than_village:breed_cooldowns", HashMap::new);
+        spawnChild(level, a, b);
+        speciesCooldowns.put(a.getType(), now + BREED_COOLDOWN);
+        actions++;
+        WorkTracker.credit(v, STAT_BREED, 1);
+        nextRun = now + 40;
+        endFeeding(level, v, colony, now);
+    }
+
+    private void endFeeding(ServerLevel level, Villager v, Colony colony, long now) {
+        feedingSince = -1;
+        putLureAway(level, v);
+        lure = null;
+        closeGate(level, colony);
+        target = null;
+        mate = null;
+        setState(State.CHOOSE, now);
     }
 
     private static int breedingStock(ServerLevel level, Colony colony, Villager v, Item item) {
@@ -807,6 +946,15 @@ public final class RancherTask extends ColonyTask {
         if (d + 1.0 < bestDist) {
             bestDist = d;
             lastProgress = now;
+            // A long lead from the far side of the territory is work too (the 60 s watchdog would stop it).
+            WorkTracker.progress(v);
+        }
+        double reach = v.distanceToSqr(a);
+        if (reach + 4.0 < bestReach) {
+            // Walking out to a far animal counts as progress of the lead.
+            bestReach = reach;
+            lastProgress = now;
+            WorkTracker.progress(v);
         }
         if (stateTicks <= 2000 && now - lastProgress <= 600) {
             v.getLookControl().setLookAt(a, 30, 30);
@@ -854,12 +1002,22 @@ public final class RancherTask extends ColonyTask {
 
     private void harvest(ServerLevel level, Villager v, Colony colony, long now) {
         Animal a = target;
+        if (stateTicks > 400 && !inPen(colony, v)) {
+            target = null;
+            setState(State.DELIVER, now);
+        } else if (reach(level, v, colony, a)) {
+            product(level, v, colony, a, now);
+            closeGate(level, colony);
+            target = null;
+            setState(State.CHOOSE, now);
+        }
+    }
+
+    /** Walks up to a penned animal, through the gate when the herder is outside; true once within reach. */
+    private static boolean reach(ServerLevel level, Villager v, Colony colony, Animal a) {
         if (colony.livestockPen != null && inPen(colony, a) && !inPen(colony, v)) {
             BlockPos g = gate(colony);
-            if (stateTicks > 400) {
-                target = null;
-                setState(State.DELIVER, now);
-            } else if (v.blockPosition().distSqr(g) > 9) {
+            if (v.blockPosition().distSqr(g) > 9) {
                 closeGate(level, colony);
                 Nav.approach(level, v, g.north(2), 0.72);
             } else {
@@ -867,14 +1025,13 @@ public final class RancherTask extends ColonyTask {
                 openGate(level, colony);
                 Nav.approach(level, v, colony.livestockPen, 0.72);
             }
-        } else if (v.distanceToSqr(a) > 9) {
-            Nav.approach(level, v, a.blockPosition(), 0.85);
-        } else {
-            product(level, v, colony, a, now);
-            closeGate(level, colony);
-            target = null;
-            setState(State.CHOOSE, now);
+            return false;
         }
+        if (v.distanceToSqr(a) > 9) {
+            Nav.approach(level, v, a.blockPosition(), 0.85);
+            return false;
+        }
+        return true;
     }
 
     private void product(ServerLevel level, Villager v, Colony colony, Animal a, long now) {

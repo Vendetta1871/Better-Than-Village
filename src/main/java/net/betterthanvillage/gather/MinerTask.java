@@ -658,14 +658,23 @@ public final class MinerTask extends ColonyTask {
     private void searchEntrance(ServerLevel level, Colony colony, Villager v) {
         BlockPos core = colony.core();
         boolean probed = false;
+        // The entrance lies outside the settlement (a trench among the houses would be filled in again), so the search
+        // reaches out to the edge of the mining radius.
+        int reach = Math.max(24, Math.min(colony.radius() - 6, 72));
+        int side = 2 * reach + 1;
         for (int n = 0; n < 8; n++) {
-            int c = entranceCursor;
-            entranceCursor = (entranceCursor + 1) % 2401;
-            int dx = (c % 49) - 24;
-            int dz = (c / 49) - 24;
+            int c = entranceCursor % (side * side);
+            entranceCursor = (c + 1) % (side * side);
+            int dx = (c % side) - reach;
+            int dz = (c / side) - reach;
             if (Math.max(Math.abs(dx), Math.abs(dz)) < 14) continue;
             int x = core.getX() + dx, z = core.getZ() + dz;
             if (!level.hasChunk(x >> 4, z >> 4)) continue;
+            if (net.betterthanvillage.construction.Fortifications.insideWallLine(level, colony, x, z)
+                    || net.betterthanvillage.construction.LandWork.plannedFill(colony, x, z)
+                    || net.betterthanvillage.construction.Fortifications.isNearWall(colony, new BlockPos(x, 0, z), 3)) {
+                continue;
+            }
             BlockPos p = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
             if (!GatherUtil.passable(level, p) || !GatherUtil.passable(level, p.above()) || !mineable(level, colony, p.below())) continue;
             if (!entranceBoxOk(level, colony, p)) continue;
