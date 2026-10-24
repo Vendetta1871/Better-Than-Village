@@ -1,7 +1,7 @@
 # Better Than Village
 
 <!-- MEDIA hero (demo/hero.txt): the village from above, its wall along the outermost houses -->
-![A village behind its wall](docs/media/hero.png)
+![A village behind its wall](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/hero.png)
 
 NeoForge 1.21.1 mod that turns vanilla villages into small medieval societies. Villagers really doing their jobs, interact with environment (break and build blocks, catch and breed animals, grow trees and mine ores) and each other (trade and pay taxes, wage war and conquer each other). The player can interact with them, but never join a country.
 
@@ -15,12 +15,12 @@ Started as a clean-room implementation of the Independent Villagers mod - it is 
 ### Villagers work
 
 <!-- MEDIA lumberjack (demo/lumberjack.txt): a lumberjack fells a tree log by log and replants it -->
-![A lumberjack felling a tree](docs/media/lumberjack.gif)
+![A lumberjack felling a tree](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/lumberjack.gif)
 
 Lumberjacks fell trees and plant saplings in their place, miners dig a mine, farmers till, sow and harvest the fields.
 
 <!-- MEDIA herder (demo/herder.txt): the herder lures sheep into the pen with wheat and breeds them -->
-![A herder breeding sheep in the pen](docs/media/herder.gif)
+![A herder breeding sheep in the pen](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/herder.gif)
 
 The herder lures animals, breeds the ones it has penned, shears the sheep and milks the cows for the village stock.
 
@@ -32,12 +32,12 @@ pays wages for public work. A child is born only  when its parents can pay for i
 ### Villages build themselves
 
 <!-- MEDIA building (demo/building.txt): a mason finishing a house block by block -->
-![A mason building a house](docs/media/building.gif)
+![A mason building a house](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/building.gif)
 
 Masons build new houses and walls with materials the village gathered. A village that runs out of land will found a daughter village.
 
 <!-- MEDIA pit (demo/pit.txt): the miner closes a deep pit among the houses from its edge inward -->
-![A miner filling a pit in the village](docs/media/pit.gif)
+![A miner filling a pit in the village](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/pit.gif)
 
 The village keeps its ground in order: miners close pits and dig a way into houses nobody can walk into.
 
@@ -56,7 +56,7 @@ Healer cures zombie villagers. Warriors fight it only when there is no healer or
 ### Countries go to war
 
 <!-- MEDIA siege (demo/siege.txt): five against five, a rider among the attackers, no golems -->
-![A siege](docs/media/siege.gif)
+![A siege](https://raw.githubusercontent.com/Vendetta1871/Better-Than-Village/main/docs/media/siege.gif)
 
 Countries trade by caravan, buy border land from each other, quarrel and make war. A conquered village joins the winner; long wars wear countries down until they sue for peace.
 
@@ -73,13 +73,13 @@ Villages far from any player keep living through ledgers. When a player comes ba
 
 ## Documentation
 
-- `docs_v2/`: the design. See the [overview and glossary](docs_v2/README.md) and the
-  [roadmap](docs_v2/01-roadmap.md); there are documents for professions, economy, land, law,
+- `docs_v2/`: the design. See the [overview and glossary](https://github.com/Vendetta1871/Better-Than-Village/blob/main/docs_v2/README.md) and the
+  [roadmap](https://github.com/Vendetta1871/Better-Than-Village/blob/main/docs_v2/01-roadmap.md); there are documents for professions, economy, land, law,
   politics, warfare and the abstract simulation. Each document ends with implementation notes.
 - `docs/dev/ARCHITECTURE.md`: packages, tick flow and an API cheat sheet.
-- `tests/`: headless server scenarios and their runner ([how to run](tests/README.md)).
+- `tests/`: headless server scenarios and their runner ([how to run](https://github.com/Vendetta1871/Better-Than-Village/blob/main/tests/README.md)).
 - `demo/`: the staged scenes the pictures above come from, replayed by the dev client
-  ([how to run](demo/README.md)).
+  ([how to run](https://github.com/Vendetta1871/Better-Than-Village/blob/main/demo/README.md)).
 
 Every subsystem has a section with an `enabled` switch in `config/better_than_village.json`
 (created on first start).
@@ -109,12 +109,6 @@ them at or near a village (`execute positioned <x> <y> <z> run btv …` from the
 - `/btv law …`, `/btv bot …`: law debugging and fake-player test bots.
 - `/btv film …`: staged-demo tools. Use on a world copy.
 
-## Differences from the original
-
-- Houses use vanilla village templates; the original mod's custom house NBTs and worldgen
-  overrides are not included.
-- Mod id `better_than_village`, command `/btv`.
-
 ## License
 
-Released under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
+Released under the [GNU General Public License v3.0](https://github.com/Vendetta1871/Better-Than-Village/blob/main/LICENSE) (GPL-3.0-only).
