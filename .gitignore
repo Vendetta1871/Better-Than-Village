@@ -8,6 +8,7 @@ out/
 inspiration/
 .dev/
 .worktrees/
+AGENTS.md
 CLAUDE.md
 tools/
 docs/independent-villagers/
