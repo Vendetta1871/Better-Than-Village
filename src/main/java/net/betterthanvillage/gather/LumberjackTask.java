@@ -46,7 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Lumberjack (03 §2): tree search, felling, wood delivery, wood-chest creation, sticks and replanting. */
+/**
+ * Lumberjack (03 §2): tree search, felling, wood delivery, wood-chest creation, sticks, replanting and, when no
+ * tree is left in reach, planting a grove.
+ */
 public final class LumberjackTask extends ColonyTask {
     /** Every (dx, dz) with dx² + dz² <= 96², sorted by distance from the origin. */
     private static final int[][] SPIRAL = buildSpiral(96);
@@ -56,6 +59,12 @@ public final class LumberjackTask extends ColonyTask {
     private static final long SEARCH_STEP = 5;
     /** How long a tree that could not be reached or cut is skipped. */
     private static final long BAD_TREE_TICKS = 6000;
+    /** Grove: saplings kept growing on a 4-block lattice in a ring around the core, and the pause between plantings. */
+    private static final int GROVE_SIZE = 12;
+    private static final int GROVE_MIN_RADIUS = 24;
+    private static final int GROVE_MAX_RADIUS = 64;
+    private static final long GROVE_COOLDOWN = 1200;
+    public static final String STATUS_GROVE = "посадка рощи";
 
     private BlockPos anchor;
     private int cursor;
@@ -74,6 +83,9 @@ public final class LumberjackTask extends ColonyTask {
     /** After a delivery that could not happen, keep felling (logs stay carried) until this game time. */
     private long noDeliveryUntil;
     private final BlockWorkTimer timer = new BlockWorkTimer();
+    private boolean planting;
+    private final Deque<BlockPos> plantQueue = new ArrayDeque<>();
+    private long nextGrove;
 
     public LumberjackTask() {
         super(6000);
@@ -104,6 +116,8 @@ public final class LumberjackTask extends ColonyTask {
         base = null;
         cut = 0;
         chestSite = null;
+        planting = false;
+        plantQueue.clear();
         long now = level.getGameTime();
         if (countLogs(v.getInventory()) >= 4 && now >= noDeliveryUntil) {
             delivering = true;
@@ -113,7 +127,15 @@ public final class LumberjackTask extends ColonyTask {
         if (now < nextSearch) return false;
         BlockPos found = findTree(level, colony, v);
         if (found == null) {
-            nextSearch = now + (cursor >= SPIRAL.length ? SEARCH_COOLDOWN : SEARCH_STEP);
+            boolean swept = cursor >= SPIRAL.length;
+            nextSearch = now + (swept ? SEARCH_COOLDOWN : SEARCH_STEP);
+            // No tree left in reach: a carpenter plants a grove so the village has wood again later.
+            if (swept && now >= nextGrove && colony.roleOf(v.getUUID()) == ColonyRole.CARPENTER) {
+                nextGrove = now + GROVE_COOLDOWN;
+                plantQueue.addAll(groveSpots(level, colony, v));
+                planting = !plantQueue.isEmpty();
+                return planting;
+            }
             return false;
         }
         base = found;
@@ -130,14 +152,14 @@ public final class LumberjackTask extends ColonyTask {
     protected void start(ServerLevel level, Villager v, long time) {
         nextAction = time;
         Colony colony = colony(level, v);
-        needsAxe = !v.getMainHandItem().is(ItemTags.AXES) && colony != null && colony.hasStorage();
+        needsAxe = !planting && !v.getMainHandItem().is(ItemTags.AXES) && colony != null && colony.hasStorage();
     }
 
     @Override
     protected boolean canStillUse(ServerLevel level, Villager v, long time) {
         Colony colony = colony(level, v);
         return !v.isSleeping() && v.getTradingPlayer() == null && colony != null && assigned(colony, v)
-                && (delivering || !queue.isEmpty());
+                && (delivering || !queue.isEmpty() || planting);
     }
 
     @Override
@@ -148,6 +170,8 @@ public final class LumberjackTask extends ColonyTask {
         base = null;
         delivering = false;
         chestSite = null;
+        planting = false;
+        plantQueue.clear();
         v.getBrain().eraseMemory(ModRegistries.TREE_TARGET_POS.get());
     }
 
@@ -169,6 +193,10 @@ public final class LumberjackTask extends ColonyTask {
         }
         if (delivering) {
             deliver(level, colony, v, now);
+            return;
+        }
+        if (planting) {
+            plantStep(level, colony, v, now);
             return;
         }
         while (!queue.isEmpty() && !level.getBlockState(queue.peekFirst()).is(BlockTags.LOGS)) {
@@ -539,6 +567,73 @@ public final class LumberjackTask extends ColonyTask {
             }
         }
         if (planted > 0) v.swing(InteractionHand.MAIN_HAND);
+    }
+
+    // ---------------------------------------------------------------- grove
+
+    /**
+     * Spots for a grove when no tree is left in reach: free lattice points (every 4 blocks) in the ring
+     * GROVE_MIN_RADIUS..min(GROVE_MAX_RADIUS, radius - 8) around the core, as many as keep GROVE_SIZE saplings
+     * on the lattice. The grove grows around a sapling already there (else the free spot nearest the villager),
+     * so it stays compact; spots come nearest first.
+     */
+    private List<BlockPos> groveSpots(ServerLevel level, Colony colony, Villager v) {
+        BlockPos core = colony.core();
+        int rMax = Math.min(GROVE_MAX_RADIUS, colony.radius() - 8);
+        if (rMax < GROVE_MIN_RADIUS + 8) return List.of();
+        long min2 = (long) GROVE_MIN_RADIUS * GROVE_MIN_RADIUS;
+        long max2 = (long) rMax * rMax;
+        BlockState state = sapling.defaultBlockState();
+        List<BlockPos> free = new ArrayList<>();
+        List<BlockPos> grown = new ArrayList<>();
+        for (int x = Math.floorDiv(core.getX() - rMax, 4) * 4; x <= core.getX() + rMax; x += 4) {
+            for (int z = Math.floorDiv(core.getZ() - rMax, 4) * 4; z <= core.getZ() + rMax; z += 4) {
+                long dx = x - core.getX(), dz = z - core.getZ();
+                long d2 = dx * dx + dz * dz;
+                if (d2 < min2 || d2 > max2 || !level.hasChunk(x >> 4, z >> 4)) continue;
+                BlockPos p = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
+                if (level.getBlockState(p).is(BlockTags.SAPLINGS)) {
+                    grown.add(p);
+                } else if (validSaplingSpot(level, colony, p) && state.canSurvive(level, p)) {
+                    free.add(p);
+                }
+            }
+        }
+        int need = GROVE_SIZE - grown.size();
+        if (need <= 0 || free.isEmpty()) return List.of();
+        BlockPos here = v.blockPosition();
+        BlockPos seed = (grown.isEmpty() ? free : grown).stream().min(Comparator.comparingDouble(p -> p.distSqr(here))).orElseThrow();
+        free.sort(Comparator.comparingDouble(p -> p.distSqr(seed)));
+        List<BlockPos> spots = new ArrayList<>(free.subList(0, Math.min(need, free.size())));
+        spots.sort(Comparator.comparingDouble(p -> p.distSqr(here)));
+        return spots;
+    }
+
+    /** Walks to the next grove spot and plants it; unreachable or no longer valid spots are skipped. */
+    private void plantStep(ServerLevel level, Colony colony, Villager v, long now) {
+        BlockState state = sapling.defaultBlockState();
+        while (!plantQueue.isEmpty()) {
+            BlockPos p = plantQueue.peekFirst();
+            if (level.isLoaded(p) && !Nav.isBlacklisted(v, p, now) && validSaplingSpot(level, colony, p) && state.canSurvive(level, p)) break;
+            plantQueue.pollFirst();
+        }
+        if (plantQueue.isEmpty()) {
+            planting = false;
+            return;
+        }
+        BlockPos p = plantQueue.peekFirst();
+        if (v.position().distanceToSqr(Vec3.atBottomCenterOf(p)) > 9) {
+            Nav.approach(level, v, p, 0.6);
+            return;
+        }
+        v.getNavigation().stop();
+        v.getLookControl().setLookAt(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5);
+        if (SafeEdit.place(level, p, state, 3)) {
+            v.swing(InteractionHand.MAIN_HAND);
+            WorkTracker.credit(v, STATUS_GROVE, 1);
+        }
+        plantQueue.pollFirst();
+        nextAction = now + 10;
     }
 
     /** Columns in a radius-20 disc holding a sapling or a log on tree soil within the top 24 blocks; stops at 12. */

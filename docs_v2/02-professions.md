@@ -78,6 +78,9 @@ warrior, and the tool supply of every trade, start from the `legacy` port.
 
 ### Carpenter
 - **Woodcutting.** Fells natural trees and replants them (reuses the old lumberjack).
+  When a full search of the territory finds no tree to fell, plants a grove: up to 12 saplings
+  on a 4-block grid, 24 to 64 blocks from the bell (inside the territory), around the saplings
+  already growing there, at most once a minute.
 - **Processing.** Turns logs into planks, sticks, doors, fences, chests and beds (with wool),
   and sells what they make.
 - **Lamp posts.** Builds lamp posts along roads and squares: a fence column with a torch or
