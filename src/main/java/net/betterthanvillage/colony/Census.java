@@ -50,6 +50,7 @@ public final class Census {
         ColonyStorage.recount(level, colony);
         TerrainSurvey.step(level, colony);
         Professions.assign(level, colony, adults);
+        Professions.ensureBuilders(level, colony, adults);
         for (Villager v : adults) {
             Professions.applyRole(level, colony, v);
         }

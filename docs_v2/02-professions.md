@@ -148,13 +148,19 @@ warrior, and the tool supply of every trade, start from the `legacy` port.
 
    The elder is chosen before the trades: a cartographer if there is one, otherwise the adult with
    the best reputation (see Elder).
-3. **Starting state.** Each adult gets a house (an existing bed), a home chest and starting
+3. **Builders.** A village without a mason or a carpenter could never grow: only the mason
+   builds houses, only the carpenter fells trees, and births need the free bed a new house gives.
+   When either trade is missing, one adult of the most crowded trade (at least two holders; never
+   the elder, a conscript or the founder party) is retrained into it. This is the only change of
+   trade besides the elder office.
+4. **Starting state.** Each adult gets a house (an existing bed), a home chest and starting
    capital ([03](03-economy.md)).
 
 ## Fixed professions and inheritance
 
 - **Fixed for life.** A villager keeps their profession forever. The **elder** office (see above)
-  is the only real change of profession.
+  and the retraining of a missing builder (Generation rules, 3) are the only real changes of
+  profession.
 
 ### Conscription
 

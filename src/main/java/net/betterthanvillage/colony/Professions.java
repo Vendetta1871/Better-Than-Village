@@ -1,5 +1,6 @@
 package net.betterthanvillage.colony;
 
+import net.betterthanvillage.BetterThanVillage;
 import net.betterthanvillage.ai.VillagerUtil;
 import net.betterthanvillage.ai.nav.Nav;
 import net.betterthanvillage.registry.ModRegistries;
@@ -28,7 +29,8 @@ import java.util.function.Predicate;
 
 /**
  * Fixed professions (docs_v2/02-professions.md): one-time assignment of newcomers, elder succession,
- * inheritance and the villager's look. Professions never change by demand.
+ * inheritance and the villager's look. Professions never change by demand; the only exception is retraining a
+ * missing builder trade ({@link #ensureBuilders}).
  */
 public final class Professions {
     public static final String ROLE_NAME_TAG = "btv_role_name";
@@ -102,6 +104,57 @@ public final class Professions {
         }
         ColonyManager.markDirty(level);
         return open.size();
+    }
+
+    /**
+     * Trades the village cannot grow without: only a mason builds houses (and new houses free the beds births need),
+     * only a carpenter fells trees once the village has a stock. Births alone cannot bring them back, since a birth
+     * needs a free bed, so a village whose vanilla professions mapped to neither would stall for good.
+     */
+    public static final List<ColonyRole> BUILDERS = List.of(ColonyRole.MASON, ColonyRole.CARPENTER);
+
+    /**
+     * Retrains one adult of the most crowded trade (at least two holders) into each missing builder trade
+     * (02 §Generation rules, 3): the one exception to fixed professions. Conscripts, the elder and the founder party
+     * are never retrained. Returns the number of villagers retrained.
+     */
+    public static int ensureBuilders(ServerLevel level, Colony colony, List<Villager> adults) {
+        long now = level.getGameTime();
+        int changed = 0;
+        for (ColonyRole missing : BUILDERS) {
+            EnumMap<ColonyRole, Integer> counts = tradeCounts(colony, adults);
+            if (counts.getOrDefault(missing, 0) > 0) continue;
+            Villager donor = null;
+            int donorCount = 1;
+            for (Villager v : adults) {
+                if (colony.isFounderParty(v.getUUID()) || colony.conscripts.containsKey(v.getUUID())) continue;
+                ColonyRole trade = colony.tradeOf(v.getUUID());
+                if (!ColonyRole.TRADES.contains(trade) || BUILDERS.contains(trade)) continue;
+                int n = counts.getOrDefault(trade, 0);
+                // Most crowded trade first; ties go to the lowest UUID so the choice is stable between censuses.
+                if (n > donorCount || (n == donorCount && donor != null && v.getUUID().compareTo(donor.getUUID()) < 0)) {
+                    donor = v;
+                    donorCount = n;
+                }
+            }
+            if (donor == null) continue;
+            BetterThanVillage.LOGGER.info("[professions] colony {} has no {}: retraining {} {} at {}", colony.id(), missing,
+                    colony.tradeOf(donor.getUUID()), donor.getUUID(), donor.blockPosition());
+            give(level, colony, donor, missing, now);
+            changed++;
+        }
+        if (changed > 0) ColonyManager.markDirty(level);
+        return changed;
+    }
+
+    /** Adults per trade (the profession for life, conscripts counted under their trade), founder party excluded. */
+    private static EnumMap<ColonyRole, Integer> tradeCounts(Colony colony, List<Villager> adults) {
+        EnumMap<ColonyRole, Integer> counts = new EnumMap<>(ColonyRole.class);
+        for (Villager v : adults) {
+            if (colony.isFounderParty(v.getUUID())) continue;
+            counts.merge(colony.tradeOf(v.getUUID()), 1, Integer::sum);
+        }
+        return counts;
     }
 
     /** Missing guaranteed trade, else a free workstation (starter order), else a missing starter trade, else warrior. */
