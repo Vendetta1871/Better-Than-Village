@@ -91,7 +91,7 @@ public final class WorkshopTask extends ColonyTask {
             done = true;
             return;
         }
-        ItemStack product = Workshop.craft(recipe, slots);
+        ItemStack product = Workshop.craft(level, recipe, slots);
         if (product.isEmpty()) {
             done = true;
             return;

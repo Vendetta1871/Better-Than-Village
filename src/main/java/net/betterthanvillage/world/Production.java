@@ -6,6 +6,7 @@ import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.ConstructionJob;
 import net.betterthanvillage.colony.JobStatus;
 import net.betterthanvillage.economy.Chests;
+import net.betterthanvillage.economy.Enchanting;
 import net.betterthanvillage.economy.Household;
 import net.betterthanvillage.economy.Treasury;
 import net.betterthanvillage.economy.Values;
@@ -70,6 +71,7 @@ public final class Production {
                 w.give(Items.RAW_IRON, 2 * f);
                 w.give(Items.RAW_COPPER, 2 * f);
                 w.give(Items.REDSTONE, 1 * f);
+                w.give(Items.LAPIS_LAZULI, 1 * f);
                 if (w.every(20)) w.give(Items.DIAMOND, 1);
             }
             case SMITH -> {
@@ -96,6 +98,12 @@ public final class Production {
                 if (Chests.count(home, s -> s.is(Items.PAPER)) >= 3 && w.use(s -> s.is(Items.LEATHER), 1)) {
                     w.use(s -> s.is(Items.PAPER), 3);
                     w.give(Items.BOOK, 1);
+                }
+                // Enchanting (masters only, as in the workshop): a book and lapis while the stock is short.
+                if (net.betterthanvillage.economy.Skill.master(colony, h.owner) && Chests.count(home, Enchanting::isBook) < Enchanting.STOCK
+                        && Chests.count(home, s -> s.is(Items.BOOK)) >= 1 && w.use(s -> s.is(Items.LAPIS_LAZULI), Enchanting.LAPIS)) {
+                    w.use(s -> s.is(Items.BOOK), 1);
+                    w.giveStack(Enchanting.book(level, level.random));
                 }
             }
             case HEALER -> {

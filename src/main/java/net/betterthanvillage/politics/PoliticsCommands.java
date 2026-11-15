@@ -150,6 +150,9 @@ public final class PoliticsCommands {
                         .then(Commands.argument("count", IntegerArgumentType.integer(1, 4096)).executes(ctx -> stock(ctx, null))
                                 .then(Commands.argument("potion", net.minecraft.commands.arguments.ResourceLocationArgument.id())
                                         .executes(ctx -> stock(ctx, net.minecraft.commands.arguments.ResourceLocationArgument.getId(ctx, "potion")))))))
+                .then(Commands.literal("home").then(Commands.argument("role", StringArgumentType.word())
+                        .then(Commands.argument("item", net.minecraft.commands.arguments.ResourceLocationArgument.id())
+                                .then(Commands.argument("count", IntegerArgumentType.integer(1, 4096)).executes(PoliticsCommands::home)))))
                 .then(Commands.literal("ledger").executes(ctx -> {
                     ServerLevel level = ctx.getSource().getLevel();
                     Colony c = here(ctx);
@@ -200,6 +203,24 @@ public final class PoliticsCommands {
             if (!stack.isEmpty()) break;
         }
         return ok(ctx, "Put " + put + " " + Values.name(item) + " into the treasury of " + Countries.villageName(c));
+    }
+
+    /** Debug: goods put into the home chests of the first household of a trade in the nearest village. */
+    private static int home(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        Colony c = here(ctx);
+        if (c == null) return fail(ctx, "No village");
+        var role = net.betterthanvillage.colony.ColonyRole.byName(StringArgumentType.getString(ctx, "role"));
+        var h = c.households.values().stream().filter(x -> c.roleOf(x.owner) == role && x.hasChest()).findFirst().orElse(null);
+        if (h == null) return fail(ctx, "No " + role.serializedName() + " household with a chest");
+        var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.commands.arguments.ResourceLocationArgument.getId(ctx, "item"));
+        int count = IntegerArgumentType.getInteger(ctx, "count");
+        java.util.List<net.minecraft.world.item.ItemStack> stacks = new java.util.ArrayList<>();
+        for (int left = count; left > 0; left -= item.getDefaultMaxStackSize()) {
+            stacks.add(new net.minecraft.world.item.ItemStack(item, Math.min(left, item.getDefaultMaxStackSize())));
+        }
+        int put = count - Chests.total(Chests.put(ColonyStorage.usable(level, h), stacks));
+        return ok(ctx, "Put " + put + " " + Values.name(item) + " into the home of a " + role.serializedName() + " of " + Countries.villageName(c));
     }
 
     private static int order(CommandContext<CommandSourceStack> ctx) {

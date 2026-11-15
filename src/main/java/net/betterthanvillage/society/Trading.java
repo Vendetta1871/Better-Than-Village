@@ -7,6 +7,7 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.betterthanvillage.colony.Professions;
 import net.betterthanvillage.economy.Chests;
+import net.betterthanvillage.economy.Enchanting;
 import net.betterthanvillage.economy.Household;
 import net.betterthanvillage.economy.Market;
 import net.betterthanvillage.economy.Needs;
@@ -66,6 +67,8 @@ public final class Trading {
         PERMISSION,
         /** Household goods for emeralds. */
         SELL,
+        /** One of the household's enchanted books for emeralds; the offer's result is the exact book. */
+        SELL_ENCHANTED,
         /** The household buys goods with emeralds. */
         BUY,
         /** Household goods for a book and quill: the player signs a debt note. */
@@ -264,6 +267,8 @@ public final class Trading {
         });
         double rep = reputationFactor(v, player);
         double hero = heroFactor(player);
+        double quality = net.betterthanvillage.economy.Skill.quality(colony, h.owner);
+        enchantedOffers(colony, h, slots, rep * hero * quality, offers, descs);
         // Sell: goods above the household's own needs.
         for (Map.Entry<Family, List<Item>> e : byFamily.entrySet()) {
             Family f = e.getKey();
@@ -318,6 +323,38 @@ public final class Trading {
         }
     }
 
+    /**
+     * Enchanted books (Enchanting) are not a market family: every distinct book the household holds is offered as it
+     * is, priced by its enchantments. The household keeps none of them for itself.
+     */
+    private static void enchantedOffers(Colony colony, Household h, List<ColonyStorage.Slot> slots, double factor,
+                                        MerchantOffers offers, Map<MerchantOffer, Desc> descs) {
+        List<ItemStack> kinds = new ArrayList<>();
+        Map<ItemStack, Integer> held = new IdentityHashMap<>();
+        for (ColonyStorage.Slot slot : slots) {
+            Container c = slot.container();
+            for (int i = 0; i < c.getContainerSize(); i++) {
+                ItemStack s = c.getItem(i);
+                if (!Enchanting.isBook(s)) continue;
+                ItemStack kind = kinds.stream().filter(k -> ItemStack.isSameItemSameComponents(k, s)).findFirst().orElse(null);
+                if (kind == null) {
+                    kind = s.copyWithCount(1);
+                    kinds.add(kind);
+                }
+                held.merge(kind, s.getCount(), Integer::sum);
+            }
+        }
+        kinds.sort(Comparator.comparingDouble((ItemStack k) -> -Enchanting.value(k)));
+        for (ItemStack book : kinds) {
+            if (offers.size() >= 12) break;
+            int price = Math.max(1, Math.min(64, (int) Math.round(Enchanting.value(book) * (1 + h.greed) * factor)));
+            MerchantOffer offer = new MerchantOffer(new ItemCost(Items.EMERALD, price), book.copy(), Math.min(MAX_USES, held.get(book)), 5,
+                    COLONY_MULTIPLIER);
+            offers.add(offer);
+            descs.put(offer, new Desc(colony.id(), h.owner, Kind.SELL_ENCHANTED, Items.ENCHANTED_BOOK, 1, price, null));
+        }
+    }
+
     /** The item a household asks the player for when it lacks a family: what it already uses, else the plainest kind. */
     private static Item buyItem(Family f, Map<Item, ItemStack> samples) {
         for (ItemStack s : samples.values()) {
@@ -330,6 +367,7 @@ public final class Trading {
             case SAPLINGS -> Items.OAK_SAPLING;
             case LOGS -> Items.OAK_LOG;
             case COAL -> Items.COAL;
+            case LAPIS -> Items.LAPIS_LAZULI;
             case TORCH -> Items.TORCH;
             case PICKAXE -> Items.STONE_PICKAXE;
             case AXE -> Items.STONE_AXE;
@@ -373,7 +411,9 @@ public final class Trading {
             if (d == null) continue;
             if (sb.length() > 0) sb.append("; ");
             sb.append(d.kind().name().toLowerCase(java.util.Locale.ROOT)).append(' ').append(d.count()).append(' ')
-                    .append(Values.name(d.item())).append(" for ").append(d.price());
+                    .append(Values.name(d.item()));
+            if (d.kind() == Kind.SELL_ENCHANTED) sb.append(" (").append(Enchanting.describe(o.getResult())).append(')');
+            sb.append(" for ").append(d.price());
             sb.append(" x").append(o.getMaxUses());
         }
         dropColonyOffers(v, false);
@@ -416,6 +456,8 @@ public final class Trading {
         return switch (d.kind()) {
             case PERMISSION -> Chests.room(slots, emerald) >= paid && LandSales.forSale(level, colony, offer.getResult());
             case SELL -> Chests.count(slots, s -> plain(s, d.item())) >= d.count() && Chests.room(slots, emerald) >= paid;
+            case SELL_ENCHANTED -> Chests.count(slots, s -> ItemStack.isSameItemSameComponents(s, offer.getResult())) >= 1
+                    && Chests.room(slots, emerald) >= paid;
             case BUY -> Chests.count(slots, s -> s.is(Items.EMERALD)) >= d.price() && Chests.room(slots, new ItemStack(d.item())) >= paid;
             case SELL_ON_CREDIT, REPAY, PAY_WITH_NOTE, COLLECT -> PlayerCredit.validate(level, colony, d, slots);
             case TREATY, TREATY_PAID -> TreatyTrade.validate(level, colony, d, slots);
@@ -465,6 +507,16 @@ public final class Trading {
             LandSales.sellHouse(level, colony, buyer == null ? null : buyer.getUUID(), offer.getResult());
             colony.soldTrades++;
             WorkTracker.status(v, LABEL_PERMISSION);
+        } else if (d.kind() == Kind.SELL_ENCHANTED) {
+            List<ItemStack> book = Chests.take(slots, s -> ItemStack.isSameItemSameComponents(s, offer.getResult()), 1);
+            if (Chests.total(book) < 1) {
+                Chests.put(slots, book);
+                return;
+            }
+            Chests.put(slots, List.of(new ItemStack(Items.EMERALD, paid)));
+            if (h != null) h.income += paid;
+            colony.soldTrades++;
+            WorkTracker.credit(v, LABEL_SELL, 1);
         } else if (d.villagerSells()) {
             List<ItemStack> goods = Chests.take(slots, s -> plain(s, d.item()), d.count());
             if (Chests.total(goods) < d.count()) {

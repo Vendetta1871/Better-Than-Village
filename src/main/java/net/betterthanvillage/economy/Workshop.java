@@ -4,6 +4,7 @@ import net.betterthanvillage.colony.ColonyRole;
 import net.betterthanvillage.colony.ColonyStorage;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -13,7 +14,6 @@ import net.minecraft.world.item.alchemy.Potions;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -25,11 +25,14 @@ public final class Workshop {
     public record Input(Predicate<ItemStack> pred, int count) {
     }
 
-    /**
-     * One recipe; the output is computed from the consumed stacks (planks follow the log's wood type).
-     * product tells which held items count against the target.
-     */
-    public record Recipe(String name, List<Input> inputs, Function<List<ItemStack>, ItemStack> output, Predicate<ItemStack> product, int target,
+    /** The product of a recipe, made from the consumed stacks (planks follow the log's wood type). */
+    @FunctionalInterface
+    public interface Output {
+        ItemStack make(ServerLevel level, List<ItemStack> used);
+    }
+
+    /** One recipe; product tells which held items count against the target. */
+    public record Recipe(String name, List<Input> inputs, Output output, Predicate<ItemStack> product, int target,
                          boolean master) {
     }
 
@@ -51,11 +54,11 @@ public final class Workshop {
         return new Input(s -> s.is(item), count);
     }
 
-    private static Function<List<ItemStack>, ItemStack> out(Item item, int count) {
-        return used -> new ItemStack(item, count);
+    private static Output out(Item item, int count) {
+        return (level, used) -> new ItemStack(item, count);
     }
 
-    private static Recipe r(String name, Function<List<ItemStack>, ItemStack> output, Predicate<ItemStack> product, int target, Input... inputs) {
+    private static Recipe r(String name, Output output, Predicate<ItemStack> product, int target, Input... inputs) {
         return new Recipe(name, List.of(inputs), output, product, target, false);
     }
 
@@ -69,7 +72,7 @@ public final class Workshop {
     }
 
     /** Planks of the consumed log's wood ("oak_log" -> "oak_planks"), oak if unknown. */
-    private static ItemStack planksFor(List<ItemStack> used) {
+    private static ItemStack planksFor(ServerLevel level, List<ItemStack> used) {
         for (ItemStack s : used) {
             ResourceLocation key = BuiltInRegistries.ITEM.getKey(s.getItem());
             String path = key.getPath().replace("stripped_", "").replace("_log", "_planks").replace("_wood", "_planks")
@@ -111,19 +114,21 @@ public final class Workshop {
             case LIBRARIAN -> {
                 list.add(r("paper", Items.PAPER, 3, 24, in(Items.SUGAR_CANE, 3)));
                 list.add(master(r("book", Items.BOOK, 1, 6, in(Items.PAPER, 3), in(Items.LEATHER, 1))));
+                list.add(master(r("enchanted book", (level, used) -> Enchanting.book(level, level.random), Enchanting::isBook, Enchanting.STOCK,
+                        in(Items.BOOK, 1), in(Items.LAPIS_LAZULI, Enchanting.LAPIS))));
             }
             case HEALER -> {
                 list.add(r("bottles", Items.GLASS_BOTTLE, 3, 6, in(Items.GLASS, 3)));
                 list.add(r("nuggets", Items.GOLD_NUGGET, 9, 9, in(Items.GOLD_INGOT, 1)));
                 list.add(master(r("glistering melon", Items.GLISTERING_MELON_SLICE, 1, 2, in(Items.MELON_SLICE, 1), in(Items.GOLD_NUGGET, 8))));
                 // Brewed without Nether ingredients (deliberate simplification).
-                list.add(master(r("healing potions", used -> PotionContents.createItemStack(Items.POTION, Potions.HEALING).copyWithCount(3),
+                list.add(master(r("healing potions", (level, used) -> PotionContents.createItemStack(Items.POTION, Potions.HEALING).copyWithCount(3),
                         s -> potion(s, Potions.HEALING), 6, in(Items.GLASS_BOTTLE, 3), in(Items.GLISTERING_MELON_SLICE, 1))));
                 // The cure of a zombie villager: a potion of weakness (a water bottle and a fermented spider eye, as in
                 // vanilla) and a golden apple.
                 list.add(r("fermented spider eye", Items.FERMENTED_SPIDER_EYE, 1, 1, in(Items.SPIDER_EYE, 1), in(Items.SUGAR, 1),
                         in(Items.BROWN_MUSHROOM, 1)));
-                list.add(r("weakness potions", used -> PotionContents.createItemStack(Items.SPLASH_POTION, Potions.WEAKNESS).copyWithCount(3),
+                list.add(r("weakness potions", (level, used) -> PotionContents.createItemStack(Items.SPLASH_POTION, Potions.WEAKNESS).copyWithCount(3),
                         s -> potion(s, Potions.WEAKNESS), 2, in(Items.GLASS_BOTTLE, 3), in(Items.FERMENTED_SPIDER_EYE, 1)));
                 list.add(master(r("golden apple", Items.GOLDEN_APPLE, 1, 1, in(Items.GOLD_INGOT, 8), in(Items.APPLE, 1))));
             }
@@ -157,7 +162,7 @@ public final class Workshop {
     }
 
     /** Consumes the inputs and returns the product (empty if an input went missing; nothing is consumed then). */
-    public static ItemStack craft(Recipe r, List<ColonyStorage.Slot> slots) {
+    public static ItemStack craft(ServerLevel level, Recipe r, List<ColonyStorage.Slot> slots) {
         for (Input in : r.inputs()) {
             if (Chests.count(slots, in.pred()) < in.count()) return ItemStack.EMPTY;
         }
@@ -165,6 +170,6 @@ public final class Workshop {
         for (Input in : r.inputs()) {
             used.addAll(Chests.take(slots, in.pred(), in.count()));
         }
-        return r.output().apply(used);
+        return r.output().make(level, used);
     }
 }

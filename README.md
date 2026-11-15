@@ -66,6 +66,11 @@ Drawn weapons, building on village land, theft, killing livestock and hitting vi
 
 Healer cures zombie villagers. Warriors fight it only when there is no healer or no cure.
 
+### Librarians enchant
+
+The librarian makes paper and books and enchants books with lapis. Every enchanted book is for sale,
+Mending included.
+
 ### Countries go to war
 
 <!-- MEDIA siege (demo/siege.txt): five against five, a rider among the attackers, no golems -->
@@ -116,7 +121,8 @@ them at or near a village (`execute positioned <x> <y> <z> run btv …` from the
 - `/btv land [sell | illegal | grow <blocks>]`: territory and domain map, deed sales.
 - `/btv country [list | join | secede | loyalty | order | relation | war | peace | border | day]`:
   countries and diplomacy.
-- `/btv world [step | caravan | stock | ledger]`: the abstract world.
+- `/btv world [step | caravan | stock | home | ledger]`: the abstract world; `stock` and `home` put goods
+  into the treasury or a household of a trade.
 - `/btv war [launch | step | fortify | ring | unwall | army | recruit | horses | golems | garrison | night | intel | offensive | player]`:
   campaigns, armies, night operations and war on the player.
 - `/btv law …`, `/btv bot …`: law debugging and fake-player test bots.

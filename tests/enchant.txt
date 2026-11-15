@@ -1,0 +1,25 @@
+// The librarian enchants books with lapis and sells the enchanted books to a fake survival player
+locate structure #minecraft:village
+forceload add {LX-96} {LZ-96} {LX+96} {LZ+96}
+#wait-log Registered generated vanilla village 60
+#sleep 40
+execute positioned {LX} 100 {LZ} run btv status
+// The test village has no librarian: the villager nearest that spot takes up the trade
+btv film on
+execute positioned {LX-9} 120 {LZ-46} run btv film role librarian 1
+btv film off
+// Inputs for four enchantings at the librarian's home (expect "Put 4 book", "Put 12 lapis_lazuli")
+execute positioned {LX} 100 {LZ} run btv world home librarian minecraft:book 4
+execute positioned {LX} 100 {LZ} run btv world home librarian minecraft:lapis_lazuli 12
+time set 1000
+tick sprint 6000
+#wait-log Sprint completed 300
+// Expect sell_enchanted offers on the librarian line, one per distinct book (at most 3 enchanted books in stock)
+execute positioned {LX} 100 {LZ} run btv offers
+btv bot spawn Buyer {LX} 130 {LZ}
+#sleep 3
+btv bot give Buyer minecraft:emerald 64
+// Expect "Deal SELL_ENCHANTED with librarian": the book leaves the chest, the emeralds go in
+btv bot deal Buyer sell_enchanted
+execute as @e[name=Buyer,limit=1] run data get entity @s Inventory
+execute positioned {LX} 100 {LZ} run btv offers

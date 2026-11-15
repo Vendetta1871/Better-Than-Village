@@ -56,6 +56,7 @@ freeze. `/btv status`, `/btv villagers` and `/btv land` dump the colony at a pos
 | `credit.txt` | A player buys on credit, repays, and defaults into war |
 | `houseorder.txt` | A player buys a plot and orders a house on it; the masons build it |
 | `access.txt` | The miner clears the way to a house the villagers cannot walk into |
+| `enchant.txt` | The librarian enchants books with lapis and sells them to a fake player |
 | `cure.txt` | A villager calls the healer, who cures zombie villagers day and night; with no cure the warriors fight |
 | `expedition.txt` | A search party travels as a record and founds a village |
 | `growth.txt` | Births and conscription of an unloaded village |

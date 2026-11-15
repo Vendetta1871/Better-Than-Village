@@ -71,6 +71,8 @@ public final class Needs {
             case LIBRARIAN -> {
                 r.put(Family.SUGAR_CANE, 9);
                 r.put(Family.LEATHER, 2);
+                // Lapis for two enchantings (Enchanting).
+                r.put(Family.LAPIS, 2 * Enchanting.LAPIS);
             }
             case HEALER -> {
                 r.put(Family.GLASS, 3);

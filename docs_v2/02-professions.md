@@ -121,6 +121,15 @@ warrior, and the tool supply of every trade, start from the `legacy` port.
 - **Enchanting.** Enchants with lapis. Customers are the treasury (army gear), other households
   and the player through trades.
 
+  Implementation (`Enchanting`): a master enchants a book with 3 lapis, in the workshop and on
+  abstract days, while it holds fewer than 3 enchanted books. The book gets one random
+  enchantment of the vanilla librarian pool (the `#minecraft:tradeable` tag, so Mending too) at a
+  random level. Enchanted books are not a market family. The librarian sells each book to the
+  player as it is, at the mean vanilla librarian price (doubled for Mending-like enchantments, at
+  most 64) times greed, reputation, Hero of the Village and skill. The librarian buys lapis
+  (it keeps 6) and the miner's abstract days yield some. Not done yet: enchanting army gear for
+  the treasury and selling to other households.
+
 ## Generation rules
 
 1. **Guaranteed roster.** Every village has an elder, at least one warrior and at least one
