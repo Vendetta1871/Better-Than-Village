@@ -115,7 +115,8 @@ Requires JDK 21.
 All commands are for operators (permission level 2) and mostly serve debugging and tests; run
 them at or near a village (`execute positioned <x> <y> <z> run btv …` from the console).
 
-- `/btv status`, `/btv villagers`, `/btv offers`: colony dump, villager AI states, trade offers.
+- `/btv status`, `/btv villagers`, `/btv offers`, `/btv audit`: colony dump, villager AI states, trade offers,
+  where the village keeps its chests and valuables (indoors or in the open, items on the ground).
 - `/btv jobs`, `/btv repair`, `/btv house <biome> [template] [floor]`: construction.
   `/btv path <pos>`: can the village walk there, and what is in the way.
 - `/btv land [sell | illegal | grow <blocks>]`: territory and domain map, deed sales.

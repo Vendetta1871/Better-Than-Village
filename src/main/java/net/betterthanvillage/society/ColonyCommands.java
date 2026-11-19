@@ -33,6 +33,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
@@ -58,6 +59,7 @@ public final class ColonyCommands {
                 .then(Commands.literal("status").requires(s -> s.hasPermission(2)).executes(ColonyCommands::status))
                 .then(Commands.literal("offers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::offers))
                 .then(Commands.literal("villagers").requires(s -> s.hasPermission(2)).executes(ColonyCommands::villagers))
+                .then(Commands.literal("audit").requires(s -> s.hasPermission(2)).executes(ColonyCommands::audit))
                 .then(Commands.literal("land").requires(s -> s.hasPermission(2)).executes(ColonyCommands::land)
                         .then(Commands.literal("sell").executes(ColonyCommands::sellHouse))
                         .then(Commands.literal("illegal").executes(ColonyCommands::illegalBuild))
@@ -209,6 +211,77 @@ public final class ColonyCommands {
             ok(source, line);
         }
         return 1;
+    }
+
+    /**
+     * Debug: where the village keeps its goods. Every treasury chest (indoors or under the open sky), the valuables
+     * of the treasury, the home chests, the loose chests and the members' inventories, and the items lying on the
+     * ground inside the territory.
+     */
+    private static int audit(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerLevel level = source.getLevel();
+        Colony c = colonyNear(source);
+        if (c == null) {
+            source.sendFailure(Msg.command("status.none"));
+            return 0;
+        }
+        StringJoiner chests = new StringJoiner(", ");
+        int outdoors = 0;
+        for (BlockPos pos : c.storages) {
+            boolean sky = level.isLoaded(pos) && level.canSeeSky(pos.above());
+            if (sky) outdoors++;
+            chests.add(pos.toShortString() + (sky ? " sky" : " in") + " " + ColonyStorage.kindOf(c, pos).serializedName());
+        }
+        ok(source, Component.literal("[audit] treasury chests=" + c.storages.size() + " outdoors=" + outdoors + ": " + chests));
+        List<ColonyStorage.Slot> homes = new ArrayList<>();
+        int homeOutdoors = 0;
+        StringJoiner open = new StringJoiner(", ");
+        for (net.betterthanvillage.economy.Household h : c.households.values()) {
+            for (BlockPos pos : h.chests) {
+                Container ct = ColonyStorage.container(level, pos);
+                if (ct != null) homes.add(new ColonyStorage.Slot(pos, ct));
+                if (level.isLoaded(pos) && level.canSeeSky(pos.above())) {
+                    homeOutdoors++;
+                    open.add(pos.toShortString() + " bed=" + (h.bed == null ? "-" : h.bed.toShortString()));
+                }
+            }
+        }
+        if (homeOutdoors > 0) ok(source, Component.literal("[audit] home chests outdoors: " + open));
+        List<ColonyStorage.Slot> loose = new ArrayList<>();
+        for (BlockPos pos : c.looseChests) {
+            Container ct = ColonyStorage.container(level, pos);
+            if (ct != null) loose.add(new ColonyStorage.Slot(pos, ct));
+        }
+        List<ItemStack> carried = new ArrayList<>();
+        for (Villager v : ColonyManager.members(level, c)) {
+            for (int i = 0; i < v.getInventory().getContainerSize(); i++) carried.add(v.getInventory().getItem(i));
+        }
+        int r = c.radius();
+        BlockPos core = c.core();
+        List<net.minecraft.world.entity.item.ItemEntity> ground = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                new net.minecraft.world.phys.AABB(core).inflate(r, 64, r));
+        List<ItemStack> dropped = new ArrayList<>();
+        Map<String, Integer> droppedKinds = new java.util.TreeMap<>();
+        for (net.minecraft.world.entity.item.ItemEntity e : ground) {
+            dropped.add(e.getItem());
+            droppedKinds.merge(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(e.getItem().getItem()).getPath(), e.getItem().getCount(), Integer::sum);
+        }
+        ok(source, Component.literal("[audit] valuables treasury " + valuables(ColonyStorage.treasury(level, c))
+                + " | homes(" + homes.size() + " chests, " + homeOutdoors + " outdoors) " + valuables(homes)
+                + " | loose(" + loose.size() + ") " + valuables(loose)
+                + " | carried " + valuables(List.of(new ColonyStorage.Slot(core, new net.minecraft.world.SimpleContainer(carried.toArray(ItemStack[]::new)))))
+                + " | ground " + valuables(List.of(new ColonyStorage.Slot(core, new net.minecraft.world.SimpleContainer(dropped.toArray(ItemStack[]::new)))))));
+        ok(source, Component.literal("[audit] ground items=" + ground.size() + " " + droppedKinds));
+        return 1;
+    }
+
+    private static String valuables(List<ColonyStorage.Slot> slots) {
+        return "emerald=" + ColonyStorage.count(slots, s -> s.is(Items.EMERALD))
+                + " diamond=" + ColonyStorage.count(slots, s -> s.is(Items.DIAMOND))
+                + " iron=" + ColonyStorage.count(slots, s -> s.is(Items.IRON_INGOT) || s.is(Items.RAW_IRON))
+                + " gold=" + ColonyStorage.count(slots, s -> s.is(Items.GOLD_INGOT) || s.is(Items.RAW_GOLD))
+                + " book=" + ColonyStorage.count(slots, s -> s.is(Items.ENCHANTED_BOOK));
     }
 
     /** Debug: movement and activity state of every member. */

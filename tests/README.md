@@ -25,7 +25,7 @@ One command per line, without the slash. Besides commands:
 
 With seed `btv-test` the nearest village is at about (208, 192) and the next one at about
 (766, 388). Forceload at least ±96 blocks around a village, or villagers outside the loaded area
-freeze. `/btv status`, `/btv villagers` and `/btv land` dump the colony at a position
+freeze. `/btv status`, `/btv villagers`, `/btv audit` and `/btv land` dump the colony at a position
 (`execute positioned {LX} 100 {LZ} run btv status`).
 
 ## Scenarios
