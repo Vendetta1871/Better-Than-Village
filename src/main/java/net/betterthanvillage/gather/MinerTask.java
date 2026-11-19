@@ -1249,7 +1249,8 @@ public final class MinerTask extends ColonyTask {
         int coal = share(8 + r.nextInt(13), fraction);
         int iron = share(4 + r.nextInt(9), fraction);
         int copper = share(4 + r.nextInt(13), fraction);
-        int diamonds = ironPlus && r.nextInt(3) == 0 ? share(1 + r.nextInt(2), fraction) : 0;
+        // About one diamond in six trips: a village must not turn into a diamond mine a player can rob or buy out.
+        int diamonds = ironPlus && r.nextInt(6) == 0 ? share(1, fraction) : 0;
         int redstone = ironPlus ? share(4 + r.nextInt(9), fraction) : 0;
         int sum = depositDeep(level, colony, Items.COBBLESTONE, cobble) + depositDeep(level, colony, Items.COAL, coal)
                 + depositDeep(level, colony, Items.RAW_IRON, iron) + depositDeep(level, colony, Items.RAW_COPPER, copper)

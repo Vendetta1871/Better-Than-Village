@@ -6,7 +6,7 @@ The currency is the **emerald** (the vanilla item). Emeralds sit in real chests.
 
 | | Source |
 |---|---|
-| Starting capital | Created once when a village is generated (the world existed before the player). Split between the treasury (≈ 20 %) and households (by profession, ± noise). Scales with the village's size. |
+| Starting capital | Created once when a village is generated (the world existed before the player). Split between the treasury (≈ 30 %) and households (by profession, ± noise). Kept small (a few emeralds per household), since home chests and the treasury can be robbed; taxes cover the wages. Scales with the village's size. |
 | Inflow | The player buys from villagers; the miner finds emerald ore (rare, mountains only). |
 | Transfer | Trade between villages (caravans), country redistribution, tribute, conquest. These only move money; the world total does not change. |
 | Outflow | The player sells to villagers. |

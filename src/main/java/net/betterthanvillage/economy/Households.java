@@ -44,8 +44,11 @@ import java.util.UUID;
  * village stock; the stock that is left is the treasury.
  */
 public final class Households {
-    /** Starting emeralds per profession before noise and scale (03 §Currency). */
-    private static final int BASE_CAPITAL_DEFAULT = 8;
+    /**
+     * Starting emeralds per profession before noise and scale (03 §Currency). Kept small: the money sits in home
+     * chests and the treasury a player can rob, and a village runs on half as much as well (taxes cover the wages).
+     */
+    private static final int BASE_CAPITAL_DEFAULT = 4;
     /** Home chests are searched this far from the owner's bed (horizontal, vertical). */
     private static final int HOUSE_XZ = 6;
     private static final int HOUSE_Y = 3;
@@ -186,7 +189,7 @@ public final class Households {
     /**
      * Emeralds and starting kits created once when a generated village is settled ("the world existed before the
      * player"): each household gets its profession's base with +-25 % noise and the tools and food of its trade,
-     * the treasury about a fifth of the emeralds.
+     * the treasury {@code treasury_share} of all the emeralds.
      */
     private static void handOutStartingCapital(ServerLevel level, Colony colony, List<Household> created) {
         ColonyConfig.Economy cfg = ColonyConfig.get().economy;
@@ -210,13 +213,13 @@ public final class Households {
 
     static int baseCapital(ColonyRole role) {
         return switch (role) {
-            case ELDER -> 24;
-            case SMITH -> 16;
-            case LIBRARIAN, HEALER -> 14;
-            case MASON, MINER -> 12;
-            case CARPENTER -> 10;
-            case FARMER, HERDER -> 8;
-            case WARRIOR -> 6;
+            case ELDER -> 12;
+            case SMITH -> 8;
+            case LIBRARIAN, HEALER -> 7;
+            case MASON, MINER -> 6;
+            case CARPENTER -> 5;
+            case FARMER, HERDER -> 4;
+            case WARRIOR -> 3;
             default -> BASE_CAPITAL_DEFAULT;
         };
     }
@@ -319,7 +322,9 @@ public final class Households {
         }
         if (out == null) return false;
         if (home == null) {
-            BlockPos[] spot = h.bed != null ? new BlockPos[]{bedsideSite(level, colony, h.bed), h.bed} : lodgingSite(level, colony);
+            BlockPos own = h.bed != null ? indoorSite(level, colony, h.bed) : null;
+            // No room in its own house: the goods lodge in another house rather than stay in the street.
+            BlockPos[] spot = own != null ? new BlockPos[]{own, h.bed} : lodgingSite(level, colony);
             if (spot == null || spot[0] == null) return false;
             BlockPos site = spot[0];
             Direction facing = facingAway(site, spot[1]);
@@ -357,14 +362,15 @@ public final class Households {
     }
 
     /**
-     * Places a single chest for the household: next to its bed, or by the village centre while it is homeless.
+     * Places a single chest for the household under a roof: in its own house, else (homeless, or no room at home)
+     * in another household's house; by the village centre only when no house has room.
      * The first chests of a generated village are free; later ones cost the treasury two logs.
      */
     private static boolean placeHomeChest(ServerLevel level, Colony colony, Household h, boolean free) {
-        BlockPos site = h.bed != null ? bedsideSite(level, colony, h.bed) : null;
+        BlockPos site = h.bed != null ? indoorSite(level, colony, h.bed) : null;
         BlockPos facingBed = h.bed;
-        if (site == null && h.bed == null) {
-            // A homeless household lodges: its chest stands in another household's house.
+        if (site == null) {
+            // The household lodges: its chest stands in another household's house.
             BlockPos[] lodging = lodgingSite(level, colony);
             if (lodging != null) {
                 site = lodging[0];
@@ -427,7 +433,14 @@ public final class Households {
         return n;
     }
 
-    /** A spot beside a household's bed (nearest the bell first) for a lodger's chest: {site, bed}, or null. */
+    /** A chest spot under the roof of the house with this bed: beside the bed, else by a wall of the house; or null. */
+    private static BlockPos indoorSite(ServerLevel level, Colony colony, BlockPos bed) {
+        BlockPos site = bedsideSite(level, colony, bed);
+        if (site != null && !level.canSeeSky(site.above())) return site;
+        return wallSite(level, colony, bed);
+    }
+
+    /** A spot in a household's house (nearest the bell first) for a lodger's chest: {site, bed}, or null. */
     private static BlockPos[] lodgingSite(ServerLevel level, Colony colony) {
         List<BlockPos> beds = new ArrayList<>();
         for (Household other : colony.households.values()) {
@@ -438,19 +451,26 @@ public final class Households {
             BlockPos site = bedsideSite(level, colony, bed);
             if (site != null && !level.canSeeSky(site.above())) return new BlockPos[]{site, bed};
         }
-        // No room beside a bed: any free floor cell under the roof of a house, by a wall (a free cell next to it).
         for (BlockPos bed : beds) {
-            for (BlockPos p : BlockPos.betweenClosed(bed.offset(-4, -1, -4), bed.offset(4, 1, 4))) {
-                if (level.canSeeSky(p.above()) || !chestFits(level, colony, p)) continue;
-                boolean wall = false, free = false;
-                for (Direction d : Direction.Plane.HORIZONTAL) {
-                    BlockPos n = p.relative(d);
-                    boolean solid = !level.getBlockState(n).getCollisionShape(level, n).isEmpty();
-                    wall |= solid;
-                    free |= !solid && level.getBlockState(n.above()).getCollisionShape(level, n.above()).isEmpty();
-                }
-                if (wall && free) return new BlockPos[]{p.immutable(), bed};
+            BlockPos site = wallSite(level, colony, bed);
+            if (site != null) return new BlockPos[]{site, bed};
+        }
+        return null;
+    }
+
+    /** No room beside the bed: a free floor cell under the roof of its house, by a wall (a free cell next to it). */
+    private static BlockPos wallSite(ServerLevel level, Colony colony, BlockPos bed) {
+        if (!level.isLoaded(bed)) return null;
+        for (BlockPos p : BlockPos.betweenClosed(bed.offset(-4, -1, -4), bed.offset(4, 1, 4))) {
+            if (level.canSeeSky(p.above()) || !chestFits(level, colony, p)) continue;
+            boolean wall = false, free = false;
+            for (Direction d : Direction.Plane.HORIZONTAL) {
+                BlockPos n = p.relative(d);
+                boolean solid = !level.getBlockState(n).getCollisionShape(level, n).isEmpty();
+                wall |= solid;
+                free |= !solid && level.getBlockState(n.above()).getCollisionShape(level, n.above()).isEmpty();
             }
+            if (wall && free) return p.immutable();
         }
         return null;
     }
