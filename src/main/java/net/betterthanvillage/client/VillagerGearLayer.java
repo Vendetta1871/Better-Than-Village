@@ -55,12 +55,21 @@ public final class VillagerGearLayer extends RenderLayer<Villager, VillagerModel
     @Override
     public void render(PoseStack pose, MultiBufferSource buffers, int light, Villager v, float limbSwing, float limbSwingAmount,
                        float partialTick, float ageInTicks, float netHeadYaw, float headPitch) {
-        if (v.isInvisible()) return;
+        if (v.isInvisible() || !hasGear(v)) return;
         poseBiped(v, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
         inner.limbs(limbSwing, limbSwingAmount);
         outer.limbs(limbSwing, limbSwingAmount);
         armor.render(pose, buffers, light, v, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
         offArm.renderOffArm(pose, buffers, light, v);
+    }
+
+    /** Most villagers wear nothing: skip posing the models for them every frame. */
+    private static boolean hasGear(Villager v) {
+        if (!v.getOffhandItem().isEmpty()) return true;
+        for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
+            if (slot.isArmor() && !v.getItemBySlot(slot).isEmpty()) return true;
+        }
+        return false;
     }
 
     private void poseBiped(Villager v, float limbSwing, float limbSwingAmount, float partialTick, float ageInTicks, float netHeadYaw, float headPitch) {

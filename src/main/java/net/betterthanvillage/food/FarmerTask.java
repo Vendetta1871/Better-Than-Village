@@ -491,9 +491,11 @@ public final class FarmerTask extends ColonyTask {
                         && FarmTerritory.waterWithin4(level, pos) && FarmTerritory.soilOk(level, colony, pos) && q.editable()) {
                     expandC = above;
                 }
-                // Cheap tests (light, water) before the structure lookup of wasTemplateFarmland.
-                if (soil && !reserved && plantSlot(level, colony, v, above) >= 0 && FarmTerritory.waterWithin4(level, pos)
+                // The field tests (a set lookup, then the per-chunk cached template lookup) before the water test:
+                // that one reads 162 blocks and would otherwise run for every grass block of the territory.
+                if (soil && !reserved && plantSlot(level, colony, v, above) >= 0
                         && (colony.farmland.contains(pos) || FarmTerritory.wasTemplateFarmland(level, pos, villageStarts))
+                        && FarmTerritory.waterWithin4(level, pos)
                         && FarmTerritory.soilOk(level, colony, pos) && q.ok()) {
                     FarmTerritory.registerFarmland(level, colony, pos);
                     if (closer(v, restoreC, above) && q.editable()) restoreC = above;

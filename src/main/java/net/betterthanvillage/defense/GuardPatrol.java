@@ -43,6 +43,9 @@ public final class GuardPatrol {
             if (!level.isLoaded(column)) return;
             dest = new BlockPos(column.getX(), level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()), column.getZ());
         }
+        // Already walking there: a long patrol leg is not re-pathed every two seconds.
+        net.minecraft.world.level.pathfinder.Path current = v.getNavigation().getPath();
+        if (current != null && !current.isDone() && current.getTarget().closerThan(dest, 3)) return;
         if (PathBudget.tryAcquire(level)) {
             v.getNavigation().moveTo(dest.getX() + 0.5, dest.getY(), dest.getZ() + 0.5, 0.6);
         }

@@ -55,6 +55,11 @@ public final class DoorHandler {
         if (v.isSleeping()) return;
         long now = level.getGameTime();
         if ((now + v.getId()) % 3 != 0) return;
+        // needed() opens only along a running path, or a trapdoor towards a target: a villager with neither
+        // (most of the time) skips the 324-block scan.
+        Path running = v.getNavigation().getPath();
+        if ((running == null || running.isDone()) && Nav.currentTarget(v, now) == null
+                && !v.getBrain().hasMemoryValue(MemoryModuleType.WALK_TARGET)) return;
         BlockPos center = v.blockPosition();
         BlockPos penGate = colony.livestockPen != null ? colony.livestockPen.north(5) : null;
         for (BlockPos p : BlockPos.betweenClosed(center.offset(-4, -1, -4), center.offset(4, 2, 4))) {
