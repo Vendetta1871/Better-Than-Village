@@ -91,12 +91,36 @@ public final class FarmerTask extends ColonyTask {
     private long nextAct;
     private long cooldown;
     private BlockPos restoreC, emptyC, harvestC, hayC, expandC, waterC, grassC;
+    /**
+     * More targets of each kind (restore, empty farmland, harvest, hay, expansion, grass) found by the same sweep (up to
+     * QUEUE each). After
+     * an action the farmer works through the kind it picked instead of sweeping the whole territory again: a sweep
+     * reads ~20 000 columns, and with one per action the farmers were half of a busy village's tick.
+     */
+    private final List<BlockPos> restoreQ = new ArrayList<>(), emptyQ = new ArrayList<>(), harvestQ = new ArrayList<>(),
+            hayQ = new ArrayList<>(), expandQ = new ArrayList<>(), grassQ = new ArrayList<>();
+    /** A farmer out of seeds gathers this many from grass before it plants again. */
+    private static final int GATHER_SEEDS_TO = 8;
+    private static final int QUEUE = 24;
+    /** Ticks a queue stays valid after its sweep. */
+    private static final int QUEUE_TICKS = 600;
+    private final List<BlockPos> queue = new ArrayList<>();
+    private State queueState;
+    private long queueUntil;
+    /** The soil cell last tilled for a new crop, and how many cells were found next to the previous one since a sweep. */
+    private BlockPos lastTilled;
+    private long lastTilledAt;
+    private int localSteps;
+    /** A field grows this many cells from neighbour to neighbour before a sweep looks at the whole territory again. */
+    private static final int LOCAL_STEPS = 8;
     private final Map<BlockPos, Long> blacklist = new HashMap<>();
     /** Pumpkin fruit spots reserved by this task instance; never cleared (04 §2.7). */
     private final Set<BlockPos> pumpkinSpots = new HashSet<>();
     private final BlockWorkTimer timer = new BlockWorkTimer();
     /** The last sweep found nothing to do: the task rests longer before the next one. */
     private boolean idleSweep;
+    /** Sweeps in a row that found nothing: the rest doubles with each (crops take minutes to grow). */
+    private int idleStreak;
     /** Village structure starts per chunk, valid for one sweep. */
     private final Map<Long, List<StructureStart>> villageStarts = new HashMap<>();
 
@@ -176,6 +200,9 @@ public final class FarmerTask extends ColonyTask {
         target = null;
         moveTarget = null;
         clearCandidates();
+        queue.clear();
+        lastTilled = null;
+        localSteps = 0;
         cursor = 0;
         nextAct = now;
         idleSweep = false;
@@ -203,6 +230,8 @@ public final class FarmerTask extends ColonyTask {
         } else if (actions >= 64) {
             state = State.DELIVER;
         } else if (state == State.SCAN) {
+            // Between sweeps: the next target of the last sweep's kind, without a new sweep.
+            if (cursor == 0 && (nextFromQueue(level, v, colony, now) || nextBeside(level, v, colony, now))) return;
             int result = scan(level, v, colony, now);
             if (result == 2) {
                 if (plantableSeeds(v) > 0) {
@@ -215,6 +244,7 @@ public final class FarmerTask extends ColonyTask {
                     }
                 }
                 idleSweep = true;
+                idleStreak = Math.min(idleStreak + 1, 3);
                 state = State.DELIVER;
             }
         } else if (state == State.NEW_FIELD) {
@@ -343,7 +373,7 @@ public final class FarmerTask extends ColonyTask {
         }
         if (state == State.DELIVER) {
             done = true;
-            cooldown = now + (idleSweep ? 300 : 20);
+            cooldown = now + (idleSweep ? 300L << Math.max(0, idleStreak - 1) : 20);
             return;
         }
         ToolSupply.ensureTool(level, colony, v, ToolSupply.Kind.HOE);
@@ -365,12 +395,106 @@ public final class FarmerTask extends ColonyTask {
         cursor = 0;
         sweepComplete = false;
         clearCandidates();
+        queue.clear();
     }
 
     // ---------------------------------------------------------------- territory scan (04 §2.5)
 
     private void clearCandidates() {
         restoreC = emptyC = harvestC = hayC = expandC = waterC = grassC = null;
+        restoreQ.clear();
+        emptyQ.clear();
+        harvestQ.clear();
+        hayQ.clear();
+        expandQ.clear();
+        grassQ.clear();
+    }
+
+    /** Keeps the rest of the picked kind's targets of this sweep for the next actions. */
+    private void keepQueue(List<BlockPos> found, BlockPos picked, State kind, long now) {
+        queue.clear();
+        for (BlockPos p : found) {
+            if (!p.equals(picked)) queue.add(p);
+        }
+        queueState = kind;
+        queueUntil = now + QUEUE_TICKS;
+    }
+
+    /** The nearest queued target that still qualifies becomes the target; false when the queue is spent. */
+    private boolean nextFromQueue(ServerLevel level, Villager v, Colony colony, long now) {
+        if (queue.isEmpty() || queueState == null || now > queueUntil
+                || (queueState == State.TILL_PLANT && plantableSeeds(v) <= 0)
+                || ((queueState == State.HARVEST || queueState == State.HAY) && noRoomAnywhere(level, colony, v))
+                || (queueState == State.GATHER_SEEDS && plantableSeeds(v) >= GATHER_SEEDS_TO)) {
+            queue.clear();
+            return false;
+        }
+        BlockPos me = v.blockPosition();
+        while (!queue.isEmpty()) {
+            int best = 0;
+            for (int i = 1; i < queue.size(); i++) {
+                if (queue.get(i).distSqr(me) < queue.get(best).distSqr(me)) best = i;
+            }
+            BlockPos p = queue.remove(best);
+            if (blacklisted(p, now) || !level.isLoaded(p) || !stillQualifies(level, queueState, p)) continue;
+            target = p;
+            state = queueState;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * A field grows cell by cell: after tilling one, the closest expansion cell is almost always beside it, so the
+     * same test as the sweep's expansion test runs on the 5x5 cells around it instead of a sweep of the territory.
+     */
+    private boolean nextBeside(ServerLevel level, Villager v, Colony colony, long now) {
+        if (lastTilled == null || now - lastTilledAt > QUEUE_TICKS || localSteps >= LOCAL_STEPS || plantableSeeds(v) <= 0) {
+            lastTilled = null;
+            localSteps = 0;
+            return false;
+        }
+        BlockPos center = lastTilled;
+        lastTilled = null;
+        BlockPos best = null;
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockPos above = pos.above();
+                    if (!level.isLoaded(pos) || !closer(v, best, above) || pumpkinSpots.contains(pos)) continue;
+                    if (blacklisted(pos, now) || blacklisted(above, now)) continue;
+                    if (!FarmTerritory.isSoil(level.getBlockState(pos)) || !FarmTerritory.isAirOrGrass(level.getBlockState(above))) continue;
+                    if (!farmlandAround(level, pos) || plantSlot(level, colony, v, above) < 0 || !FarmTerritory.waterWithin4(level, pos)
+                            || !FarmTerritory.soilOk(level, colony, pos) || !new Qualifier(level, colony, pos).editable()) continue;
+                    best = above;
+                }
+            }
+        }
+        if (best == null) {
+            localSteps = 0;
+            return false;
+        }
+        localSteps++;
+        target = best;
+        state = State.TILL_PLANT;
+        return true;
+    }
+
+    /** Cheap block test that a queued target is still work of its kind (perform and till check the rest). */
+    private static boolean stillQualifies(ServerLevel level, State kind, BlockPos p) {
+        BlockState s = level.getBlockState(p);
+        return switch (kind) {
+            case HARVEST -> s.is(Blocks.PUMPKIN) || s.is(Blocks.MELON)
+                    || (s.getBlock() instanceof CropBlock crop && isVanillaCrop(s) && crop.isMaxAge(s));
+            case TILL_PLANT -> {
+                BlockState below = level.getBlockState(p.below());
+                yield FarmTerritory.isAirOrGrass(s) && (below.is(Blocks.FARMLAND) || FarmTerritory.isSoil(below));
+            }
+            case HAY -> s.is(Blocks.HAY_BLOCK);
+            case GATHER_SEEDS -> FarmTerritory.isGrassPlant(s);
+            default -> false;
+        };
     }
 
     /** 0 = still scanning, 1 = sweep ended with a target, 2 = sweep ended without a target. */
@@ -384,7 +508,10 @@ public final class FarmerTask extends ColonyTask {
             if (cursor >= OD.length || OD[cursor] > r2) {
                 cursor = 0;
                 sweepComplete = true;
-                return pickTarget(level, colony, v, seeds) ? 1 : 2;
+                localSteps = 0;
+                boolean picked = pickTarget(level, colony, v, seeds);
+                if (picked) idleStreak = 0;
+                return picked ? 1 : 2;
             }
             column(level, v, colony, colony.core().getX() + OX[cursor], colony.core().getZ() + OZ[cursor], seeds, bucket, now);
             cursor++;
@@ -409,27 +536,35 @@ public final class FarmerTask extends ColonyTask {
         }
         BlockPos t = null;
         State next = null;
+        long now = level.getGameTime();
+        queue.clear();
         if (seeds > 0 && restoreC != null) {
             t = restoreC;
             next = State.TILL_PLANT;
+            keepQueue(restoreQ, t, next, now);
         } else if (seeds > 0 && emptyC != null) {
             t = emptyC;
             next = State.TILL_PLANT;
+            keepQueue(emptyQ, t, next, now);
         } else if (harvestC != null) {
             t = harvestC;
             next = State.HARVEST;
+            keepQueue(harvestQ, t, next, now);
         } else if (hayC != null) {
             t = hayC;
             next = State.HAY;
+            keepQueue(hayQ, t, next, now);
         } else if (seeds > 0 && expandC != null) {
             t = expandC;
             next = State.TILL_PLANT;
+            keepQueue(expandQ, t, next, now);
         } else if (seeds > 0 && waterC != null && !waterBucket) {
             t = waterC;
             next = State.FILL_BUCKET;
         } else if (seeds == 0 && grassC != null) {
             t = grassC;
             next = State.GATHER_SEEDS;
+            keepQueue(grassQ, t, next, now);
         }
         clearCandidates();
         if (t == null) return false;
@@ -449,9 +584,12 @@ public final class FarmerTask extends ColonyTask {
     private void column(ServerLevel level, Villager v, Colony colony, int x, int z, int seeds, boolean bucket, long now) {
         if (!level.hasChunk(x >> 4, z >> 4)) return;
         int yTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
-        for (int y = Math.max(level.getMinBuildHeight(), yTop - 3); y <= yTop + 2; y++) {
+        int y0 = Math.max(level.getMinBuildHeight(), yTop - 3);
+        // Each block is read once: the state above one level is the next level's own state.
+        BlockState next = level.getBlockState(new BlockPos(x, y0, z));
+        for (int y = y0; y <= yTop + 2; y++) {
             BlockPos pos = new BlockPos(x, y, z);
-            BlockState s = level.getBlockState(pos);
+            BlockState s = next;
             boolean crop = s.getBlock() instanceof CropBlock && isVanillaCrop(s);
             boolean farmland = s.is(Blocks.FARMLAND);
             boolean hay = s.is(Blocks.HAY_BLOCK);
@@ -461,6 +599,7 @@ public final class FarmerTask extends ColonyTask {
             boolean grass = FarmTerritory.isGrassPlant(s);
             BlockPos above = pos.above();
             BlockState aboveState = level.getBlockState(above);
+            next = aboveState;
             boolean soil = FarmTerritory.isSoil(s) && FarmTerritory.isAirOrGrass(aboveState);
             if (!(crop || farmland || hay || melon || pumpkin || water || grass || soil)) continue;
             ColonySavedData data = ColonyManager.data(level);
@@ -472,23 +611,28 @@ public final class FarmerTask extends ColonyTask {
             Qualifier q = new Qualifier(level, colony, pos);
             if (farmland && !colony.farmland.contains(pos) && q.ok()) FarmTerritory.registerFarmland(level, colony, pos);
             if (blacklisted(pos, now) || blacklisted(above, now)) continue;
-            if (hay && closer(v, hayC, pos) && FarmTerritory.isVillageHay(level, colony, pos) && q.editable()) {
-                hayC = pos;
+            if (hay && (closer(v, hayC, pos) || hayQ.size() < QUEUE) && FarmTerritory.isVillageHay(level, colony, pos) && q.editable()) {
+                if (hayQ.size() < QUEUE) hayQ.add(pos);
+                if (closer(v, hayC, pos)) hayC = pos;
             }
             boolean mature = crop && ((CropBlock) s.getBlock()).isMaxAge(s);
             // Same soil test as perform(), otherwise a refused harvest would be picked again every sweep.
-            if ((melon || mature || pumpkin) && closer(v, harvestC, pos) && !data.isPlayerBlock(pos.below())
+            if ((melon || mature || pumpkin) && (closer(v, harvestC, pos) || harvestQ.size() < QUEUE) && !data.isPlayerBlock(pos.below())
                     && FarmTerritory.soilOk(level, colony, pos.below()) && q.editable()) {
-                harvestC = pos;
+                if (harvestQ.size() < QUEUE) harvestQ.add(pos);
+                if (closer(v, harvestC, pos)) harvestC = pos;
             }
             if (seeds > 0 && (farmland || soil) && FarmTerritory.isAirOrGrass(aboveState)) {
-                if (farmland && closer(v, emptyC, above) && plantSlot(level, colony, v, above) >= 0
+                if (farmland && (closer(v, emptyC, above) || emptyQ.size() < QUEUE) && plantSlot(level, colony, v, above) >= 0
                         && FarmTerritory.soilOk(level, colony, pos) && q.editable()) {
-                    emptyC = above;
+                    if (emptyQ.size() < QUEUE) emptyQ.add(above);
+                    if (closer(v, emptyC, above)) emptyC = above;
                 }
                 boolean reserved = soil && pumpkinSpots.contains(pos);
+                // Every grass block is soil: only a closer candidate is tested (the one it displaces is queued).
                 if (soil && !reserved && closer(v, expandC, above) && farmlandAround(level, pos) && plantSlot(level, colony, v, above) >= 0
                         && FarmTerritory.waterWithin4(level, pos) && FarmTerritory.soilOk(level, colony, pos) && q.editable()) {
+                    if (expandC != null && expandQ.size() < QUEUE) expandQ.add(expandC);
                     expandC = above;
                 }
                 // The field tests (a set lookup, then the per-chunk cached template lookup) before the water test:
@@ -498,10 +642,16 @@ public final class FarmerTask extends ColonyTask {
                         && FarmTerritory.waterWithin4(level, pos)
                         && FarmTerritory.soilOk(level, colony, pos) && q.ok()) {
                     FarmTerritory.registerFarmland(level, colony, pos);
-                    if (closer(v, restoreC, above) && q.editable()) restoreC = above;
+                    if ((closer(v, restoreC, above) || restoreQ.size() < QUEUE) && q.editable()) {
+                        if (restoreQ.size() < QUEUE) restoreQ.add(above);
+                        if (closer(v, restoreC, above)) restoreC = above;
+                    }
                 }
             }
-            if (seeds == 0 && grass && grassC == null && q.editable()) grassC = pos;
+            if (seeds == 0 && grass && (grassC == null || grassQ.size() < QUEUE) && q.editable()) {
+                if (grassQ.size() < QUEUE) grassQ.add(pos);
+                if (grassC == null) grassC = pos;
+            }
             if (bucket && water && waterC == null && stillWaterSource(level, pos) && q.ok()) waterC = pos;
         }
     }
@@ -603,7 +753,14 @@ public final class FarmerTask extends ColonyTask {
                 return false;
             }
             case TILL_PLANT -> {
-                return till(level, v, colony, t.below());
+                BlockPos soil = t.below();
+                boolean fresh = !level.getBlockState(soil).is(Blocks.FARMLAND);
+                if (!till(level, v, colony, soil)) return false;
+                if (fresh) {
+                    lastTilled = soil.immutable();
+                    lastTilledAt = level.getGameTime();
+                }
+                return true;
             }
             case GATHER_SEEDS -> {
                 if (!FarmTerritory.isGrassPlant(s) || !SafeEdit.breakBlock(level, v, t)) return false;
